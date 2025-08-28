@@ -1,0 +1,14 @@
+conda list snpEff # which will output the location of the directory, which is...
+ls /home/ocdm0351/.conda/envs/snpEff
+# Next search for the config file
+find $CONDA_PREFIX -name "snpEff.config"
+/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/snpEff.config
+
+# The reason I wanted this is because it has more information about the build of species databases. We search for the species names to see if there's clues:
+grep Neurospora_crassa /home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/snpEff.config
+
+# snpEff uses online data storing services to store the databases. These often lose public accessibility. We therefore might add a manual database approach. 
+
+#1. Add Species Databases to snpEff config file;
+
+
