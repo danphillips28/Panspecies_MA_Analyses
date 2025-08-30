@@ -1,0 +1,142 @@
+---
+title: "1_Cleaning_Variant_Files"
+output: html_document
+date: "2025-08-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading Libraries}
+library(readr)
+library(readxl)
+library(dplyr)
+```
+
+```{r C elegans}
+## This is the collated data from Konrad et al. and Saxena et al. by Jack.
+#load(file = "/home/ocdm0351/DPhil/Raw_Data/contextMutationsMAlines.Rdata")
+# Add Empty ID Column
+#snps$ID <- "."
+## Add Empty QUAL Column
+#snps$QUAL <- "."
+## Add Empty FILTER
+#snps$FILTER <- "."
+## Empty INFO Column
+#snps$INFO <- "."
+## Splitting Position Column into Chromosome and POS
+#snps <-
+#tidyr::separate_wider_delim(snps, cols = position, delim = ":", names = c("CHROM", "POS"))
+## Remove "chr" from CHROM
+#snps$CHROM <- gsub("chr","", snps$CHROM)
+## Renaming to match WBcel235.105
+#snps <- snps %>% mutate(CHROM = ifelse(CHROM == 1, "I",
+#                                ifelse(CHROM == 2, "II",
+#                                ifelse(CHROM == 3, "III",
+#                                ifelse(CHROM == 4, "IV",
+#                                ifelse(CHROM == 5, "V",
+#                                ifelse(CHROM == 10, "X",
+#                                ifelse(CHROM == "MT", "MtDNA",
+#                                "Error"))))))))
+## Subsetting
+#snps_Simple <-
+#  snps[, c("CHROM","POS","ID","ref","mut","QUAL","FILTER","INFO")]
+## Renaming
+#colnames(snps_Simple) <-
+#  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+#Saxena_Konrad_2019_MA_Celegans_Variants_Simple <- snps_Simple
+```
+
+```{r Drosophila}
+# Drosophila
+#Assaf_2017_MA_Dmelanogaster_Variants <-
+#read_tsv(file = "/home/ocdm0351/DPhil/Raw_Data/Assaf_2017_MA_Dmelanogaster_Variants.tsv")
+#Assaf_2017_MA_Dmelanogaster_Variants$CHROM <- gsub("chr","", Assaf_2017_MA_Dmelanogaster_Variants$CHROM)
+## Add Empty ID Column
+#Assaf_2017_MA_Dmelanogaster_Variants$ID <- "."
+## Add Empty QUAL Column
+#Assaf_2017_MA_Dmelanogaster_Variants$QUAL <- "."
+## Add Empty FILTER
+#Assaf_2017_MA_Dmelanogaster_Variants$FILTER <- "."
+## Empty INFO Column
+#Assaf_2017_MA_Dmelanogaster_Variants$INFO <- "."
+## Subsetting
+#Assaf_2017_MA_Dmelanogaster_Variants_Simple <-
+#  Assaf_2017_MA_Dmelanogaster_Variants[, c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")]
+# Renaming
+#colnames(Assaf_2017_MA_Dmelanogaster_Variants_Simple) <-
+#  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+
+```
+
+```{r S. pombe}
+# S pombe 1
+#Behringer_2016_MA_Spombe_Variants1 <-
+#read_tsv(file = "/home/ocdm0351/DPhil/Raw_Data/Behringer_2016_MA_Spombe_Variants1.tsv")
+
+# S pombe 2
+#Behringer_2016_MA_Spombe_Variants2 <-
+#read_tsv(file = "/home/ocdm0351/DPhil/Raw_Data/Behringer_2016_MA_Spombe_Variants2.tsv")
+
+# Combine Together
+#Behringer_2016_MA_Spombe_Variants_Simple <-
+#rbind(Behringer_2016_MA_Spombe_Variants1[,c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")],
+#      Behringer_2016_MA_Spombe_Variants2[,c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")])
+
+```
+
+```{r Human NlgenomeNl}
+# Human
+Franciolo_2015_Trio_Hsapiens_Variants <-
+read_tsv(file = "/home/ocdm0351/DPhil/Raw_Data/Franciolo_2015_Trio_Hsapiens_Variants.tsv")
+# Add Empty ID Column
+Franciolo_2015_Trio_Hsapiens_Variants$ID <- "."
+# Add Empty QUAL Column
+Franciolo_2015_Trio_Hsapiens_Variants$QUAL <- "."
+# Add Empty FILTER
+Franciolo_2015_Trio_Hsapiens_Variants$FILTER <- "."
+# Empty INFO Column
+Franciolo_2015_Trio_Hsapiens_Variants$INFO <- "."
+# Subsetting
+Franciolo_2015_Trio_Hsapiens_Variants_Simple <-
+  Franciolo_2015_Trio_Hsapiens_Variants[, c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")]
+# Renaming
+colnames(Franciolo_2015_Trio_Hsapiens_Variants_Simple) <-
+  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+
+```
+
+```{r Human Goldmann}
+Goldmann_2016_Trio_Hsapiens_Variants <- read_xlsx(path = "/home/ocdm0351/DPhil/Raw_Data/Goldmann_2016_Trio_Hsapiens_Variants.xlsx")
+# Add Empty ID Column
+Goldmann_2016_Trio_Hsapiens_Variants$ID <- "."
+# Add Empty QUAL Column
+Goldmann_2016_Trio_Hsapiens_Variants$QUAL <- "."
+# Add Empty FILTER
+Goldmann_2016_Trio_Hsapiens_Variants$FILTER <- "."
+# Empty INFO Column
+Goldmann_2016_Trio_Hsapiens_Variants$INFO <- "."
+# Subsetting
+Goldmann_2016_Trio_Hsapiens_Variants_Simple <-
+  Goldmann_2016_Trio_Hsapiens_Variants[, c("Chromosome","Start.position","ID","Reference","Variant","QUAL","FILTER","INFO")]
+# Renaming
+colnames(Goldmann_2016_Trio_Hsapiens_Variants_Simple) <-
+  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+
+```
+
+```{r Saving Simplified Variant Files}
+#write_tsv(Assaf_2017_MA_Dmelanogaster_Variants_Simple,
+#          file = "/home/ocdm0351/DPhil/Simple_Data/Assaf_2017_MA_Dmelanogaster_Variants_Simple.vcf")
+#write_tsv(Saxena_Konrad_2019_MA_Celegans_Variants_Simple,
+#          file = "/home/ocdm0351/DPhil/Simple_Data/Saxena_Konrad_2019_MA_Celegans_Variants_Simple.vcf")
+#write_tsv(Villalbadelapena_2023_MA_Ncrassa_Variants_Simple,
+#          file = "~/DPhil/Simple_Data/Villalbadelapena_2023_MA_Ncrassa_Variants_Simple.vcf")
+#write_tsv(Behringer_2016_MA_Spombe_Variants_Simple,
+#          file = "/home/ocdm0351/DPhil/Simple_Data/Behringer_2016_MA_Spombe_Variants_Simple.vcf")
+write_tsv(Franciolo_2015_Trio_Hsapiens_Variants_Simple,
+          file = "/home/ocdm0351/DPhil/VCF_DATA/Franciolo_2015_Trio_Hsapiens_Variants_Simple.vcf")
+write_tsv(Goldmann_2016_Trio_Hsapiens_Variants_Simple,
+          file = "/home/ocdm0351/DPhil/VCF_DATA/Goldmann_2016_Trio_Hsapiens_Variants_Simple.vcf")
+```

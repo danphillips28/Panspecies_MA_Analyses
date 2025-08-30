@@ -1,0 +1,60 @@
+---
+title: "2_Cleaning_Annotated_Variant_Files"
+output: html_document
+date: "2025-08-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(readr)
+```
+
+```{r Read in OnePerLine VCF Files}
+# List all the VCF Files
+filenames <- list.files(path = "/home/ocdm0351/DPhil/snpEff/Annotated_VCFs", pattern="*OnePerLine*", full.names=TRUE)
+# Read them in to a list object
+Annotated_VCFs_Raw <- lapply(filenames, readr::read_tsv)
+# Reduce file names down to helpful sample IDs
+element_names <- str_split(filenames, "/", simplify = TRUE)[,7] %>%
+                 gsub("OnePerLine_","", .) %>%
+                 gsub("Annotated_","", .) %>%
+                 gsub("MA_","", .) %>%
+                 gsub("_Groomed","", .) %>%
+                 gsub("_Variants_Simple","", .) %>%
+                 gsub("_Variants_Subset","", .) %>%
+                 gsub(".vcf","", .)
+# Use sample IDs to label elements of the list
+names(Annotated_VCFs_Raw) <- element_names
+# Also give cleaner column names using lapply
+colnames <- c("CHROM",
+              "POS","REF","ALT","FILTER",
+              "EFFECT","IMPACT",
+              "BIOTYPE",
+              "GENE_NAME","GENE_ID",
+              "TRANSCRIPT_NAME","TRANSCRIPT_ID")
+# Apply them
+Annotated_VCFs_Raw <- lapply(Annotated_VCFs_Raw, function(x) {
+  colnames(x) <- colnames
+  x
+})
+```
+
+```{r Making CHROM EFFECT IMPACT and BIOTYPE Columns a Factor}
+# Make first column into a factor for summarising
+Annotated_VCFs_Raw <- lapply(Annotated_VCFs_Raw, function(df) {
+  df[["CHROM"]] <- as.factor(df[["CHROM"]])   
+  df[["EFFECT"]] <- as.factor(df[["EFFECT"]])   
+  df[["IMPACT"]] <- as.factor(df[["IMPACT"]])  
+  df[["BIOTYPE"]] <- as.factor(df[["BIOTYPE"]])   
+  df
+})
+
+```
+
+```{r Saving Annotated VCF List}
+save(Annotated_VCFs_Raw, file = "~/DPhil/R_Data/Annotated_VCFs_Raw")
+```

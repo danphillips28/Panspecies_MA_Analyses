@@ -2,7 +2,7 @@
 #SBATCH --job-name=5_snpEffSift.sh
 #SBATCH --output=/home/ocdm0351/DPhil/logs/5_snpEffSift_%A_%a.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/5_snpEffSift_%A_%a.err
-#SBATCH --array=1-4
+#SBATCH --array=1-6
 
 module load Anaconda3
 source activate snpEff
@@ -25,8 +25,10 @@ IFS=$'\t' read -r file species start_build end_build chain_file_url chain_file_p
 lifted_file="${file%.vcf}_$end_build.vcf"
 GENOME_NAME="${species}/${end_build}"
 
-# ERun snpEff
-snpEff eff -v -d -c $SNP_EFF_CONFIG -canon \
+# Run snpEff
+snpEffDir="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1"
+# Calling snpEff as below, using java, means we can use -Xmx to specify how much memory is used.
+java -Xmx160g -jar $snpEffDir/snpEff.jar eff -v -d -c $SNP_EFF_CONFIG -canon \
 		 $GENOME_NAME $INPUT_DIREC/$lifted_file  > "$OUTPUT_DIREC/Annotated_$lifted_file"
 
-cat "$OUTPUT_DIREC/Annotated_$lifted_file" | /home/ocdm0351/DPhil/snpEff/vcfEffOnePerLine.pl | SnpSift extractFields - CHROM POS REF ALT FILTER "ANN[*].IMPACT" "ANN[*].GENE" "ANN[*].GENEID" "ANN[*].FEATURE" "ANN[*].FEATUREID" > "$OUTPUT_DIREC/Annotated_OnePerLine_$file"
+cat "$OUTPUT_DIREC/Annotated_$lifted_file" | /home/ocdm0351/DPhil/snpEff/vcfEffOnePerLine.pl | SnpSift extractFields - CHROM POS REF ALT FILTER "ANN[*].EFFECT" "ANN[*].IMPACT" "ANN[*].BIOTYPE" "ANN[*].GENE" "ANN[*].GENEID" "ANN[*].FEATURE" "ANN[*].FEATUREID" > "$OUTPUT_DIREC/OnePerLine_$lifted_file"

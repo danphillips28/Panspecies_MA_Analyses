@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=3_lifting_Over
-#SBATCH --array=1-4 # Should be 1 to the number of files (rows) in the summary file
+#SBATCH --array=1-6 # Should be 1 to the number of files (rows) in the summary file
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A_%a.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A_%a.err
 
@@ -23,7 +23,7 @@ mkdir -p "$SNPEFF_DATA_DIR" "$CHAIN_DIR" "$OUTPUT_DIR" "$LOG_DIR"
 LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID+1))p" "$SOURCE_FILE")
 
 # Parse the row
-IFS=$'\t' read -r file species start_build end_build chain_file_url chain_file_path end_build_fasta_url end_build_fasta_path end_build_gtf_url end_build_gtf_path end_build_cds_url end_build_cds_path end_build_aa_url end_build_aa_path <<< "$LINE"
+IFS=$'\t' read -r file species start_build end_build chain_file_url chain_file_path end_build_fasta_url end_build_fasta_path end_build_gtf_url end_build_gtf_path end_build_cds_url end_build_cds_path end_build_aa_url end_build_aa_path build_check <<< "$LINE"
 
 # Redirect stdout/stderr to log files named after input file
 BASENAME="${file%.vcf}"

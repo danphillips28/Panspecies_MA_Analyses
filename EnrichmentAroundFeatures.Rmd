@@ -1,0 +1,105 @@
+---
+title: "3_EnrichmentAroundFeatures"
+output: html_document
+date: "2025-08-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(dplyr)
+library(stringr)
+library(EnrichedHeatmap)
+```
+
+```{r Loading Annotated VCF List}
+load(file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Raw")
+```
+
+```{r Reduced to Unique Variants}
+Reduced_Variants <- lapply(Annotated_VCFs_Raw, 
+                           function(df) df[, 1:4] %>% unique() %>% select(-c("REF","ALT")) %>% unique())
+```
+
+```{r}
+# Note: For the source file, if there's a trailing slash (e.g. /data/), it'll download the files. If not (data/) it'll transfer the entire directory. 
+#system("rsync -prave ssh ocdm0351@genoa.bioch.ox.ac.uk:/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/data /home/dpdp/DPhil/R_Data/")
+```
+
+```{r Enriched Heatmap}
+# I think how this is going to work is we need some summary file. 
+# Needs to link the list element (file) to its reference file path, to first load it in. 
+# In the loop or function, it will do the following, for each element:
+  # 1. Load in the correct reference file. 
+  # 2. Get start/end positions for all genes (protein coding and otherwise) and make into GRanges.
+  # 3. Keep the biotype handy, as we will try to subset the EnrichedHeatmap to show them independently. 
+  # 4. Generate EnrichedHeatmap by intersecting variants and gene body coordinates and save into folder.
+
+Species_Genes_gtf <- list()
+
+lapply(names(Reduced_Variants), function(element_name) {
+
+  # Step One: Isolate Components of Path to Load Reference Build(s)
+  element <- Reduced_Variants[[element_name]] # Get the element data
+  speciesANDbuild <- str_split(element_name, "_MA_", simplify = TRUE)[,2] # Isolate species and build
+  build <- str_split(speciesANDbuild, "_", simplify = TRUE)[,2] # Isolate just the build (is a sub-directory in species folder)
+  species <- str_split(speciesANDbuild, "_", simplify = TRUE)[,1] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
+  
+  # Step Two: Load the Reference Build(s)
+  full.gtf <- rtracklayer::import(paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/data/", species, "/", build, "/", "genes.gtf"))
+  genes.gtf <- full.gtf %>% subset(., type == "gene") # Subset to just genes (contains the ranges)
+  Species_Genes_gtf[[speciesANDbuild]] <- genes.gtf
+  
+  # Step Three: Convert Variants into GRanges Object (Required for EnrichedHeatmap)
+  variant_ranges <-
+  makeGRangesFromDataFrame(element,
+                           keep.extra.columns=TRUE,
+                           ignore.strand=TRUE,
+                           seqnames.field=c("CHROM"),
+                           na.rm = TRUE,
+                           start.field="POS",
+                           end.field=c("POS"),
+                           strand.field="strand",
+                           starts.in.df.are.0based=FALSE)
+  
+  # Step Four: Intersect Variant and Gene Body Ranges and Plot Enrichment Using EnrichedHeatmap
+      # Normalization
+      body_variants <- normalizeToMatrix(variant_ranges, genes.gtf, 
+          extend = 5000, mean_mode = "w0", w = 25, target_ratio = 0.7, 
+          smooth = FALSE, background = 0)
+      # Plotting
+      GeneBodyOnly_Peaks <-
+      EnrichedHeatmap(body_variants, 
+                top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = "#ff5500",
+                                                                                   size = 10),
+                                                   axis_param = list(gp = gpar(size=4)),
+                                                   pos_line_gp = gpar(lty = 2),
+                                                   show_error = TRUE,
+                                                   height = unit(7.75, "cm"))),
+                pos_line = TRUE,
+                pos_line_gp = gpar(lty = 10),
+                axis_name_rot = 0,
+                axis_name_gp = gpar(fontsize = 10),
+                col = c("grey", "grey"), 
+                name = "Body [mean_mode = 'w0', w = 25, smooth = FALSE]", 
+        column_title = "Reduced Mutations in Body of Protein Coding Genes")
+
+        png(filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/GeneBodyOnly_", speciesANDbuild, "_Peaks.png"),
+        bg = "transparent",
+        type="cairo",
+        units = "in",
+        width = 6,
+        height = 4,
+        res = 2000)
+        par(mar = c(10, 10, 10, 10))
+        GeneBodyOnly_Peaks <- #
+        draw(GeneBodyOnly_Peaks, 
+        background = "transparent",
+        ht_gap = unit(c(5, 5, 5), "cm"),
+        show_heatmap_legend = FALSE)
+dev.off()
+
+})
+```
