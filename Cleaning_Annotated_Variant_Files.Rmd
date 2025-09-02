@@ -21,8 +21,8 @@ Annotated_VCFs_Raw <- lapply(filenames, readr::read_tsv)
 # Reduce file names down to helpful sample IDs
 element_names <- str_split(filenames, "/", simplify = TRUE)[,7] %>%
                  gsub("OnePerLine_","", .) %>%
-                 gsub("Annotated_","", .) %>%
-                 gsub("MA_","", .) %>%
+                 #gsub("MA_","", .) %>%
+                 #gsub("Trio_","", .) %>%
                  gsub("_Groomed","", .) %>%
                  gsub("_Variants_Simple","", .) %>%
                  gsub("_Variants_Subset","", .) %>%

@@ -1,6 +1,0 @@
-Submitted 1_grooming_VCFs.sh as job 110949
-Submitted 2_renaming_Goldmann_chromosomes.sh as job 110950
-Submitted 2_renaming_Ncrassa_contigs.sh as job 110951
-Submitted 3_liftingOver.sh as job 110952
-Submitted 4_building_snpEff_databases.sh as job 110953
-Submitted 5_snpEffSift.sh as job 110954

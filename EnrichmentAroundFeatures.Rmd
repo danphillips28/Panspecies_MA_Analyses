@@ -43,10 +43,9 @@ lapply(names(Reduced_Variants), function(element_name) {
 
   # Step One: Isolate Components of Path to Load Reference Build(s)
   element <- Reduced_Variants[[element_name]] # Get the element data
-  speciesANDbuild <- str_split(element_name, "_MA_", simplify = TRUE)[,2] # Isolate species and build
-  build <- str_split(speciesANDbuild, "_", simplify = TRUE)[,2] # Isolate just the build (is a sub-directory in species folder)
-  species <- str_split(speciesANDbuild, "_", simplify = TRUE)[,1] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
-  
+  build <- str_split(element_name, "_", simplify = TRUE)[,5] # Isolate just the build (is a sub-directory in species folder)
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
+  speciesANDbuild <- paste(species, build, sep = "_")  
   # Step Two: Load the Reference Build(s)
   full.gtf <- rtracklayer::import(paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/data/", species, "/", build, "/", "genes.gtf"))
   genes.gtf <- full.gtf %>% subset(., type == "gene") # Subset to just genes (contains the ranges)
@@ -86,7 +85,7 @@ lapply(names(Reduced_Variants), function(element_name) {
                 name = "Body [mean_mode = 'w0', w = 25, smooth = FALSE]", 
         column_title = "Reduced Mutations in Body of Protein Coding Genes")
 
-        png(filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/GeneBodyOnly_", speciesANDbuild, "_Peaks.png"),
+        png(filename = paste0("/home/ocdm0351/DPhil/R_Data/Plots/GeneBodyOnly_", element_name, "_Peaks.png"),
         bg = "transparent",
         type="cairo",
         units = "in",

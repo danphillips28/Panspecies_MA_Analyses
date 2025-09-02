@@ -88,42 +88,46 @@ library(dplyr)
 
 ```{r Human NlgenomeNl}
 # Human
-Franciolo_2015_Trio_Hsapiens_Variants <-
-read_tsv(file = "/home/ocdm0351/DPhil/Raw_Data/Franciolo_2015_Trio_Hsapiens_Variants.tsv")
+#Franciolo_2015_Trio_Hsapiens_Variants <-
+#read_tsv(file = "/home/ocdm0351/DPhil/Raw_Data/Franciolo_2015_Trio_Hsapiens_Variants.tsv")
 # Add Empty ID Column
-Franciolo_2015_Trio_Hsapiens_Variants$ID <- "."
+#Franciolo_2015_Trio_Hsapiens_Variants$ID <- "."
 # Add Empty QUAL Column
-Franciolo_2015_Trio_Hsapiens_Variants$QUAL <- "."
+#Franciolo_2015_Trio_Hsapiens_Variants$QUAL <- "."
 # Add Empty FILTER
-Franciolo_2015_Trio_Hsapiens_Variants$FILTER <- "."
+#Franciolo_2015_Trio_Hsapiens_Variants$FILTER <- "."
 # Empty INFO Column
-Franciolo_2015_Trio_Hsapiens_Variants$INFO <- "."
+#Franciolo_2015_Trio_Hsapiens_Variants$INFO <- "."
 # Subsetting
-Franciolo_2015_Trio_Hsapiens_Variants_Simple <-
-  Franciolo_2015_Trio_Hsapiens_Variants[, c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")]
+#Franciolo_2015_Trio_Hsapiens_Variants_Simple <-
+#  Franciolo_2015_Trio_Hsapiens_Variants[, c("CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")]
 # Renaming
-colnames(Franciolo_2015_Trio_Hsapiens_Variants_Simple) <-
-  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+#colnames(Franciolo_2015_Trio_Hsapiens_Variants_Simple) <-
+#  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
 
 ```
 
 ```{r Human Goldmann}
-Goldmann_2016_Trio_Hsapiens_Variants <- read_xlsx(path = "/home/ocdm0351/DPhil/Raw_Data/Goldmann_2016_Trio_Hsapiens_Variants.xlsx")
+#Goldmann_2016_Trio_Hsapiens_Variants <- read_xlsx(path = "/home/ocdm0351/DPhil/Raw_Data/Goldmann_2016_Trio_Hsapiens_Variants.xlsx")
 # Add Empty ID Column
-Goldmann_2016_Trio_Hsapiens_Variants$ID <- "."
+#Goldmann_2016_Trio_Hsapiens_Variants$ID <- "."
 # Add Empty QUAL Column
-Goldmann_2016_Trio_Hsapiens_Variants$QUAL <- "."
+#Goldmann_2016_Trio_Hsapiens_Variants$QUAL <- "."
 # Add Empty FILTER
-Goldmann_2016_Trio_Hsapiens_Variants$FILTER <- "."
+#Goldmann_2016_Trio_Hsapiens_Variants$FILTER <- "."
 # Empty INFO Column
-Goldmann_2016_Trio_Hsapiens_Variants$INFO <- "."
+#Goldmann_2016_Trio_Hsapiens_Variants$INFO <- "."
 # Subsetting
-Goldmann_2016_Trio_Hsapiens_Variants_Simple <-
-  Goldmann_2016_Trio_Hsapiens_Variants[, c("Chromosome","Start.position","ID","Reference","Variant","QUAL","FILTER","INFO")]
+#Goldmann_2016_Trio_Hsapiens_Variants_Simple <-
+#  Goldmann_2016_Trio_Hsapiens_Variants[, c("Chromosome","Start.position","ID","Reference","Variant","QUAL","FILTER","INFO")]
 # Renaming
-colnames(Goldmann_2016_Trio_Hsapiens_Variants_Simple) <-
-  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+#colnames(Goldmann_2016_Trio_Hsapiens_Variants_Simple) <-
+#  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
 
+```
+
+```{r denovoDB Human Trios}
+system("cat /home/ocdm0351/DPhil/Raw_Data/denovoDB_XXXX_Trio_Hsapiens_Variants.vcf | cut -f 1-8 > /home/ocdm0351/DPhil/VCF_DATA/denovoDB_XXXX_Trio_Hsapiens_Variants_Simple.vcf")
 ```
 
 ```{r Saving Simplified Variant Files}
@@ -135,8 +139,8 @@ colnames(Goldmann_2016_Trio_Hsapiens_Variants_Simple) <-
 #          file = "~/DPhil/Simple_Data/Villalbadelapena_2023_MA_Ncrassa_Variants_Simple.vcf")
 #write_tsv(Behringer_2016_MA_Spombe_Variants_Simple,
 #          file = "/home/ocdm0351/DPhil/Simple_Data/Behringer_2016_MA_Spombe_Variants_Simple.vcf")
-write_tsv(Franciolo_2015_Trio_Hsapiens_Variants_Simple,
-          file = "/home/ocdm0351/DPhil/VCF_DATA/Franciolo_2015_Trio_Hsapiens_Variants_Simple.vcf")
-write_tsv(Goldmann_2016_Trio_Hsapiens_Variants_Simple,
-          file = "/home/ocdm0351/DPhil/VCF_DATA/Goldmann_2016_Trio_Hsapiens_Variants_Simple.vcf")
+#write_tsv(Franciolo_2015_Trio_Hsapiens_Variants_Simple,
+#          file = "/home/ocdm0351/DPhil/VCF_DATA/Franciolo_2015_Trio_Hsapiens_Variants_Simple.vcf")
+#write_tsv(Goldmann_2016_Trio_Hsapiens_Variants_Simple,
+#          file = "/home/ocdm0351/DPhil/VCF_DATA/Goldmann_2016_Trio_Hsapiens_Variants_Simple.vcf")
 ```

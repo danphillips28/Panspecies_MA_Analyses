@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=3_lifting_Over
-#SBATCH --array=1-6 # Should be 1 to the number of files (rows) in the summary file
+#SBATCH --array=1-7 # Should be 1 to the number of files (rows) in the summary file
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A_%a.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A_%a.err
 

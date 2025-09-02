@@ -4,7 +4,7 @@ SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
 jobid=""
 
 prev_jobid=""
-for script in $(ls [1-5]*.sh | sort -n); do
+for script in $(ls [1-6]*.sh | sort -n); do
     if [ -z "$prev_jobid" ]; then
         # First job has no dependency
         jobid=$(sbatch "$script" | awk '{print $4}')
