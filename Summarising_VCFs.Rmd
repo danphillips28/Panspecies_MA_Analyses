@@ -1,0 +1,114 @@
+---
+title: "Summarising_VCFs"
+output: html_document
+date: "2025-08-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Loading Annotated VCF List}
+load(file = "~/DPhil/R_Data/Annotated_VCFs_Raw")
+```
+
+```{r Libraries}
+library(ggplot2)
+library(dplyr)
+library(stringr)
+```
+
+```{r Counting Unique Variant Loci per Dataset}
+# First, plot the counts of unique variant loci (ignoring fact that different variants might be present at a given site)
+Unique_Variant_Loci <- lapply(Annotated_VCFs_Raw, 
+                           function(df) df[, 1:2] %>% unique())
+
+# Now plot them
+List_of_Unique_Variant_Loci_Plots <- 
+                 lapply(names(Unique_Variant_Loci), function(element_name) {
+
+  # Step One: Isolate Components of Path to Load Reference Build(s)
+  element <- Unique_Variant_Loci[[element_name]] # Get the element data
+  build <- str_split(element_name, "_", simplify = TRUE)[,5] # Isolate just the build (is a sub-directory in species folder)
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
+  speciesANDbuild <- paste(species, build, sep = "_") 
+  
+  # Step Two: Count Variants per Chromosome
+  counts <- element %>% count(CHROM)
+  
+  # Produce ggPlot of Counts Sorting Chromosomes by Counts
+  plot <-
+  ggplot2::ggplot(counts, aes(x = reorder(CHROM, n), y = n)) + 
+  geom_bar(stat = "identity") + labs(x = "Chromosome",y="Unique Variants") +
+    theme(plot.margin = margin(t = 1,  # Top margin
+                             r = 2,  # Right margin
+                             b = 2,  # Bottom margin
+                             l = 2,  # Left margin
+                             unit = "cm"))
+  
+  # Save Plots to Plots Directory
+  ggsave(plot,
+  filename = 
+  paste0("~/DPhil/R_Data/Plots/1_Summaries/Unique_Variants_per_Chromosome_", 
+  element_name, ".png"),
+  bg = "transparent",
+  type="cairo",
+  units = "cm",
+  width = ifelse(
+    length(unique(counts$CHROM)) < 26,
+    length(unique(counts$CHROM)) + 4,
+    26 + 4),
+  height = 7,
+  create.dir = TRUE,
+  dpi = 2000)
+                 })
+
+```
+
+```{r Counting Unique Variant per Dataset}
+# First, plot the counts of unique variant loci (ignoring fact that different variants might be present at a given site)
+Unique_Variants <- lapply(Annotated_VCFs_Raw, 
+                           function(df) df[, 1:4] %>% unique())
+
+# Now plot them
+List_of_Unique_Variants_Plots <- 
+                 lapply(names(Unique_Variants), function(element_name) {
+
+  # Step One: Isolate Components of Path to Load Reference Build(s)
+  element <- Unique_Variants[[element_name]] # Get the element data
+  element$variantType <- paste(element$REF, element$ALT, sep = ":")
+  build <- str_split(element_name, "_", simplify = TRUE)[,5] # Isolate just the build (is a sub-directory in species folder)
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
+  speciesANDbuild <- paste(species, build, sep = "_") 
+  
+  # Step Two: Count Variants per Chromosome
+  counts <- element %>% count(variantType)
+  top_counts <- top_n(counts, 30, n)
+
+  # Produce ggPlot of Counts Sorting Chromosomes by Counts
+  plot <-
+  ggplot2::ggplot(top_counts, aes(y = reorder(variantType, n), x = n)) + 
+  geom_bar(stat = "identity") +
+    theme(plot.margin = margin(t = 1,  # Top margin
+                             r = 2,  # Right margin
+                             b = 2,  # Bottom margin
+                             l = 2,  # Left margin
+                             unit = "cm")) +
+    labs(title = paste("Top", nrow(top_counts), "Common Variants.", nrow(counts), "Unique Variants in Total."),
+         y = NULL, x="Count")
+  
+  # Save Plots to Plots Directory
+  ggsave(plot,
+  filename = 
+  paste0("~/DPhil/R_Data/Plots/1_Summaries/Unique_Variants_", 
+  element_name, ".png"),
+  bg = "transparent",
+  type="cairo",
+  units = "cm",
+  height = 20,
+  width = 20,
+  create.dir = TRUE,
+  dpi = 2000)
+                 })
+
+```

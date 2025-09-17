@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=3_lifting_Over
-#SBATCH --array=1-7 # Should be 1 to the number of files (rows) in the summary file
+#SBATCH --array=1-7%2 # Should be 1 to the number of files (rows) in the summary file
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A_%a.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A_%a.err
 
@@ -38,10 +38,10 @@ mkdir -p "$END_BUILD_DIR"
 
 # Download references
 echo "Downloading references..."
-wget -q -O "$END_BUILD_DIR/sequences.fa.gz" "$end_build_fasta_url" && gunzip -f "$END_BUILD_DIR/sequences.fa.gz"
-wget -q -O "$END_BUILD_DIR/genes.gtf.gz" "$end_build_gtf_url" && gunzip -f "$END_BUILD_DIR/genes.gtf.gz"
-wget -q -O "$END_BUILD_DIR/cds.fa.gz" "$end_build_cds_url" && gunzip -f "$END_BUILD_DIR/cds.fa.gz"
-wget -q -O "$END_BUILD_DIR/protein.fa.gz" "$end_build_aa_url" && gunzip -f "$END_BUILD_DIR/protein.fa.gz"
+if [ -n "$end_build_fasta_url" ]; then wget -q -O "$END_BUILD_DIR/sequences.fa.gz" "$end_build_fasta_url" && gunzip -f "$END_BUILD_DIR/sequences.fa.gz"; fi
+if [ -n "$end_build_gtf_url" ]; then wget -q -O "$END_BUILD_DIR/genes.gtf.gz" "$end_build_gtf_url" && gunzip -f "$END_BUILD_DIR/genes.gtf.gz"; fi
+if [ -n "$end_build_cds_url" ]; then wget -q -O "$END_BUILD_DIR/cds.fa.gz" "$end_build_cds_url" && gunzip -f "$END_BUILD_DIR/cds.fa.gz"; fi
+if [ -n "$end_build_aa_url" ]; then wget -q -O "$END_BUILD_DIR/protein.fa.gz" "$end_build_aa_url" && gunzip -f "$END_BUILD_DIR/protein.fa.gz"; fi
 
 REFERENCE="$END_BUILD_DIR/sequences.fa"
 

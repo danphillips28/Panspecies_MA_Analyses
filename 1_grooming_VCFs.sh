@@ -20,7 +20,7 @@ for file in "$INPUT_DIR"/*.vcf; do
     # Check if the file already has a ##fileformat line
     if grep -q "^##fileformat" "$file"; then
         # If fileformat exists, just process the filters
-        awk 'BEGIN{OFS="\t"} !($4==$5) && !(($4~/[ACGT]/) && ($5=="."))' "$file" > "$output_file"
+	awk 'BEGIN{OFS="\t"} /^#/ {print; next} !($4==$5) && !(($4~/[ACGT]/) && ($5=="."))' "$file" > "$output_file"
     else
         # If fileformat is missing, add it at the top, then process the filters
         {

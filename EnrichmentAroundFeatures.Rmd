@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(dplyr)
 library(stringr)
 library(EnrichedHeatmap)
+library(ggplot2)
 ```
 
 ```{r Loading Annotated VCF List}
@@ -20,7 +21,7 @@ load(file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Raw")
 
 ```{r Reduced to Unique Variants}
 Reduced_Variants <- lapply(Annotated_VCFs_Raw, 
-                           function(df) df[, 1:4] %>% unique() %>% select(-c("REF","ALT")) %>% unique())
+                           function(df) df[, 1:4] %>% unique() %>% select(-c("REF","ALT")))
 ```
 
 ```{r}
@@ -45,12 +46,14 @@ lapply(names(Reduced_Variants), function(element_name) {
   element <- Reduced_Variants[[element_name]] # Get the element data
   build <- str_split(element_name, "_", simplify = TRUE)[,5] # Isolate just the build (is a sub-directory in species folder)
   species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
-  speciesANDbuild <- paste(species, build, sep = "_")  
+  speciesANDbuild <- paste(species, build, sep = "_") 
+  
   # Step Two: Load the Reference Build(s)
   full.gtf <- rtracklayer::import(paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/data/", species, "/", build, "/", "genes.gtf"))
   genes.gtf <- full.gtf %>% subset(., type == "gene") # Subset to just genes (contains the ranges)
-  Species_Genes_gtf[[speciesANDbuild]] <- genes.gtf
-  
+  protein.coding.genes.gtf <- genes.gtf %>% subset(., gene_biotype == "protein_coding") # Subset to just genes (contains the ranges)
+  Species_Genes_gtf[[speciesANDbuild]] <- genes.gtf # Save the genes into a list for future reference
+
   # Step Three: Convert Variants into GRanges Object (Required for EnrichedHeatmap)
   variant_ranges <-
   makeGRangesFromDataFrame(element,
@@ -63,42 +66,99 @@ lapply(names(Reduced_Variants), function(element_name) {
                            strand.field="strand",
                            starts.in.df.are.0based=FALSE)
   
+  
   # Step Four: Intersect Variant and Gene Body Ranges and Plot Enrichment Using EnrichedHeatmap
-      # Normalization
+  # Selecting Parameters
+  Parameters <- data.frame(mean_mode_type = c("w0","w0","w0","w0","w0","w0",
+                                          "absolute","absolute","absolute","absolute","absolute","absolute",
+                                          "weighted","weighted","weighted","weighted","weighted","weighted",
+                                          "coverage","coverage","coverage","coverage","coverage","coverage"),
+                       extend_value = c(5000,5000,5000,5000,5000,5000,
+                                        5000,5000,5000,5000,5000,5000,
+                                        5000,5000,5000,5000,5000,5000,
+                                        5000,5000,5000,5000,5000,5000),
+                       window = c(10,25,50,10,25,50,
+                                  10,25,50,10,25,50,
+                                  10,25,50,10,25,50,
+                                  10,25,50,10,25,50),
+                       genes = c("genes.gtf","genes.gtf","genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf",
+                                 "genes.gtf","genes.gtf","genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf",
+                                 "genes.gtf","genes.gtf","genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf",
+                                 "genes.gtf","genes.gtf","genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf","protein.coding.genes.gtf"))
+  
+  for (row in 1:nrow(Parameters)){
+        gene_type <- Parameters[row,"genes"]
+        mean_mode_type <- Parameters[row,"mean_mode_type"]
+        window <- Parameters[row,"window"]
+        extend_value <- Parameters[row,"extend_value"]
+        mean_mode_type <- Parameters[row,"mean_mode_type"]
+        target_ratio_value <- .6
+        
+  # Normalization
+      if (gene_type == "genes.gtf") {
+        
       body_variants <- normalizeToMatrix(variant_ranges, genes.gtf, 
-          extend = 5000, mean_mode = "w0", w = 25, target_ratio = 0.7, 
-          smooth = FALSE, background = 0)
-      # Plotting
-      GeneBodyOnly_Peaks <-
-      EnrichedHeatmap(body_variants, 
-                top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = "#ff5500",
-                                                                                   size = 10),
-                                                   axis_param = list(gp = gpar(size=4)),
-                                                   pos_line_gp = gpar(lty = 2),
-                                                   show_error = TRUE,
-                                                   height = unit(7.75, "cm"))),
-                pos_line = TRUE,
-                pos_line_gp = gpar(lty = 10),
-                axis_name_rot = 0,
-                axis_name_gp = gpar(fontsize = 10),
-                col = c("grey", "grey"), 
-                name = "Body [mean_mode = 'w0', w = 25, smooth = FALSE]", 
-        column_title = "Reduced Mutations in Body of Protein Coding Genes")
-
-        png(filename = paste0("/home/ocdm0351/DPhil/R_Data/Plots/GeneBodyOnly_", element_name, "_Peaks.png"),
-        bg = "transparent",
-        type="cairo",
-        units = "in",
-        width = 6,
-        height = 4,
-        res = 2000)
-        par(mar = c(10, 10, 10, 10))
-        GeneBodyOnly_Peaks <- #
-        draw(GeneBodyOnly_Peaks, 
-        background = "transparent",
-        ht_gap = unit(c(5, 5, 5), "cm"),
-        show_heatmap_legend = FALSE)
-dev.off()
-
+          extend = extend_value, 
+          mean_mode = mean_mode_type, 
+          w = window, 
+          target_ratio = target_ratio_value, 
+          smooth = FALSE, 
+          background = 0)
+      
+} else {
+     body_variants <- normalizeToMatrix(variant_ranges, protein.coding.genes.gtf, 
+          extend = extend_value, 
+          mean_mode = mean_mode_type, 
+          w = window, 
+          target_ratio = target_ratio_value, 
+          smooth = FALSE, 
+          background = 0)
+}
+    
+      
+  # Convert to dataframe for easier manipulation
+      avg <- colMeans(body_variants)                    # mean across genes
+      se <- apply(body_variants, 2, function(x) sd(x)/sqrt(length(x)))  # standard error
+      regionLength <- ((target_ratio_value*100)*length(avg))/100
+      lengthEachSide <- (length(avg)-regionLength)/2
+      start <- lengthEachSide
+      end <- length(avg)-lengthEachSide
+      
+      MutationDensities <- data.frame(
+      position = seq_along(avg),
+      mean_score = avg,
+      se = se)
+  # ggPlotting
+      MutationDensityPlot <-
+      ggplot(MutationDensities, aes(x = position, y = mean_score)) +
+      geom_line(color = "orange", size = .3) +
+      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+              fill = "steelblue", alpha = 0.2) +
+      theme_bw() +
+      geom_vline(xintercept = start, linetype = "dotted") +
+      geom_vline(xintercept = end, linetype = "dotted") +
+      labs(
+      x = "Windows",
+      y = "Mean Mutation Frequency",
+      title = paste("Mutational Frequency Around Gene Bodies: Window Size =", window, 
+                    "Mean Mode =", mean_mode_type,
+                    "Extended =", extend_value)) +
+        theme(plot.title = element_text(size = 8, hjust = .5))
+      
+ # ggSaving
+      ggsave(MutationDensityPlot,
+             filename = paste0("/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/", gene_type, "/", mean_mode_type, "/GeneBodyOnly_", element_name, "_", window, "_Peaks.png"),
+             bg = "transparent",
+             type="cairo",
+             units = "cm",
+             height = 10,
+             width = 25,
+             create.dir = TRUE,
+             dpi = 2000)
+  }
 })
+```
+
+```{r Saving GTFs}
+save(Species_Genes_gtf, file = "/home/ocdm0351/DPhil/R_Data/Species_Genes_gtf")
 ```

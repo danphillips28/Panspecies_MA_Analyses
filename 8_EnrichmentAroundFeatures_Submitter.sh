@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=7_EnrichmentAroundFeatures_Submitter
+#SBATCH --job-name=8_EnrichmentAroundFeatures_Submitter
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out   # Standard output (%x = job name, %j = job ID)
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err    # Standard error
 

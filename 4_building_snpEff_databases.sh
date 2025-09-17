@@ -2,7 +2,7 @@
 #SBATCH --job-name=4_building_snpEff_databases.sh
 #SBATCH --output=/home/ocdm0351/DPhil/logs/4_snpeff_building_database_%A_%a.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/4_snpeff_building_database_%A_%a.err
-#SBATCH --array=1-7
+#SBATCH --array=1-8%1
 #SBATCH --mem=200G
 
 # Load snpEff environment

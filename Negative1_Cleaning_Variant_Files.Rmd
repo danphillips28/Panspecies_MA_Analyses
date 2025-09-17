@@ -48,6 +48,26 @@ library(dplyr)
 #Saxena_Konrad_2019_MA_Celegans_Variants_Simple <- snps_Simple
 ```
 
+```{r P pacificus}
+Weller_2014_MA_Ppacificus_Variants <-
+read_xlsx(path = "/home/ocdm0351/DPhil/Raw_Data/Weller_2014_MA_Ppacificus_Variants.xlsx")
+Weller_2014_MA_Ppacificus_Variants$chromosome <- gsub("Chrom","", Weller_2014_MA_Ppacificus_Variants$chromosome)
+## Add Empty ID Column
+Weller_2014_MA_Ppacificus_Variants$ID <- "."
+## Add Empty QUAL Column
+Weller_2014_MA_Ppacificus_Variants$QUAL <- "."
+## Add Empty FILTER
+Weller_2014_MA_Ppacificus_Variants$FILTER <- "."
+## Empty INFO Column
+Weller_2014_MA_Ppacificus_Variants$INFO <- "."
+## Subsetting
+Weller_2014_MA_Ppacificus_Variants_Simple <-
+  Weller_2014_MA_Ppacificus_Variants[, c("Contig","Position","ID","Ref_allele","alt_allele","QUAL","FILTER","INFO")]
+# Renaming
+colnames(Weller_2014_MA_Ppacificus_Variants_Simple) <-
+  c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+```
+
 ```{r Drosophila}
 # Drosophila
 #Assaf_2017_MA_Dmelanogaster_Variants <-
@@ -127,7 +147,7 @@ library(dplyr)
 ```
 
 ```{r denovoDB Human Trios}
-system("cat /home/ocdm0351/DPhil/Raw_Data/denovoDB_XXXX_Trio_Hsapiens_Variants.vcf | cut -f 1-8 > /home/ocdm0351/DPhil/VCF_DATA/denovoDB_XXXX_Trio_Hsapiens_Variants_Simple.vcf")
+#system("cat /home/ocdm0351/DPhil/Raw_Data/denovoDB_XXXX_Trio_Hsapiens_Variants.vcf | cut -f 1-8 > /home/ocdm0351/DPhil/VCF_DATA/denovoDB_XXXX_Trio_Hsapiens_Variants_Simple.vcf")
 ```
 
 ```{r Saving Simplified Variant Files}
@@ -143,4 +163,6 @@ system("cat /home/ocdm0351/DPhil/Raw_Data/denovoDB_XXXX_Trio_Hsapiens_Variants.v
 #          file = "/home/ocdm0351/DPhil/VCF_DATA/Franciolo_2015_Trio_Hsapiens_Variants_Simple.vcf")
 #write_tsv(Goldmann_2016_Trio_Hsapiens_Variants_Simple,
 #          file = "/home/ocdm0351/DPhil/VCF_DATA/Goldmann_2016_Trio_Hsapiens_Variants_Simple.vcf")
+write_tsv(Weller_2014_MA_Ppacificus_Variants_Simple,
+          file = "/home/ocdm0351/DPhil/VCF_DATA/Weller_2014_MA_Ppacificus_Variants_Simple.vcf")
 ```
