@@ -1,0 +1,504 @@
+---
+title: "Associating_dNdS_with_Mutation_Rate"
+output: html_document
+date: "2025-09-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(GenomicRanges)
+library(ggpubr)
+library(clinfun)
+library(segmented)
+library(mgcv)
+library(tidyverse)
+library(stringr)
+library(dplyr)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Loading VCFs GTF dNdS and snpEff Canonical Transcripts to Filter All By}
+load(file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Raw")
+load(file = "/home/ocdm0351/DPhil/R_Data/Species_dNdS_Ratios")
+load(file = "/home/ocdm0351/DPhil/R_Data/Species_Genes_gtf")
+load(file = "/home/ocdm0351/DPhil/R_Data/Species_Canonical_Transcripts_gtf")
+load(file = "/home/ocdm0351/DPhil/R_Data/Species_Canonical_Mappings")
+
+#Annotated_VCFs_Raw <- Annotated_VCFs_Raw[c(1,6)] 
+```
+
+```{r Removing Version Number from dNdS Object}
+Species_dNdS_Ratios <- lapply(Species_dNdS_Ratios, function(df) {
+  df$query_id <- sub("^(.*)[.].*", "\\1", df$query_id) 
+  df
+})
+```
+
+```{r Annotating Genes with Variant IDs}
+Annotated_VCFs_Raw <- lapply(Annotated_VCFs_Raw, function(df) {
+  df <- df[, 1:12] # SnpSift is adding annoying empty column names for some reason. Will remove upstream.
+  df$Variant_ID <- paste0(df$CHROM, "-", df$POS, ":", df$REF, ">", df$ALT)
+  df$MutationID <- paste0(df$REF,">", df$ALT)
+  df <- df %>% 
+  mutate(MutationalCategory = 
+           ifelse(MutationID %in% c("C>A","G>T"), "C>A | G>T",
+           ifelse(MutationID %in% c("C>G","G>C"), "C>G | G>C",
+           ifelse(MutationID %in% c("C>T","G>A"), "C>T | G>A",
+           ifelse(MutationID %in% c("T>A","A>T"), "T>A | A>T",
+           ifelse(MutationID %in% c("T>C","A>G"), "T>C | A>G",
+           ifelse(MutationID %in% c("T>G","A>C"), "T>G | A>C",
+                  "non-SNP")))))))
+  df$TRANSCRIPT_ID <- sub("^(.*)[.].*", "\\1", df$TRANSCRIPT_ID) 
+  df
+})
+
+```
+
+```{r Subsetting to Only Gene Body Variants}
+Annotated_VCFs_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_Raw,
+  function(df) df %>% filter(!EFFECT %in% c("upstream_gene_variant",
+                                 "downstream_gene_variant",
+                                 "intergenic_region")))           
+```
+
+```{r Annotating VCFs with Gene Lengths}
+for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
+
+  # Step One: Merge VCF Element with Correct GTF Columns
+  # Isolate the element
+  element <- Annotated_VCFs_Gene_Body_Variants[[element_name]] %>% as.data.frame()
+  # Format the gtf - Calculate Sequence Length
+  element_gtf <- Species_Canonical_Transcripts_gtf[[element_name]] 
+  element_gtf$cDNA_length <- width(element_gtf)
+  # Remvoe version number if present
+  element_gtf$transcript_id <- sub("^(.*)[.].*", "\\1", element_gtf$transcript_id) 
+  # Annotate with some information from gtf
+  gtf_info <- data.frame(gene_id = element_gtf$gene_id,
+                         transcript_id = element_gtf$transcript_id,
+                         gene_name = element_gtf$gene_name,
+                         gene_biotype = element_gtf$gene_biotype,
+                         seqnames = seqnames(element_gtf),
+                         cDNA_length = element_gtf$cDNA_length)
+  
+  # Step Two: Merge with dNdS Estimates but including ALL genes
+  # First need to isolate the species name, because this is how to pull out the dNdS element
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
+  gtf_info <- merge(
+                    gtf_info,
+                    Species_dNdS_Ratios[[species]][,c("query_id","dNdS")],
+                    by.x = "transcript_id",
+                    by.y = "query_id",
+                    all = TRUE)
+  
+  # Step Three: Merge GTF with Seq Length to Element
+  element_info <- merge(element,
+                   gtf_info,
+                   by.x = c("GENE_ID","CHROM"),
+                   by.y = c("gene_id","seqnames"),
+                   all.x = FALSE,
+                   all.y = TRUE) %>% 
+                   select(-c("BIOTYPE","GENE_NAME","TRANSCRIPT_NAME","TRANSCRIPT_ID"))
+  
+  # Step Four: Replace elements in Annotated_VCFs_Raw with the updated one
+  Annotated_VCFs_Gene_Body_Variants[[element_name]] <- subset(element_info, is.na(transcript_id) == FALSE)
+  
+  }
+
+```
+
+```{r Calculating Gene-Wise Mutation Rates}
+Annotated_VCFs_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_Gene_Body_Variants,
+  function(df) {
+    df %>%
+      group_by(GENE_ID) %>%
+      mutate(UniqueVariants = n_distinct(Variant_ID[!is.na(Variant_ID)])) %>%
+      mutate(UniqueVariantsPlusOne = UniqueVariants+1) %>%      
+      mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/cDNA_length) %>%
+      ungroup()
+  }
+)
+
+```
+
+```{r Plotting Mutation Rates}
+
+# 1 Mutation Count Distribution 
+Genewise_Body_Mutation_Counts_Plots <- Map(
+  function(df, name) {
+  p1 <-
+  ggplot(df, 
+       aes(x = reorder(GENE_ID, UniqueVariants), y = UniqueVariants, colour = gene_biotype,
+           label = GENE_ID)) + 
+  geom_point(fill = "transparent") +
+  labs(title = name, 
+       x = paste(length(unique(df$GENE_ID)),
+                 "Unique Canonical Genes"), 
+       y = "Gene Body Mutation Count",
+       colour = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x=element_blank(),
+        legend.key.height = unit(.3, "cm"),
+        axis.ticks.x = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = 6),
+        legend.key = element_rect(fill = NA),
+        legend.background = element_blank()) +
+    scale_x_discrete(expand = c(.05, .05)) 
+    
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Mutation_Count_Distribution_Plot.png"),
+      create.dir = TRUE,
+      width = 9,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+# 2 Mutation Rate Distribution 
+Genewise_Body_Mutation_Rate_Plots <- Map(
+  function(df, name) {
+  p1 <-
+  ggplot(df,
+       aes(x = reorder(GENE_ID, UniqueVariantsPlusOnePerBP), y = UniqueVariantsPlusOnePerBP, colour = gene_biotype,
+           label = GENE_ID)) + 
+  geom_point(fill = "transparent") +
+  labs(title = name,
+       x = paste(length(unique(df$GENE_ID)),
+                 "Unique Canonical Genes"), 
+       y = "Gene Body Mutation Rate",
+       colour = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5),
+        axis.text.x=element_blank(),
+        legend.key.height = unit(.3, "cm"),
+        axis.ticks.x = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = 6),
+        legend.key = element_rect(fill = NA),
+        legend.background = element_blank()) +
+    scale_x_discrete(expand = c(.05, .01)) 
+    
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Mutation_Rate_Distribution_Plot.png"),
+      create.dir = TRUE,
+      width = 9,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+# 3 Protein Coding Mutation Rate Distribution 
+Genewise_Protein_Body_Mutation_Rate_Plots <- Map(
+  function(df, name) {
+  p1 <-
+  ggplot(subset(df, gene_biotype == "protein_coding"), 
+       aes(x = reorder(GENE_ID, UniqueVariantsPlusOnePerBP), y = UniqueVariantsPlusOnePerBP, colour = gene_biotype,
+           label = GENE_ID)) + 
+  geom_point(fill = "transparent") +
+  labs(title = name,
+       x = paste(length(unique(df$GENE_ID)),
+                 "Unique Canonical Genes"), 
+       y = "Gene Body Mutation Rate",
+       colour = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5), 
+        axis.text.x=element_blank(),
+        legend.key.height = unit(.3, "cm"),
+        axis.ticks.x = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = 6),
+        legend.key = element_rect(fill = NA),
+        legend.background = element_blank()) +
+    scale_x_discrete(expand = c(.05, .01)) 
+    
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Protein_Mutation_Rate_Distribution_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+# 4 Protein dNdS Distribution
+Genewise_Protein_dNdS_Plots <- Map(
+  function(df, name) {
+  p1 <-
+  ggplot(subset(df, gene_biotype == "protein_coding" & is.na(dNdS) == FALSE), 
+       aes(x = reorder(GENE_ID, dNdS), y = dNdS, colour = gene_biotype,
+           label = GENE_ID)) + 
+  geom_point(fill = "transparent") +
+  labs(title = name,
+       x = paste(length(unique(df$GENE_ID)),
+                 "Unique Orthologs"), 
+       y = "dNdS Ratio",
+       colour = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5),
+        axis.text.x=element_blank(),
+        legend.key.height = unit(.3, "cm"),
+        axis.ticks.x = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = 6),
+        legend.key = element_rect(fill = NA),
+        legend.background = element_blank()) +
+    scale_x_discrete(expand = c(.05, .01)) 
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Protein_dNdS_Distribution_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+
+# 5 Mutation Rate vs dNdS Associations
+Genewise_MutationRate_by_dNdS_Plots <- Map(
+  function(df, name) {
+  p1 <-
+ggpubr::ggscatter(subset(df,
+                 is.na(dNdS) == FALSE),
+          x = "dNdS", y = "UniqueVariantsPlusOnePerBP",
+          add = "reg.line",                                 # Add regression line
+          conf.int = TRUE,                                  # Add confidence interval
+          add.params = list(color = "#ff5500",
+                            fill = "grey")) +
+  labs(title = name, 
+       x = 'dN/dS', 
+       y = "Gene Body Mutations-per-bp") +
+   theme(plot.title = element_text(hjust = .5)) +
+  stat_cor(method = "pearson", cor.coef.name = "R", 
+           label.x.npc = 0.4, label.y.npc = 0.9) +  # Add correlation coefficient
+  stat_cor(method = "spearman", cor.coef.name = "rho",
+           label.x.npc = 0.4, label.y.npc = 0.8)  # Add correlation coefficient
+
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_Mutation_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+
+# 6 Mutation Rate vs dNdS Associations Facetted by SNP Category
+Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
+  function(df, name) {
+  p1 <-
+ggpubr::ggscatter(subset(df,
+                 is.na(dNdS) == FALSE),
+          x = "dNdS", y = "UniqueVariantsPlusOnePerBP",
+          add = "reg.line",                                 # Add regression line
+          conf.int = TRUE,                                  # Add confidence interval
+          add.params = list(color = "#ff5500",
+                            fill = "grey")) +
+  labs(title = name, 
+       x = 'dN/dS', 
+       y = "Gene Body Mutations-per-bp") +
+   theme(plot.title = element_text(hjust = .5)) +
+  stat_cor(method = "pearson", cor.coef.name = "R", 
+           label.x.npc = 0.3, label.y.npc = 0.9) +  # Add correlation coefficient
+  stat_cor(method = "spearman", cor.coef.name = "rho",
+           label.x.npc = 0.3, label.y.npc = 0.8)  + # Add correlation coefficient
+  facet_grid(~MutationalCategory)
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_Mutation_Rate_by_Category_Plot.png"),
+      create.dir = TRUE,
+      width = 20,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+
+
+# 6 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
+MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
+  function(df, name) {
+  p1 <-
+ggpubr::ggscatter(subset(df,
+                 is.na(dNdS) == FALSE & UniqueVariants > 0),
+          x = "dNdS", y = "UniqueVariantsPlusOnePerBP",
+          add = "reg.line",                                 # Add regression line
+          conf.int = TRUE,                                  # Add confidence interval
+          add.params = list(color = "#ff5500",
+                            fill = "grey")) +
+  labs(plot.title = name,
+       x = 'dN/dS', 
+       y = "Gene Body Mutations-per-bp") +
+   theme(plot.title = element_text(hjust = .5)) +
+  stat_cor(method = "pearson", cor.coef.name = "R", 
+           label.x.npc = 0.4, label.y.npc = 0.9) +  # Add correlation coefficient
+  stat_cor(method = "spearman", cor.coef.name = "rho",
+           label.x.npc = 0.4, label.y.npc = 0.8)  # Add correlation coefficient
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_Mutation_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 4,
+      dpi = 300
+    )
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+```
+
+```{r Blocked dNdS Versus Mutation Rate Associations}
+# Block Loci into Equal Size Bins by dNdS
+Annotated_VCFs_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_Gene_Body_Variants,
+  function(df) {
+    df %>%
+      mutate(Overall_dNdS_Group = cut_number(dNdS + runif(length(dNdS), -1e-6, 1e-6), n = 5)) %>%
+      mutate(Overall_dNdS_Group = factor(Overall_dNdS_Group, ordered = TRUE))
+  }
+)
+
+
+
+# 1 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
+Genewise_Binned_MutationRate_by_dNdS_Plots <- Map(
+  function(df, name) {
+
+# Subset to only loci with dNdS
+df <- subset(df, is.na(dNdS) == FALSE) 
+
+# Plot Association of dNdS Bins with MutationsPlusOnePerBP 
+p1 <-
+ggplot(data = subset(df,
+                     is.na(Overall_dNdS_Group) == FALSE),
+       aes(x = Overall_dNdS_Group, 
+           y = UniqueVariantsPlusOnePerBP)) +
+  theme_bw() +
+  geom_boxplot(outliers = FALSE, fill = "#ff5500") +
+  labs(title = paste0("n=", 
+                      length(unique(subset(df,
+                      is.na(Overall_dNdS_Group) == FALSE)$GENE_ID)), 
+                     ' PC Genes with dNdS',"\n",
+                     paste("Johnckheere =", 
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_dNdS_Group, 
+                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
+                "p =",
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_dNdS_Group, 
+                alternative = c("two.sided"))$p.value %>% round(., digits = 12)))) +
+  theme(plot.title = element_text(size = 7, hjust = .5),
+        axis.text.x = element_text(size = 6, angle = 15, vjust = .5)) 
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p1,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Binned_dNdS_vs_Mutation_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 3,
+      height = 4,
+      dpi = 300)
+      
+# Calculate some statistics beforehand
+# --- Fit GAM (nonparametric smooth) ---
+gam_fit <- gam(UniqueVariantsPlusOnePerBP ~ s(dNdS, k = 6), data = df)
+
+# --- Fit linear model first, then segmented ---
+lm_fit <- lm(UniqueVariantsPlusOnePerBP ~ dNdS, data = df)
+seg_fit <- segmented(lm_fit, seg.Z = ~ dNdS, npsi = 2)  # try 2 breakpoints
+
+# Create a prediction grid
+newdata <- data.frame(dNdS = seq(min(df$dNdS), max(df$dNdS), length.out = 200))
+
+# Predictions from both models
+newdata$GAM_fit <- predict(gam_fit, newdata, type = "response")
+newdata$SEG_fit <- predict(seg_fit, newdata, type = "response")
+breaks <- seg_fit$psi[, "Est."]
+
+p2 <-
+ggplot(subset(df, is.na(dNdS) == FALSE), aes(dNdS, UniqueVariantsPlusOnePerBP)) +
+  geom_point(alpha = 0.15, color = "gray40") +
+  geom_line(data = newdata, aes(y = GAM_fit), color = "red", size = 1.2) +
+  geom_line(data = newdata, aes(y = SEG_fit), color = "blue", linetype = "dashed", size = 1) +
+  geom_vline(xintercept = breaks, linetype = "dotted", color = "blue") +
+  annotate("text", x = breaks, y = max(df$UniqueVariantsPlusOnePerBP, na.rm = TRUE) * 0.9,
+           label = paste0("Breakpoint\n", round(breaks, 3)),
+           color = "blue", hjust = -0.1, size = 3.2) +
+  labs(
+    title = "Mutation rate vs. dNdS: nonlinear and segmented fits",
+    subtitle = "Red = GAM smooth; Blue dashed = segmented regression",
+    x = "dNdS",
+    y = "Mutation rate (UniqueVariantsPlusOnePerBP)"
+  ) +
+  theme_bw()
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p2,
+      filename = paste("/home/ocdm0351/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_GAM_SegReg_dNdS_vs_Mutation_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 6,
+      dpi = 300)
+
+  },
+  Annotated_VCFs_Gene_Body_Variants,
+  names(Annotated_VCFs_Gene_Body_Variants)
+)
+
+
+```
+
+```{r Saving Annotated_VCFs}
+save(Annotated_VCFs_Gene_Body_Variants, file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Gene_Body_Variants")
+```

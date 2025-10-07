@@ -13,6 +13,7 @@ library(dplyr)
 library(stringr)
 library(EnrichedHeatmap)
 library(ggplot2)
+library(readr)
 ```
 
 ```{r Loading Annotated VCF List}
@@ -38,7 +39,11 @@ Reduced_Variants <- lapply(Annotated_VCFs_Raw,
   # 3. Keep the biotype handy, as we will try to subset the EnrichedHeatmap to show them independently. 
   # 4. Generate EnrichedHeatmap by intersecting variants and gene body coordinates and save into folder.
 
+
 Species_Genes_gtf <- list()
+Species_Transcripts_gtf <- list()
+Species_Canonical_Mappings <- list()
+Species_Canonical_Transcripts_gtf <- list()
 
 lapply(names(Reduced_Variants), function(element_name) {
 
@@ -49,10 +54,15 @@ lapply(names(Reduced_Variants), function(element_name) {
   speciesANDbuild <- paste(species, build, sep = "_") 
   
   # Step Two: Load the Reference Build(s)
-  full.gtf <- rtracklayer::import(paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/data/", species, "/", build, "/", "genes.gtf"))
+  full.gtf <- rtracklayer::import(paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/", species, "/", build, "/", "genes.gtf"))
   genes.gtf <- full.gtf %>% subset(., type == "gene") # Subset to just genes (contains the ranges)
   protein.coding.genes.gtf <- genes.gtf %>% subset(., gene_biotype == "protein_coding") # Subset to just genes (contains the ranges)
-  Species_Genes_gtf[[speciesANDbuild]] <- genes.gtf # Save the genes into a list for future reference
+  Species_Genes_gtf[[element_name]] <<- genes.gtf # Save the genes into a list for future reference
+  transcripts.gtf <- full.gtf %>% subset(., type == "transcript") # Subset to just genes (contains the ranges)
+  Species_Transcripts_gtf[[element_name]] <<- transcripts.gtf # Save the genes into a list for future reference
+  Species_Canonical_Mappings[[element_name]] <<- read_tsv(file = paste0("/home/ocdm0351/DPhil/R_Data/Canonical_Transcripts_", species, "_", build, "_snpEffSift.tsv"))
+  canonical_transcripts.gtf <- subset(transcripts.gtf, transcript_id %in% Species_Canonical_Mappings[[element_name]]$transcriptId)
+  Species_Canonical_Transcripts_gtf[[element_name]] <<- canonical_transcripts.gtf # Save the genes into a list for future reference
 
   # Step Three: Convert Variants into GRanges Object (Required for EnrichedHeatmap)
   variant_ranges <-
@@ -131,9 +141,9 @@ lapply(names(Reduced_Variants), function(element_name) {
   # ggPlotting
       MutationDensityPlot <-
       ggplot(MutationDensities, aes(x = position, y = mean_score)) +
-      geom_line(color = "orange", size = .3) +
+      geom_line(color = "orange", size = 1) +
       geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
-              fill = "steelblue", alpha = 0.2) +
+              fill = "steelblue", alpha = 0.4) +
       theme_bw() +
       geom_vline(xintercept = start, linetype = "dotted") +
       geom_vline(xintercept = end, linetype = "dotted") +
@@ -161,4 +171,6 @@ lapply(names(Reduced_Variants), function(element_name) {
 
 ```{r Saving GTFs}
 save(Species_Genes_gtf, file = "/home/ocdm0351/DPhil/R_Data/Species_Genes_gtf")
+save(Species_Canonical_Transcripts_gtf, file = "/home/ocdm0351/DPhil/R_Data/Species_Canonical_Transcripts_gtf")
+save(Species_Canonical_Mappings, file = "/home/ocdm0351/DPhil/R_Data/Species_Canonical_Mappings")
 ```

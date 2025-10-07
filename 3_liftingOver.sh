@@ -11,7 +11,7 @@ source activate snpEff
 
 # Paths
 SOURCE_FILE="/home/ocdm0351/DPhil/liftingOver/liftOver_Source_File.txt"
-SNPEFF_DATA_DIR="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/data"
+SNPEFF_DATA_DIR="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data"
 CHAIN_DIR="/home/ocdm0351/DPhil/liftingOver/chainFiles"
 OUTPUT_DIR="/home/ocdm0351/DPhil/LIFTED_VCF_DATA"
 LOG_DIR="/home/ocdm0351/DPhil/logs"
@@ -38,10 +38,10 @@ mkdir -p "$END_BUILD_DIR"
 
 # Download references
 echo "Downloading references..."
-if [ -n "$end_build_fasta_url" ]; then wget -q -O "$END_BUILD_DIR/sequences.fa.gz" "$end_build_fasta_url" && gunzip -f "$END_BUILD_DIR/sequences.fa.gz"; fi
-if [ -n "$end_build_gtf_url" ]; then wget -q -O "$END_BUILD_DIR/genes.gtf.gz" "$end_build_gtf_url" && gunzip -f "$END_BUILD_DIR/genes.gtf.gz"; fi
-if [ -n "$end_build_cds_url" ]; then wget -q -O "$END_BUILD_DIR/cds.fa.gz" "$end_build_cds_url" && gunzip -f "$END_BUILD_DIR/cds.fa.gz"; fi
-if [ -n "$end_build_aa_url" ]; then wget -q -O "$END_BUILD_DIR/protein.fa.gz" "$end_build_aa_url" && gunzip -f "$END_BUILD_DIR/protein.fa.gz"; fi
+wget -q -O "$END_BUILD_DIR/sequences.fa.gz" "$end_build_fasta_url" && gunzip -f "$END_BUILD_DIR/sequences.fa.gz"
+wget -q -O "$END_BUILD_DIR/genes.gtf.gz" "$end_build_gtf_url" && gunzip -f "$END_BUILD_DIR/genes.gtf.gz"
+wget -q -O "$END_BUILD_DIR/cds.fa.gz" "$end_build_cds_url" && gunzip -f "$END_BUILD_DIR/cds.fa"
+wget -q -O "$END_BUILD_DIR/protein.fa.gz" "$end_build_aa_url" && gunzip -f "$END_BUILD_DIR/protein.fa.gz"
 
 REFERENCE="$END_BUILD_DIR/sequences.fa"
 

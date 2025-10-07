@@ -1,0 +1,91 @@
+---
+title: "CalculatingDNDS"
+output: html_document
+date: "2025-09-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(orthologr)
+library(dplyr)
+library(readr)
+library(stringr)
+library(Biostrings)
+```
+
+```{r Loading Sister_Species_Table}
+Sister_Species_Table <-
+read.table(file = "/home/ocdm0351/DPhil/R_Data/Sister_Species_Table.txt", header = TRUE)
+
+Sister_Species_Table <- 
+Sister_Species_Table[,c("species","end_build","sister_species")] %>% subset(., species != "P_pacificus") %>% unique()
+```
+
+```{r Running OrthologR}
+# get a dNdS table using:
+# 1) reciprocal best hit for orthology inference (RBH)
+# 2) Needleman-Wunsch for pairwise amino acid alignments
+# 3) pal2nal for codon alignments
+# 4) Comeron for dNdS estimation
+# 5) single core processing 'comp_cores = 1'
+
+Species_dNdS_Ratios <- list()
+
+apply(Sister_Species_Table, 1, function(row) {
+  # row is a vector, so you access by name
+  
+# Define some terms
+species <- row[1]
+end_build <- row[2]
+sister_species <- row[3]
+
+# Read in cds file
+cds <- 
+  Biostrings::readDNAStringSet(paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+                                   species,"/",end_build,"/","cds_", end_build, ".fa"))
+
+# Read in canonical transcript map
+canonical_map <- 
+  read_tsv(file = paste0("/home/ocdm0351/DPhil/R_Data/Canonical_Transcripts_", 
+                         species, "_", end_build, "_snpEffSift.tsv"))
+
+# Remove version number if present
+canonical_map$transcriptId <- 
+  sub("(\\.[0-9]+|_t[0-9]+)$", "", canonical_map$transcriptId)
+
+# Subset cds file by canonical transcript IDs
+canonical_cds <- cds[sub("(\\.[0-9]+|_t[0-9]+)$", "", word(names(cds),1)) %in% canonical_map$transcriptId]
+
+# Write the canonical sequences to file
+writeXStringSet(canonical_cds, filepath = 
+                paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+                                   species,"/",end_build,"/","canonical_cds_", end_build, ".fa"))
+
+# Run dNdS on Canonical Transcripts Only
+dNdS_Table <- 
+     dNdS(query_file      = paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+                                   species,"/",end_build,"/","canonical_cds_", end_build, ".fa"), 
+     subject_file    = paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+                                   sister_species,"/","cds.fa"), 
+     aligner_path = '/home/ocdm0351/bin/',
+     ortho_detection = "RBH", 
+     aa_aln_type     = "pairwise",
+     aa_aln_tool     = "NW", 
+     codon_aln_tool  = "pal2nal", 
+     dnds_est.method = "Comeron", 
+     delete_corrupt_cds = TRUE,
+     comp_cores      = 1)
+
+
+Species_dNdS_Ratios[[species]] <<-
+  dNdS_Table
+ 
+})
+
+# Save the output so we don't need to wait next time
+save(Species_dNdS_Ratios, 
+     file = "/home/ocdm0351/DPhil/R_Data/Species_dNdS_Ratios")
+```

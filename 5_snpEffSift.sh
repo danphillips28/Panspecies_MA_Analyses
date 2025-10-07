@@ -2,13 +2,13 @@
 #SBATCH --job-name=5_snpEffSift.sh
 #SBATCH --output=/home/ocdm0351/DPhil/logs/5_snpEffSift_%A_%a.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/5_snpEffSift_%A_%a.err
-#SBATCH --array=1-8%4
+#SBATCH --array=1-7%4
 
 module load Anaconda3
 source activate snpEff
 
 SOURCE_FILE="/home/ocdm0351/DPhil/liftingOver/liftOver_Source_File.txt"
-SNP_EFF_CONFIG="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1/snpEff.config"
+SNP_EFF_CONFIG="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/snpEff.config"
 INPUT_DIREC="/home/ocdm0351/DPhil/LIFTED_VCF_DATA"
 OUTPUT_DIREC="/home/ocdm0351/DPhil/snpEff/Annotated_VCFs"
 
@@ -27,7 +27,7 @@ lifted_file="${file%.vcf}_$end_build.vcf"
 GENOME_NAME="${species}/${end_build}"
 
 # Run snpEff
-snpEffDir="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-1"
+snpEffDir="/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2"
 # Calling snpEff as below, using java, means we can use -Xmx to specify how much memory is used.
 java -Xmx160g -jar $snpEffDir/snpEff.jar eff -geneID -lof -noStats -v -d -c $SNP_EFF_CONFIG -canon \
 		 $GENOME_NAME $INPUT_DIREC/$lifted_file  > "$OUTPUT_DIREC/Annotated_$lifted_file"
@@ -36,7 +36,8 @@ cat "$OUTPUT_DIREC/Annotated_$lifted_file" | /home/ocdm0351/DPhil/snpEff/vcfEffO
 
 # Extract lines detailing "canonical transcrtipts" used by snpEff for downstream uses.
 sed -n '/Canonical transcripts:/,/done/{//!p}' /home/ocdm0351/DPhil/logs/5_snpEffSift_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.err > \
-/home/ocdm0351/DPhil/logs/"${species}_${end_build}_snpEffSift_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.tsv"
+/home/ocdm0351/DPhil/R_Data/"Canonical_Transcripts_${species}_${end_build}_snpEffSift.tsv"
+
 
 
 

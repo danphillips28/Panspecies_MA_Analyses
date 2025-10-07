@@ -94,7 +94,7 @@ List_of_Unique_Variants_Plots <-
                              b = 2,  # Bottom margin
                              l = 2,  # Left margin
                              unit = "cm")) +
-    labs(title = paste("Top", nrow(top_counts), "Common Variants.", nrow(counts), "Unique Variants in Total."),
+    labs(title = paste("Top", nrow(top_counts), "Common Variants.\n", nrow(counts), "Unique Variants in Total."),
          y = NULL, x="Count")
   
   # Save Plots to Plots Directory
