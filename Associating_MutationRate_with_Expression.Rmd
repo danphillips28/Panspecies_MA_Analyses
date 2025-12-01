@@ -1,0 +1,1383 @@
+---
+title: "Associating_MutationRate_with_Expression"
+output: html_document
+date: "2025-10-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(mgcv)
+library(segmented)
+library(clinfun)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Loading Data}
+load(file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+# Subset to just Drosophila for testing
+Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Dmelanogaster" |
+                                                                      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Hsapiens" |
+                                                                      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Celegans"]
+```
+
+```{r Merge Expression to Annotated_VCFs}
+# Create empty list to fill with expression objects
+Species_Embryonic_Expression <- list()
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+  element <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
+  # Isolate species name
+  species <- str_split(element_name, "_", simplify = TRUE)[4]
+  species_prefix <- paste0(substr(species, 1, 1), "_", substr(species, 2, nchar(species)))
+  # Read in Embryonic Expression
+  expression <- read_tsv(file = paste0("~/DPhil/R_Data/", species_prefix, "_Embryonic_Expression.tsv"))
+  # Rename columns
+  colnames(expression) <- c("gene_id","Expression_value")
+  # Remove version number if present
+  expression$gene_id <- str_split(expression$gene_id, "\\.", simplify = TRUE)[, 1]
+  # Add normalised expression column
+  expression$log2_Expression_Plus_One <- log2(expression$Expression_value+1)
+  # Save into list object for safekeeping
+  Species_Embryonic_Expression[[element_name]] <- expression
+  # Merge expression with Annotated_VCF
+  element_expression <- merge(element,
+                              expression[, c(1,2:3)],
+                              by.x = "GENE_ID",
+                              by.y = "gene_id",
+                              all.x = TRUE)
+  # Save expression-annotated VCF back into Annotated_VCFs_PC_Gene_Body_Variants
+  Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- element_expression
+}
+
+```
+
+```{r Expression Versus Mutation Rate Associations}
+# 1 Mutation Rate vs Expression Associations: Linear and Non-Linear
+Species_Expression_MutationRate_Spearman_Tests <- list()
+Species_Expression_MutationRate_Pearson_Tests <- list()
+
+Genewise_MutationRate_by_Expression_Plots <- Map(
+  function(df, name) {
+    
+  species_name <- strsplit(name, "_")[[1]][4]
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+    
+  # Run Spearman Correlations
+  spearman_test <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  # Run Pearson Correlations
+  pearson_test <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  
+  # Save results into object
+  Species_Expression_MutationRate_Spearman_Tests[[name]] <<- spearman_test
+  Species_Expression_MutationRate_Pearson_Tests[[name]] <<- pearson_test
+  
+  # Create a Scatter Plot
+  p1 <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(Expression_value) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(Expression_value) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Unique Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_MutationRate_Spearman_Tests[[name]]$p.value %>% signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_MutationRate_Spearman_Tests[[name]]$estimate %>% signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_MutationRate_Pearson_Tests[[name]]$p.value %>% signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_MutationRate_Pearson_Tests[[name]]$estimate %>% signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "white", hjust = .5),
+          text = element_text(color = "white"),
+          axis.title = element_text(color = "white"),
+          axis.text = element_text(color = "white"),
+          legend.title = element_text(color = "white"),
+          legend.text = element_text(color = "white"),
+          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "white")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Expression_vs_Mutation_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 5,
+      height = 4,
+      dpi = 300)
+    
+    
+    # Calculate some statistics beforehand
+    # --- Fit GAM (nonparametric smooth) ---
+    gam_fit <- gam(UniqueVariantsPlusOnePerBP ~ s(log2_Expression_Plus_One, k = 6), data = df)
+
+    # --- Fit linear model first, then segmented ---
+    lm_fit <- lm(UniqueVariantsPlusOnePerBP ~ log2_Expression_Plus_One, data = df)
+    x_range <- range(df$log2_Expression_Plus_One, na.rm = TRUE)
+    # mid-point or quantile within observed range
+    psi_start <- mean(x_range)
+    # or psi_start <- quantile(df$log2_Expression_Plus_One, 0.5, na.rm = TRUE)
+    seg_fit <- segmented(lm_fit, seg.Z = ~ log2_Expression_Plus_One,
+                         psi = psi_start,
+                         control = seg.control(quant = TRUE))  # try 2 breakpoints
+
+    # Create a prediction grid
+    newdata <- data.frame(log2_Expression_Plus_One = seq(min(df$log2_Expression_Plus_One, na.rm = TRUE), 
+                                     max(df$log2_Expression_Plus_One, na.rm = TRUE), length.out = 200))
+
+    # Predictions from both models
+    newdata$GAM_fit <- predict(gam_fit, newdata, type = "response")
+    newdata$SEG_fit <- predict(seg_fit, newdata, type = "response")
+    breaks <- seg_fit$psi[, "Est."]
+
+    p2 <-
+    ggplot2::ggplot(data = subset(df,
+                 is.na(Expression_value) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_line(data = newdata, aes(y = GAM_fit), color = "blue", size = 1.2) +
+    geom_line(data = newdata, aes(y = SEG_fit), color = "orange", linetype = "dashed", size = 1) +
+    geom_vline(xintercept = breaks, linetype = "dotted", color = "orange") +
+    annotate("text", x = breaks, y = max(subset(df, is.na(Expression_value) == FALSE)$UniqueVariantsPlusOnePerBP, na.rm = TRUE) * 0.5,
+           label = paste0("Breakpoint\n", round(breaks, 3)),
+           color = "orange", hjust = -0.1, size = 3.2) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(Expression_value) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Unique Protein Coding Genes with Embryonic Expression"),
+      subtitle = "Red = GAM smooth; Blue dashed = segmented regression",
+      caption = "Blue line represents fit of generalised linear model: gam(UniqueVariantsPlusOnePerBP ~ s(Expression_value, k = 6), data = df). \n
+                Orange line represents fit of segmented linear regression: seg_fit <- segmented(lm_fit, seg.Z = ~ Expression_value, npsi = 2)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p2,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_GAM_SegReg_Expression_value_vs_Mutation_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 6,
+      dpi = 300)
+    
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+
+
+# 5 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
+Species_Expression_MutationRate_Spearman_Tests_MutatedOnly <- list()
+Species_Expression_MutationRate_Pearson_TestsMutatedOnly <- list()
+
+MutatedOnly_Genewise_MutationRate_by_Expression_Plots <- Map(
+  function(df, name) {
+  
+  species_name <- strsplit(name, "_")[[1]][4]
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+  
+  # Subset to Protein Coding Genes Only
+  df <- subset(df, gene_biotype == "protein_coding")
+  
+  # Run Spearman Correlations
+  spearman_test <- 
+    cor.test(subset(df, UniqueVariants > 0)$log2_Expression_Plus_One,
+             subset(df, UniqueVariants > 0)$UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  # Run Pearson Correlations
+  pearson_test <- 
+    cor.test(subset(df, UniqueVariants > 0)$log2_Expression_Plus_One,
+             subset(df, UniqueVariants > 0)$UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  
+  # Save results into object
+  Species_Expression_MutationRate_Spearman_Tests_MutatedOnly[[name]] <- spearman_test
+  Species_Expression_MutationRate_Pearson_TestsMutatedOnly[[name]] <- pearson_test
+  
+  # Create a Scatter Plot
+  p1 <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE & UniqueVariants > 0),
+                    aes(x = log2_Expression_Plus_One, y = UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE &
+                              UniqueVariants > 0)$GENE_ID %>% 
+                       unique() %>% length(), "Unique Protein Coding Genes with Embryonic Expression and >0 Variants"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_MutationRate_Spearman_Tests_MutatedOnly[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_MutationRate_Spearman_Tests_MutatedOnly[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_MutationRate_Pearson_TestsMutatedOnly[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_MutationRate_Pearson_TestsMutatedOnly[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p1,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Expression_vs_Mutation_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 4,
+      dpi = 300)
+
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+
+```
+
+```{r Blocking Genes by Expression Values}
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+    df <- df %>%
+      subset(gene_biotype == "protein_coding") %>%
+      mutate(
+        Overall_Expression_Group = ifelse(
+          Expression_value == 0, "0",
+          ifelse(is.na(Expression_value), NA,
+                 as.character(cut_number(Expression_value + runif(n(), -1e-6, 1e-6), n = 5))))) 
+
+    # If there are no non-NA groups, just return
+    if (all(is.na(df$Overall_Expression_Group))) return(df)
+
+    # get unique non-zero, non-NA labels
+    labels_nonzero <- unique(na.omit(df$Overall_Expression_Group[df$Overall_Expression_Group != "0"]))
+
+    if (length(labels_nonzero) > 0) {
+      # extract the numeric lower bound from each label (handles scientific notation)
+      lower_str <- str_extract(labels_nonzero, "-?\\d*\\.?\\d+(?:e[+-]?\\d+)?")
+      lower_num <- as.numeric(lower_str)
+
+      # if any NAs produced (labels not matching), fallback to keeping original order
+      if (all(!is.na(lower_num))) {
+        ordered_nonzero <- labels_nonzero[order(lower_num)]
+      } else {
+        ordered_nonzero <- labels_nonzero
+      }
+    } else {
+      ordered_nonzero <- character(0)
+    }
+
+    # set new factor levels with "0" first
+    new_levels <- c("0", ordered_nonzero)
+    df$Overall_Expression_Group <- factor(df$Overall_Expression_Group,
+                                         levels = new_levels,
+                                         ordered = TRUE)
+    
+    
+    df <- df %>%
+      mutate(
+        Overall_Expression_Group_More = ifelse(
+          Expression_value == 0, "0",
+          ifelse(is.na(Expression_value), NA,
+                 as.character(cut_number(Expression_value + runif(n(), -1e-6, 1e-6), n = 30)))))
+
+    # If there are no non-NA groups, just return
+    if (all(is.na(df$Overall_Expression_Group_More))) return(df)
+
+    # get unique non-zero, non-NA labels
+    labels_nonzero <- unique(na.omit(df$Overall_Expression_Group_More[df$Overall_Expression_Group_More != "0"]))
+
+    if (length(labels_nonzero) > 0) {
+      # extract the numeric lower bound from each label (handles scientific notation)
+      lower_str <- str_extract(labels_nonzero, "-?\\d*\\.?\\d+(?:e[+-]?\\d+)?")
+      lower_num <- as.numeric(lower_str)
+
+      # if any NAs produced (labels not matching), fallback to keeping original order
+      if (all(!is.na(lower_num))) {
+        ordered_nonzero <- labels_nonzero[order(lower_num)]
+      } else {
+        ordered_nonzero <- labels_nonzero
+      }
+    } else {
+      ordered_nonzero <- character(0)
+    }
+
+    # set new factor levels with "0" first
+    new_levels <- c("0", ordered_nonzero)
+    df$Overall_Expression_Group_More <- factor(df$Overall_Expression_Group_More,
+                                         levels = new_levels,
+                                         ordered = TRUE)
+
+    df
+  }
+)
+
+```
+
+```{r Associating Expression and Mutation Rate}
+# 1 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
+Genewise_Binned_MutationRate_by_Expression_Plots <- Map(
+  function(df, name) {
+
+    species_name <- strsplit(name, "_")[[1]][4]
+    species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+  
+# Subset to only loci with Expression
+df <- subset(df, is.na(log2_Expression_Plus_One) == FALSE) 
+
+# Plot Association of Expression Bins with MutationsPlusOnePerBP 
+p1 <-
+ggplot(data = subset(df,
+                     is.na(Overall_Expression_Group) == FALSE),
+       aes(x = Overall_Expression_Group, 
+           y = UniqueVariantsPlusOnePerBP,
+           fill = Overall_Expression_Group)) +
+  theme_bw() +
+  geom_boxplot(outliers = FALSE) +
+  labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embyonic Expression"),
+       subtitle = 
+                paste("Johnckheere =", 
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group, 
+                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
+                "p =",
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group, 
+                alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
+     theme_bw() +
+  theme(
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 6, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "white"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group)))) +
+  guides(fill = "none")
+
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p1,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Binned_Expression_vs_Mutation_Rate_Plot.png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2.75,
+      height = 4,
+      dpi = 2500)
+      
+      
+      
+# Plot Association of More Expression Bins with MutationsPlusOnePerBP 
+p2 <-
+ggplot(data = subset(df,
+                     is.na(Overall_Expression_Group_More) == FALSE),
+       aes(x = Overall_Expression_Group_More, 
+           y = UniqueVariantsPlusOnePerBP,
+           fill = Overall_Expression_Group_More)) +
+  theme_bw() +
+  geom_boxplot(outliers = FALSE) +
+  labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embyonic Expression"),
+       subtitle = 
+                paste("Johnckheere =", 
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group_More, 
+                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
+                "p =",
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group_More, 
+                alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
+     theme_bw() +
+  theme(
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 6, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "white"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More)))) +
+  guides(fill = "none")
+
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p2,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Binned_More_Expression_vs_Mutation_Rate_Plot.png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2.75,
+      height = 4,
+      dpi = 2500)
+      
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+``` 
+
+```{r Plotting Mutation Rate vs Expression Facetted by Mutation Category}
+# 6 Mutation Rate vs dNdS Associations Facetted by SNP Category
+# "T>A | A>T"
+Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests <- list()
+Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests <- list()
+# "C>G | G>C"
+Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests <- list()
+Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests <- list()
+# "C>T | G>A"
+Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests <- list()
+Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests <- list()
+# "C>A | G>T"
+Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests <- list()
+Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests <- list()
+# "T>G | A>C"
+Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests <- list()
+Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests <- list()
+# "T>C | A>G"
+Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests <- list()
+Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests <- list()
+
+
+
+Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
+
+  function(df, name) {
+  
+  # Isolate species name
+  species_name <- str_split(name, "_", simplify = TRUE)[4]
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", 
+                           substr(species_name, 2, nchar(species_name)))
+    
+  # Run Spearman Correlations
+  spearman_test_TtoA_or_AtoT <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$TtoA_or_AtoT_UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  spearman_test_CtoG_or_GtoC <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$CtoG_or_GtoC_UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  spearman_test_CtoT_or_GtoA <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$CtoT_or_GtoA_UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  spearman_test_CtoA_or_GtoT <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$CtoA_or_GtoT_UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  spearman_test_TtoG_or_AtoC <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$TtoG_or_AtoC_UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  spearman_test_TtoC_or_AtoG <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$TtoC_or_AtoG_UniqueVariantsPlusOnePerBP,
+             method = "spearman")
+  
+  # Run Pearson Correlations
+  pearson_test_TtoA_or_AtoT <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$TtoA_or_AtoT_UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  pearson_test_CtoG_or_GtoC <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$CtoG_or_GtoC_UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  pearson_test_CtoT_or_GtoA <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$CtoT_or_GtoA_UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  pearson_test_CtoA_or_GtoT <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$CtoA_or_GtoT_UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  pearson_test_TtoG_or_AtoC <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$TtoG_or_AtoC_UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  pearson_test_TtoC_or_AtoG <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$TtoC_or_AtoG_UniqueVariantsPlusOnePerBP,
+             method = "pearson")
+  
+  # Save results into object
+  Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoA_or_AtoT
+  Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoG_or_GtoC
+  Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoT_or_GtoA
+  Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoA_or_GtoT
+  Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoG_or_AtoC
+  Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoC_or_AtoG
+  #
+  Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoA_or_AtoT
+  Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoG_or_GtoC
+  Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoT_or_GtoA
+  Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoA_or_GtoT
+  Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoG_or_AtoC
+  Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoC_or_AtoG
+  
+  # Create a TtoA_or_AtoT Scatter Plot
+  p_TtoA_or_AtoT <- 
+  ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = TtoA_or_AtoT_UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(TtoA_or_AtoT_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
+          axis.title.y = element_text(size = 8, color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p_TtoA_or_AtoT,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Expression_vs_TtoA_or_AtoT_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 4,
+      dpi = 300)
+      
+      
+        
+  # Create a CtoG_or_GtoC Scatter Plot
+  p_CtoG_or_GtoC <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = CtoG_or_GtoC_UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(CtoG_or_GtoC_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
+          axis.title.y = element_text(size = 8, color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p_CtoG_or_GtoC,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_dNdS_vs_CtoG_or_GtoC_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 4,
+      dpi = 300)
+      
+      
+      
+    # Create a CtoT_or_GtoA Scatter Plot
+    p_CtoT_or_GtoA <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = CtoT_or_GtoA_UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(CtoT_or_GtoA_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
+          axis.title.y = element_text(size = 8, color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p_CtoT_or_GtoA,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_dNdS_vs_CtoT_or_GtoA_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 4,
+      dpi = 300)
+      
+      
+      
+    # Create a CtoA_or_GtoT Scatter Plot
+    p_CtoA_or_GtoT <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = CtoA_or_GtoT_UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(CtoA_or_GtoT_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
+          axis.title.y = element_text(size = 8, color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p_CtoA_or_GtoT,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_dNdS_vs_CtoA_or_GtoT_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 4,
+      dpi = 300)
+      
+      
+      
+    # Create a TtoG_or_AtoC Scatter Plot
+    p_TtoG_or_AtoC <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = TtoG_or_AtoC_UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(TtoG_or_AtoC_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
+          axis.title.y = element_text(size = 8, color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p_TtoG_or_AtoC,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_dNdS_vs_TtoG_or_AtoC_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 4,
+      dpi = 300)
+      
+      
+      
+    # Create a TtoC_or_AtoG Scatter Plot
+    p_TtoC_or_AtoG <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(log2_Expression_Plus_One) == FALSE),
+                    aes(x = log2_Expression_Plus_One, y = TtoC_or_AtoG_UniqueVariantsPlusOnePerBP)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(TtoC_or_AtoG_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Protein Coding Genes with Embryonic Expression"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests[[name]]$estimate %>%
+                         signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests[[name]]$p.value %>% 
+                         signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests[[name]]$estimate %>% 
+                         signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
+          axis.title.y = element_text(size = 8, color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+  
+    # Save the plot — change width/height as needed
+      ggsave(plot = p_TtoC_or_AtoG,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_dNdS_vs_TtoC_or_AtoG_Rate_MutatedOnly_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 4,
+      dpi = 300)
+
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+
+
+
+
+# Combined Plot
+all_tests <- list(
+  Overall = Species_Expression_MutationRate_Spearman_Tests,
+  Mutated = Species_Expression_MutationRate_Spearman_Tests_MutatedOnly,
+  TtoA_AtoT = Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests,
+  CtoG_GtoC = Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests,
+  CtoT_GtoA = Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests,
+  CtoA_GtoT = Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests,
+  TtoG_AtoC = Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests,
+  TtoC_AtoG = Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests
+)
+df <- map_df(names(all_tests), function(mutation_type) {
+
+  # each object is a list of 7 htests
+  tests <- all_tests[[mutation_type]]
+
+  map_df(names(tests), function(species) {
+    res <- tests[[species]]  # an htest object
+    tibble(
+      MutationType = mutation_type,
+      Species = species,
+      Rho = unname(res$estimate),
+      Pvalue = res$p.value
+    )
+  })
+})
+
+
+dfF <- subset(df, Species %ni% c("denovoDB_XXXX_Trio_Hsapiens_hg38",
+                                "Goldmann_2016_Trio_Hsapiens_hg38"))
+
+dfF$Species <- factor(dfF$Species, 
+                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+                                "Franciolo_2015_Trio_Hsapiens_hg38",
+                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
+
+dfF$MutationType <- factor(dfF$MutationType, 
+                          levels = c("Overall",
+                                     "Mutated",
+                                     "TtoA_AtoT",
+                                     "TtoG_AtoC",
+                                     "TtoC_AtoG",
+                                     "CtoG_GtoC",
+                                     "CtoT_GtoA",
+                                     "CtoA_GtoT"))
+
+dfF$Signif <- factor(dfF$Pvalue < 0.01, levels = c(TRUE, FALSE))
+
+testF <-
+ggplot(dfF, aes(x = Species, y = Rho, fill = MutationType)) +
+  geom_col(
+    aes(alpha = Signif,
+        colour = MutationType),
+    linewidth = 3,
+    position = position_dodge(width = 0.5),
+    width = 0.4
+  ) +
+  scale_alpha_manual(
+    values = c(`TRUE` = 1, `FALSE` = 0.4),   # <-- TRUE always filled
+    drop = FALSE                              # <-- keep both in legend
+  ) +
+  theme_bw() +
+  labs(
+    title = "Spearman Correlations of Expression vs Mutation Rates",
+    y = "Spearman Rho [Mutations+1-per-bp vs Expression]",
+    x = "Species"
+  ) +
+  geom_hline(yintercept = 0, color = "black")  +
+   theme_bw() +
+  theme(
+    # Subtle grid
+        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
+        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
+        panel.grid.major.x     = element_line(colour = "grey60", linewidth = 0.3),
+        panel.grid.minor.x     = element_line(colour = "grey80", linewidth = 0.2),
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.title.y = element_text(colour = "white", size = 30, margin = margin(r = 2)),
+    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
+    legend.title = element_text(size = 70, color = "white", vjust = 0),
+    legend.text = element_text(size = 60, color = "white"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.background = element_blank(),
+    legend.key.width = unit(2.5, "cm"),
+    legend.key.spacing = unit(1.5, "cm"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "white"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = c("black",
+                               "grey",
+                               "#B21801",
+                               "red",
+                               "orange",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#afff14",
+                               "#66ff00")) +
+  scale_colour_manual(values = c("black",
+                               "grey",
+                               "#B21801",
+                               "red",
+                               "orange",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#afff14",
+                               "#66ff00")) +
+  guides(colour = "none",
+         fill = guide_legend(title.position = "top"),
+         alpha = guide_legend(title.position = "top"))
+
+# Save the plot — change width/height as needed
+      ggsave(plot = testF,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       "Species_Mutation_Category_vs_Expression_PlotF.png"),
+      create.dir = TRUE,
+      width = 40,
+      height = 15,
+      dpi = 800)
+
+      
+     
+dfG <- subset(df, Species %ni% c("denovoDB_XXXX_Trio_Hsapiens_hg38",
+                                 "Franciolo_2015_Trio_Hsapiens_hg38"))
+
+dfG$Species <- factor(dfG$Species, 
+                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+                                "Goldmann_2016_Trio_Hsapiens_hg38",
+                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
+
+dfG$MutationType <- factor(dfG$MutationType, 
+                          levels = c("Overall",
+                                     "Mutated",
+                                     "TtoA_AtoT",
+                                     "TtoG_AtoC",
+                                     "TtoC_AtoG",
+                                     "CtoG_GtoC",
+                                     "CtoT_GtoA",
+                                     "CtoA_GtoT"))
+
+dfG$Signif <- factor(dfG$Pvalue < 0.01, levels = c(TRUE, FALSE))
+
+testG <-
+ggplot(dfG, aes(x = Species, y = Rho, fill = MutationType)) +
+  geom_col(
+    aes(alpha = Signif,
+        colour = MutationType),
+    linewidth = 3,
+    position = position_dodge(width = 0.5),
+    width = 0.4
+  ) +
+  scale_alpha_manual(
+    values = c(`TRUE` = 1, `FALSE` = 0.4),   # <-- TRUE always filled
+    drop = FALSE                              # <-- keep both in legend
+  ) +
+  theme_bw() +
+  labs(
+    title = "Spearman Correlations of Expression vs Mutation Rates",
+    y = "Spearman Rho [Mutations+1-per-bp vs Expression]",
+    x = "Species"
+  ) +
+  geom_hline(yintercept = 0, color = "black")  +
+   theme_bw() +
+  theme(
+    # Subtle grid
+        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
+        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
+        panel.grid.major.x     = element_line(colour = "grey60", linewidth = 0.3),
+        panel.grid.minor.x     = element_line(colour = "grey80", linewidth = 0.2),
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.title.y = element_text(colour = "white", size = 30, margin = margin(r = 2)),
+    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
+    legend.title = element_text(size = 70, color = "white", vjust = 0),
+    legend.text = element_text(size = 60, color = "white"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.background = element_blank(),
+    legend.key.width = unit(2.5, "cm"),
+    legend.key.spacing = unit(1.5, "cm"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "white"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = c("black",
+                               "grey",
+                               "#B21801",
+                               "red",
+                               "orange",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#afff14",
+                               "#66ff00")) +
+  scale_colour_manual(values = c("black",
+                               "grey",
+                               "#B21801",
+                               "red",
+                               "orange",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#afff14",
+                               "#66ff00")) +
+  guides(colour = "none",
+         fill = guide_legend(title.position = "top"),
+         alpha = guide_legend(title.position = "top"))
+
+# Save the plot — change width/height as needed
+      ggsave(plot = testG,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       "Species_Mutation_Category_vs_Expression_PlotG.png"),
+      create.dir = TRUE,
+      width = 40,
+      height = 15,
+      dpi = 800)
+     
+      
+      
+dfD <- subset(df, Species %ni% c(
+                                 "Goldmann_2016_Trio_Hsapiens_hg38",
+                                 "Franciolo_2015_Trio_Hsapiens_hg38"))
+
+dfD$Species <- factor(dfD$Species, 
+                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+                                "denovoDB_XXXX_Trio_Hsapiens_hg38",
+                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
+
+dfD$MutationType <- factor(dfD$MutationType, 
+                          levels = c("Overall",
+                                     "Mutated",
+                                     "TtoA_AtoT",
+                                     "TtoG_AtoC",
+                                     "TtoC_AtoG",
+                                     "CtoG_GtoC",
+                                     "CtoT_GtoA",
+                                     "CtoA_GtoT"))
+
+dfD$Signif <- factor(dfD$Pvalue < 0.01, levels = c(TRUE, FALSE))
+
+testD <-
+ggplot(dfD, aes(x = Species, y = Rho, fill = MutationType)) +
+  geom_col(
+    aes(alpha = Signif,
+        colour = MutationType),
+    linewidth = 3,
+    position = position_dodge(width = 0.5),
+    width = 0.4
+  ) +
+  scale_alpha_manual(
+    values = c(`TRUE` = 1, `FALSE` = 0.4),   # <-- TRUE always filled
+    drop = FALSE                              # <-- keep both in legend
+  ) +
+  theme_bw() +
+  labs(
+    title = "Spearman Correlations of Expression vs Mutation Rates",
+    y = "Spearman Rho [Mutations+1-per-bp vs Expression]",
+    x = "Species"
+  ) +
+  geom_hline(yintercept = 0, color = "black")  +
+   theme_bw() +
+  theme(
+    # Subtle grid
+        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
+        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
+        panel.grid.major.x     = element_line(colour = "grey60", linewidth = 0.3),
+        panel.grid.minor.x     = element_line(colour = "grey80", linewidth = 0.2),
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.title.y = element_text(colour = "white", size = 30, margin = margin(r = 2)),
+    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
+    legend.title = element_text(size = 70, color = "white", vjust = 0),
+    legend.text = element_text(size = 60, color = "white"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.background = element_blank(),
+    legend.key.width = unit(2.5, "cm"),
+    legend.key.spacing = unit(1.5, "cm"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "white"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = c("black",
+                               "grey",
+                               "#B21801",
+                               "red",
+                               "orange",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#afff14",
+                               "#66ff00")) +
+  scale_colour_manual(values = c("black",
+                               "grey",
+                               "#B21801",
+                               "red",
+                               "orange",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#afff14",
+                               "#66ff00")) +
+  guides(colour = "none",
+         fill = guide_legend(title.position = "top"),
+         alpha = guide_legend(title.position = "top"))
+
+# Save the plot — change width/height as needed
+      ggsave(plot = testD,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       "Species_Mutation_Category_vs_Expression_PlotD.png"),
+      create.dir = TRUE,
+      width = 40,
+      height = 15,
+      dpi = 800)
+     
+      
+```
+
+```{r Associating Expression with dNdS}
+# 1 Mutation Rate vs Expression Associations: Linear and Non-Linear
+Species_Expression_dNdS_Spearman_Tests <- list()
+Species_Expression_dNdS_Pearson_Tests <- list()
+
+Genewise_dNdS_by_Expression_Plots <- Map(
+  function(df, name) {
+  
+  # Isolate species name
+  species_name <- str_split(name, "_", simplify = TRUE)[4]
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", 
+                           substr(species_name, 2, nchar(species_name)))
+    
+  # Run Spearman Correlations
+  spearman_test <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$dNdS,
+             method = "spearman")
+  # Run Pearson Correlations
+  pearson_test <- 
+    cor.test(df$log2_Expression_Plus_One,
+             df$dNdS,
+             method = "pearson")
+  
+  # Save results into object
+  Species_Expression_dNdS_Spearman_Tests[[name]] <<- spearman_test
+  Species_Expression_dNdS_Pearson_Tests[[name]] <<- pearson_test
+  
+  # Create a Scatter Plot
+  p1 <- 
+    ggplot2::ggplot(data = subset(df,
+                 is.na(Expression_value) == FALSE & is.na(dNdS) == FALSE),
+                    aes(y = log2_Expression_Plus_One, x = dNdS)) +
+    geom_point() +
+    geom_smooth(method = MASS::rlm) + # robust linear model
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(Expression_value) == FALSE & is.na(dNdS) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Unique Protein Coding Genes with Embryonic Expression & dNdS"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", Species_Expression_dNdS_Spearman_Tests[[name]]$p.value %>% signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_dNdS_Spearman_Tests[[name]]$estimate %>% signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", Species_Expression_dNdS_Pearson_Tests[[name]]$p.value %>% signif(., digits = 5),", ",
+                       "Coefficient = ", Species_Expression_dNdS_Pearson_Tests[[name]]$estimate %>% signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = MASS::rlm)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name,"/",
+                       name, "_Expression_vs_dNdS_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 5,
+      height = 4,
+      dpi = 300)
+    
+    
+    
+    # Calculate some statistics beforehand
+    # --- Fit GAM (nonparametric smooth) ---
+    gam_fit <- gam(log2_Expression_Plus_One ~ s(dNdS, k = 6), data = df)
+
+    # --- Fit linear model first, then segmented ---
+    lm_fit <- lm(log2_Expression_Plus_One ~ dNdS, data = df)
+    seg_fit <- segmented(lm_fit, seg.Z = ~ dNdS, npsi = 2)  # try 2 breakpoints
+
+    # Create a prediction grid
+    newdata <- data.frame(dNdS = seq(min(df$dNdS, na.rm = TRUE), max(df$dNdS, na.rm = TRUE), length.out = 200))
+
+    # Predictions from both models
+    newdata$GAM_fit <- predict(gam_fit, newdata, type = "response")
+    newdata$SEG_fit <- predict(seg_fit, newdata, type = "response")
+    breaks <- seg_fit$psi[, "Est."]
+
+    p2 <-
+    ggplot2::ggplot(data = subset(df,
+                 is.na(Expression_value) == FALSE),
+                    aes(y = log2_Expression_Plus_One, x = dNdS)) +
+    geom_point() +
+    geom_line(data = newdata, aes(y = GAM_fit), color = "blue", size = 1.2) +
+    geom_line(data = newdata, aes(y = SEG_fit), color = "orange", linetype = "dashed", size = 1) +
+    geom_vline(xintercept = breaks, linetype = "dotted", color = "orange") +
+    annotate("text", x = breaks, y = max(subset(df, is.na(Expression_value) == FALSE)$dNdS, na.rm = TRUE) * 0.5,
+           label = paste0("Breakpoint\n", round(breaks, 3)),
+           color = "orange", hjust = -0.1, size = 3.2) +
+    labs(title = paste(name, "\n",
+                       subset(df, is.na(Expression_value) == FALSE & is.na(dNdS) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Unique Protein Coding Genes with Embryonic Expression & dNdS"),
+      subtitle = "Red = GAM smooth; Blue dashed = segmented regression",
+      caption = "Blue line represents fit of generalised linear model: gam(dNdS ~ s(Expression_value, k = 6), data = df). \n
+                Orange line represents fit of segmented linear regression: seg_fit <- segmented(lm_fit, seg.Z = ~ Expression_value, npsi = 2)") +
+    theme_bw() +
+    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
+          text = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          axis.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          legend.text = element_text(color = "black"),
+          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "black")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p2,
+      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name,"/",
+                       name, "_GAM_SegReg_Expression_value_vs_dNdS_Rate_Plot.png"),
+      create.dir = TRUE,
+      width = 6,
+      height = 6,
+      dpi = 300)
+    
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+
+```
+
+
+```{r Saving Annotated_VCFs}
+# Saving Annotated Gene Body Variants
+save(Annotated_VCFs_PC_Gene_Body_Variants, 
+     file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+# Saving Annotated Gene Body Variants
+save(Annotated_VCFs_PC_Gene_Body_Variants, 
+     file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+
+# Saving dNdS Mutation Rate Testing Statistics
+save(Species_Expression_MutationRate_Spearman_Tests, 
+     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Spearman_Tests")
+save(Species_Expression_MutationRate_Pearson_Tests, 
+     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Pearson_Tests")
+save(Species_Expression_MutationRate_Spearman_Tests_MutatedOnly, 
+     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Spearman_Tests_MutatedOnly")
+save(Species_Expression_MutationRate_Pearson_TestsMutatedOnly, 
+     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Pearson_TestsMutatedOnly")
+
+# Saving Expression Mutation Category Association Testing Statistics
+# "T>A | A>T"
+save(Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests") 
+save(Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests")
+# "C>G | G>C"
+save(Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests")
+save(Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests")
+# "C>T | G>A"
+save(Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests")
+save(Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests , file = "~/DPhil/R_Data/Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests")
+# "C>A | G>T"
+save(Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests") 
+save(Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests") 
+# "T>G | A>C"
+save(Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests") 
+save(Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests")
+# "T>C | A>G"
+save(Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests") 
+save(Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests") 
+```

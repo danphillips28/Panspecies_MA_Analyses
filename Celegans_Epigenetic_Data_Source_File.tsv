@@ -1,0 +1,7 @@
+Histone_mark	C_elegans_URL	start_build	end_build	liftOver_URL liftOver_path
+H3K27me3	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE114nnn/GSE114440/suppl/GSE114440%5FH3K27me3%5Fwt%5Femb.bw	WS220	WS235	https://hgdownload.soe.ucsc.edu/goldenPath/ce10/liftOver/ce10ToCe11.over.chain.gz ce10ToCe11.over.chain
+H3K36me3	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE114nnn/GSE114440/suppl/GSE114440%5FH3K36me3%5Fwt%5Femb.bw	WS220	WS235	https://hgdownload.soe.ucsc.edu/goldenPath/ce10/liftOver/ce10ToCe11.over.chain.gz	ce10ToCe11.over.chain
+H3K4me1	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE114nnn/GSE114440/suppl/GSE114440%5FH3K4me1%5Fwt%5Femb.bw	WS220	WS235	https://hgdownload.soe.ucsc.edu/goldenPath/ce10/liftOver/ce10ToCe11.over.chain.gz	ce10ToCe11.over.chain
+H3K4me3	https://ftp.ncbi.nlm.nih.gov/geo/series/GSE114nnn/GSE114440/suppl/GSE114440%5FH3K4me3%5Fwt%5Femb.bw	WS220	WS2350	https://hgdownload.soe.ucsc.edu/goldenPath/ce10/liftOver/ce10ToCe11.over.chain.gz	ce10ToCe11.over.chain
+XRplus	https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM8595nnn/GSM8595214/suppl/GSM8595214%5Fwt%5F1h%5FCPD%5Frep1%5Fplus%5Fsorted.bedGraph.gz	WS235	WS235 <liftOver>	<liftOver>
+XRminus	https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM8595nnn/GSM8595214/suppl/GSM8595214%5Fwt%5F1h%5FCPD%5Frep1%5Fminus%5Fsorted.bedGraph.gz	WS235	WS235	<liftOver>	<liftOver>

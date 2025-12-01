@@ -1,0 +1,40 @@
+---
+title: "Wrangling_Hsapiens_ESC_TimeSeries_Expression"
+output: html_document
+date: "2025-10-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+url <- "https://www.encodeproject.org/files/ENCFF736CCO/@@download/ENCFF736CCO.tsv"
+dest_file <- "~/DPhil/R_Data/H_sapiens_Embryonic_Expression_File.tsv"
+
+# download 
+system(paste("wget -O", dest_file, url))
+
+# load data
+expr <- read.delim(dest_file, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+# Check
+head(expr)
+
+# Summarise to Gene-Level
+library(dplyr)
+
+# Remove version numbers
+expr$gene_id <- sub("\\..*", "", expr$gene_id)  # remove version suffix if needed
+
+# Group by gene_id and take mean across transcripts
+expr_gene <- expr %>%
+  group_by(gene_id) %>%
+    summarise(mean_FPKM = mean(FPKM, na.rm = TRUE))
+
+# Reduce to simple df
+clean_df <- expr_gene %>%
+  select(gene_id, mean_FPKM)  # adjust column pattern as needed
+
+# Save Clean file
+write_tsv(clean_df, "~/DPhil/R_Data/H_sapiens_Embryonic_Expression.tsv")
+```

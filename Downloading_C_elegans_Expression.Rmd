@@ -1,0 +1,33 @@
+---
+title: "Wrangling_Celegans_Embryo_TimeSeries_Expression_Data"
+output: html_document
+date: "2025-10-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(readr)
+base <- "https://www.bgee.org/ftp/bgee_v15_0/download/processed_expr_values/rna_seq/Caenorhabditis_elegans"
+expr_url  <- file.path(base, "Caenorhabditis_elegans_RNA-Seq_read_counts_TPM_FPKM_SRP000401.tsv.gz")
+meta_url  <- file.path(base, "Caenorhabditis_elegans_RNA-Seq_experiments_libraries.tar.gz") 
+
+# Download
+download.file(expr_url, destfile = "SRP000401_expr.tsv.gz", mode = "wb")
+
+# Load Data Matrix
+library(data.table)
+expr <- fread("SRP000401_expr.tsv.gz")
+
+clean_df <- subset(expr, `Stage name` == "embryo stage" & Strain == "N2") %>% 
+        select(c("Gene ID","FPKM"))
+
+colnames(clean_df) <- c("Gene_ID","FPKM")
+
+# Save Clean file
+write_tsv(clean_df, "~/DPhil/R_Data/C_elegans_Embryonic_Expression.tsv")
+
+```

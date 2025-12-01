@@ -1,0 +1,151 @@
+---
+title: "Summarising_VCFs"
+output: html_document
+date: "2025-08-29"
+---
+
+```{r}
+# Setup ----------------------------------------------------------
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load Annotated VCFs -------------------------------------------
+load(file = "~/DPhil/R_Data/Annotated_VCFs_Raw")
+
+# Libraries ------------------------------------------------------
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(patchwork)
+
+# Counting Unique Variant Loci per Dataset -----------------------
+Unique_Variant_Loci <- lapply(
+  Annotated_VCFs_Raw,
+  function(df) df[, 1:2] %>% unique()
+)
+
+# Create and save plots ------------------------------------------
+List_of_Unique_Variant_Loci_Plots <- lapply(names(Unique_Variant_Loci), function(element_name) {
+
+  element <- Unique_Variant_Loci[[element_name]]
+  build   <- str_split(element_name, "_", simplify = TRUE)[, 5]
+  species <- str_split(element_name, "_", simplify = TRUE)[, 4] %>%
+    str_replace(., "^(.)(.*)$", "\\1_\\2")
+  speciesANDbuild <- paste(species, build, sep = "_")
+
+  counts <- element %>% count(CHROM)
+
+  plot <- ggplot2::ggplot(counts, aes(x = reorder(CHROM, n), y = n)) +
+    geom_bar(stat = "identity", fill = "orange", colour = "black") +
+    labs(
+      title = element_name,
+      x = "Chromosome",
+      y = "Unique Variants"
+    ) +
+    theme(
+      panel.background = element_rect(fill = NA, color = "white"),
+      plot.background  = element_rect(fill = NA, color = NA),
+      axis.line  = element_line(color = "white"),
+      axis.ticks = element_line(color = "white"),
+      axis.text  = element_text(color = "white", size = 14),
+      axis.title = element_text(color = "white"),
+      plot.title = element_text(color = "white", hjust = 0.5)
+    )
+
+  # Save each plot individually
+  ggsave(
+    plot,
+    filename = paste0(
+      "~/DPhil/R_Data/Plots/1_Summaries/Unique_Variants_per_Chromosome_",
+      element_name, ".png"
+    ),
+    bg = "transparent",
+    type = "cairo",
+    units = "cm",
+    width = ifelse(
+      length(unique(counts$CHROM)) < 26,
+      length(unique(counts$CHROM)) + 4,
+      26 + 4
+    ),
+    height = 7,
+    create.dir = TRUE,
+    dpi = 2000
+  )
+
+  return(plot)
+})
+
+# Combine plots vertically with patchwork ------------------------
+# Compute relative heights based on chromosome counts
+heights <- sapply(Unique_Variant_Loci, function(df) length(unique(df$CHROM)))
+
+Combined_Unique_Variant_Loci_Plot <- wrap_plots(
+  List_of_Unique_Variant_Loci_Plots,
+  ncol = 1,            # stack vertically
+  heights = heights    # relative heights
+) & theme(
+  panel.background = element_rect(fill = NA, color = "white"),
+  plot.background  = element_rect(fill = NA, color = NA)
+)
+
+# Save combined patchwork plot
+ggsave(
+  filename = "~/DPhil/R_Data/Plots/1_Summaries/Combined_Unique_Variants_per_Chromosome.png",
+  plot = Combined_Unique_Variant_Loci_Plot,
+  bg = "transparent",
+  units = "cm",
+  width = 40,
+  height = sum(heights) / 2,   # total height scales by chromosome count
+  dpi = 800
+)
+
+# Counting Unique Variants per Dataset ---------------------------
+Unique_Variants <- lapply(
+  Annotated_VCFs_Raw,
+  function(df) df[, 1:4] %>% unique()
+)
+
+List_of_Unique_Variants_Plots <- lapply(names(Unique_Variants), function(element_name) {
+
+  element <- Unique_Variants[[element_name]]
+  element$variantType <- paste(element$REF, element$ALT, sep = ":")
+  build   <- str_split(element_name, "_", simplify = TRUE)[, 5]
+  species <- str_split(element_name, "_", simplify = TRUE)[, 4] %>%
+    str_replace(., "^(.)(.*)$", "\\1_\\2")
+  speciesANDbuild <- paste(species, build, sep = "_")
+
+  counts <- element %>% count(variantType)
+  top_counts <- dplyr::top_n(counts, 30, n)
+
+  plot <- ggplot2::ggplot(top_counts, aes(y = reorder(variantType, n), x = n)) +
+    geom_bar(stat = "identity", fill = "orange", colour = "black") +
+    theme(
+      plot.margin = margin(t = 1, r = 2, b = 2, l = 2, unit = "cm"),
+      panel.background = element_rect(fill = NA, color = "white"),
+      plot.background  = element_rect(fill = NA, color = "white"),
+      axis.line  = element_line(color = "white"),
+      axis.ticks = element_line(color = "white"),
+      axis.text  = element_text(color = "white", size = 10),
+      axis.title = element_text(color = "white")
+    ) +
+    labs(
+      title = paste("Top", nrow(top_counts), "Common Variants.\n",
+                    nrow(counts), "Unique Variants in Total."),
+      y = NULL,
+      x = "Count"
+    )
+
+  ggsave(
+    plot,
+    filename = paste0(
+      "~/DPhil/R_Data/Plots/1_Summaries/Unique_Variants_",
+      element_name, ".png"
+    ),
+    bg = "transparent",
+    type = "cairo",
+    units = "cm",
+    height = 20,
+    width = 20,
+    create.dir = TRUE,
+    dpi = 2000
+  )
+})

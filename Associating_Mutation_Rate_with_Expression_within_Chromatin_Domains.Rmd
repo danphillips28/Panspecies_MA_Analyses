@@ -1,0 +1,347 @@
+---
+title: "Associating_Mutation_Rate_with_Expression_within_Chromatin_Domains"
+output: html_document
+date: "2025-11-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(GenomicRanges)
+library(GenomicFeatures)
+library(Biostrings)
+library(Rsamtools)
+library(data.table)
+library(cutnumberint)
+library(ggpubr)
+library(clinfun)
+library(segmented)
+library(mgcv)
+library(patchwork)
+library(tidyverse)
+library(stringr)
+library(dplyr)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Loading VCFs GTF dNdS and snpEff Canonical Transcripts to Filter All By}
+load(file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+
+Annotated_VCFs_PC_Gene_Body_Variants <- 
+  Annotated_VCFs_PC_Gene_Body_Variants[
+                                    #names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                    #"melanogaster"] # |
+                                    names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                    "elegans"]
+```
+
+```{r Read in Chromatin Annotations and Intersect with Genes}
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  element <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
+  # Isolate species name
+  species <- str_split(element_name, "_", simplify = TRUE)[4]
+  species_prefix <- paste0(substr(species, 1, 1), "_", substr(species, 2, nchar(species)))
+  # Read in Chromatin Domain Annotationsd
+  domains <- read_tsv(file = paste0("~/DPhil/R_Data/", species_prefix, "_Chromatin_Domains.tsv"))
+  # Rename columns
+  colnames(domains) <- c("seqname","start","end","domain")
+  # Remove "chr" from sequames if present
+  domains$seqname <- gsub("chr","", domains$seqname)
+  # Adding Region Widths
+  domains$width <-
+  domains$end - domains$start
+
+  
+#if (species_prefix == "C_elegans"){
+# Reannoated as active (domains 1-5), regulated (domains 6-16), and repressed (17-20)
+#domains <-
+#  domains %>% mutate(domain = 
+#                     ifelse(domain %in% c(1:5),
+#                            "active",
+#                     ifelse(domain %in% c(6:15),
+#                            "regulated","inactive")))
+#}
+  
+  # Make Combined GRanges object of VCF
+  element_ranges <-
+  makeGRangesFromDataFrame(element,
+                         keep.extra.columns=TRUE,
+                         ignore.strand=TRUE,
+                         seqnames.field="CHROM",
+                         na.rm = TRUE,
+                         start.field="start",
+                         end.field=c("end"),
+                         strand.field="strand",
+                         starts.in.df.are.0based=FALSE)
+  
+  # Make Combined GRanges object of Chromatin Regions
+  domains_ranges <-
+  makeGRangesFromDataFrame(domains,
+                         keep.extra.columns=TRUE,
+                         ignore.strand=TRUE,
+                         seqnames.field=c("seqname"),
+                         na.rm = TRUE,
+                         start.field="start",
+                         end.field=c("end"),
+                         strand.field="strand",
+                         starts.in.df.are.0based=FALSE)
+
+# Try to Annotate Genes with These Regions
+library(GenomicRanges)
+# Find overlaps
+hits <- findOverlaps(element_ranges, domains_ranges)
+
+# Pull Out Actual Intersections
+overlaps <- pintersect(element_ranges[queryHits(hits)], 
+                       domains_ranges[subjectHits(hits)])
+# Calculate widths
+overlap_widths <- width(overlaps)
+
+gene_widths <- width(element_ranges[queryHits(hits)])
+prop_overlap <- overlap_widths / gene_widths
+
+keep <- prop_overlap >= 0.1
+hits_strict <- hits[keep]
+
+## Make list of domains per gene
+domain_lists <- tapply(
+  mcols(domains_ranges)$domain[subjectHits(hits_strict)],
+  queryHits(hits_strict),
+  function(x) paste(sort(unique(x)), collapse = ", ")
+)
+
+## Initialize column
+element_ranges$domains <- NA_character_
+
+## Assign back using names as indices
+element_ranges$domains[as.integer(names(domain_lists))] <- domain_lists
+
+if (species_prefix == "D_melanogaster"){
+element_ranges_unique <-
+subset(element_ranges,
+      domains %in% c("BLACK","BLUE","GREEN","RED","YELLOW","RED,YELLOW","YELLOW,RED")) %>% 
+  as.data.frame()
+}
+
+if (species_prefix == "C_elegans"){
+element_ranges_unique <-
+subset(element_ranges,
+       is.na(domains) == FALSE & domains %in% c("active, regulated",
+                                                "regulated",
+                                                "+border",
+                                                "-border",
+                                                "-border, active, regulated",
+                                                "+border, active, regulated")) %>% 
+  as.data.frame()
+}
+
+
+# Calculating Mean Expression (to Order by) Before hand: stat_compare and mean_fun behave differently
+element_ranges_unique <- 
+  element_ranges_unique %>% 
+  group_by(domains) %>% 
+  mutate(domain_Upperquartile_Expression = quantile(Expression_value, probs = 0.75, na.rm = TRUE))
+
+# Plotting Combined Expression and Mutation Rate by Unique Chromatin Regions
+testplot1 <-
+ggplot(data = element_ranges_unique,
+       aes(y = reorder(domains, domain_Upperquartile_Expression),
+           x = Expression_value,
+           fill = domain_Upperquartile_Expression)) + 
+  geom_boxplot(outliers = FALSE) +
+  scale_fill_gradient(high = "#008000", low = "#ff3c00") +
+  theme_bw() +
+  scale_y_discrete(position = "right") +
+  labs(x = "Expression Value", y = NULL) +
+  scale_x_reverse() +
+  theme(axis.text.y=element_blank(),
+        axis.text = element_text(colour = "black")) +
+  theme(plot.margin = unit(c(0,0,0,0), "cm"),
+        plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA)) +
+  guides(fill = "none")
+
+testplot2 <-
+ggplot(data = element_ranges_unique,
+       aes(y = reorder(domains, domain_Upperquartile_Expression),
+           x = UniqueVariantsPlusOnePerBP,
+           fill = domain_Upperquartile_Expression)) +
+  geom_boxplot(outliers = FALSE) +
+  scale_fill_gradient(high = "#008000", low = "#ff3c00") + 
+  theme_bw() +
+  labs(x = "MutationsPlusOnePerBP", y = NULL) +
+  theme(
+    axis.text.y = element_text(size = 14, hjust = .5),
+    axis.text = element_text(colour = "black"),
+    plot.margin = unit(c(0,0,0,.1), "cm"),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA)) +
+  guides(fill = "none")
+
+
+testplot_combined <- 
+  testplot1 + 
+  testplot2 + 
+  plot_layout(guides = 'collect', widths = c(5,5)) +
+  plot_annotation(title = paste(
+                          length(unique(subset(element_ranges_unique,
+                          is.na(Expression_value) == FALSE)$GENE_ID)),
+                          "Unique PC Genes with Embryonic Expression & Unambiguous Chromatin Annotation"),
+                  theme = theme(
+      plot.title = element_text(hjust = 0.5),
+      plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA))) + guides(fill = "none")
+
+
+  # Save the plot — change width/height as needed
+    ggsave(plot = testplot_combined,
+       filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/", 
+                               "Expression_Within_Chromatin_Domains/",
+                               species_prefix,"_",
+                               "_Expression_and_Mutation_Rate_of_Chromatin_Domains",".png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 8,
+      height = 2.5,
+      dpi = 1000)
+    
+    
+    
+# Going to try and split each modification type into expression quintiles
+element_ranges_unique <- 
+  subset(element_ranges_unique,
+         is.na(Expression_value) == FALSE) %>%
+  group_by(domains) %>%
+  mutate(domain_Expression_bins =
+          ifelse(
+          Expression_value == 0, "0",
+          ifelse(is.na(Expression_value), NA,
+                 as.character(cut_number(Expression_value, n = 4))))) #%>%
+#      mutate(
+#        domain_Expression_bins_more = ifelse(
+#          domain_Expression_bins == 0, "0",
+#          ifelse(is.na(domain_Expression_bins), NA,
+#                 as.character(cut_number(Expression_value, n = 12))))) 
+
+# Can't Add in Region-Specific Statistics When Using Facet_Wrap. Have to pre-compute;
+library(dplyr)
+library(purrr)
+library(clinfun)  # for jonckheere.test()
+
+element_ranges_unique <- element_ranges_unique %>%
+  group_by(domains) %>%
+  mutate(
+    Jonckheere.Region.Title = {
+      # Subset data for this domain
+      x <- UniqueVariantsPlusOnePerBP
+      g <- factor(domain_Expression_bins, ordered = TRUE)
+
+      # Try test safely — return NA if test fails
+      p <- tryCatch(
+        jonckheere.test(x, g, alternative = "two.sided")$p.value,
+        error = function(e) NA_real_
+      )
+
+      # Format output string
+      paste0(domains, "\nJT p = ", format(p, scientific = TRUE, digits = 3))
+    }
+  ) %>%
+  ungroup()
+
+element_ranges_unique <- element_ranges_unique %>%
+  group_by(domains) %>%
+  mutate(fill_scaled = scales::rescale(as.numeric(domain_Expression_bins))) %>%
+  ungroup()
+
+
+Within_Chromatin_Domain_Expression_Mutation_Rate_JK_Plots <-
+ggplot(element_ranges_unique,
+       aes(x = domain_Expression_bins,
+           y = UniqueVariantsPlusOnePerBP,
+           fill = fill_scaled)) +
+  geom_boxplot(alpha = .75, 
+               outliers = FALSE, width=.7) +
+    scale_fill_gradient(low = "#008000", high = "#ff3c00", guide = "none") +
+  #geom_point(shape = 21, size = 1, fill = alpha("#ff5000", alpha = .7), colour = "orange") +
+  labs(x = NULL, y = "Mutations Per BP") +
+  scale_y_continuous(breaks = scales::breaks_extended(n = 11)) +
+  theme_minimal()+
+  theme(legend.position = "none",
+        strip.text = element_text(size = 9),
+        axis.text = element_text(size = 10),
+        axis.text.x = element_text(size = 6),
+        panel.border = element_rect(size = 1, 
+                       fill = "transparent", colour = "black"),
+        axis.ticks = element_line(colour = "black"),
+        plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA)) +
+#        scale_x_discrete(expand = c(1,.1)) +
+ # stat_cor(method = "pearson", cor.coef.name = "R", 
+#           label.x = .001, label.y = 6000) +  # Add correlation coefficient
+#  stat_cor(method = "spearman", cor.coef.name = "rho",
+#           label.x = .001, label.y = 5500) + # Add correlation coefficient
+#  stat_cor(method = "spearman", cor.coef.name = "tau",
+#           label.x = .001, label.y = 5000) + # Add correlation coefficient
+  facet_wrap(~Jonckheere.Region.Title, 
+             scales = "free", 
+             ncol = 6)
+
+  # Save the plot — change width/height as needed
+    ggsave(plot = Within_Chromatin_Domain_Expression_Mutation_Rate_JK_Plots,
+       filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/", 
+                               "Expression_Within_Chromatin_Domains/",
+                               species_prefix,"_",
+                               "_JK_Tests_Within_Chromatin_Domains",".png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 10,
+      height = 2.5,
+      dpi = 1000)
+
+Within_Chromatin_Domain_Expression_Mutation_Rate_Scatter_Plots <-
+  ggplot(element_ranges_unique,
+       aes(x = UniqueVariantsPlusOnePerBP,
+           y = Expression_value)) + 
+  geom_point(colour = "#ff5500", fill = alpha("#ffac00", alpha = .75), 
+             shape = 21, size = 1) +
+  labs(y = "Embryonic Expression", x = "Mutations (+1) per BP") +
+  scale_y_continuous(breaks = scales::breaks_extended(n = 10)) +
+  theme_minimal()+
+  theme(legend.position = "none",
+        strip.text = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        panel.border = element_rect(size = 1, 
+                       fill = "transparent", colour = "black"),
+        axis.ticks = element_line(colour = "black"),
+        plot.background = element_rect(fill = "transparent", colour = NA),
+      panel.background = element_rect(fill = "transparent", colour = NA)) +
+#        scale_x_discrete(expand = c(1,.1)) +
+  #stat_cor(method = "pearson", cor.coef.name = "R", 
+  #         label.y.npc="top", label.x.npc = "left", size = 3) +  # Add correlation coefficient
+  stat_cor(method = "spearman", cor.coef.name = "rho",
+           label.y.npc="top", label.x.npc = "left", size = 3) + # Add correlation coefficient
+  #stat_cor(method = "spearman", cor.coef.name = "tau",
+  #         label.y.npc="top", label.x.npc = "left", size = 3) + # Add correlation coefficient
+  facet_wrap(~Jonckheere.Region.Title, 
+             scales = "free", 
+             ncol = 6)
+
+# Save the plot — change width/height as needed
+    ggsave(plot = Within_Chromatin_Domain_Expression_Mutation_Rate_Scatter_Plots,
+       filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/", 
+                               "Expression_Within_Chromatin_Domains/",
+                               species_prefix,"_",
+                               "_Correlation_Tests_Within_Chromatin_Domains",".png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 11,
+      height = 2.5,
+      dpi = 1000)
+    
+}
+
+```
