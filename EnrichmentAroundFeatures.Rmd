@@ -193,7 +193,7 @@ lapply(names(Reduced_Variants), function(element_name) {
              bg = "transparent",
              type="cairo",
              units = "cm",
-             height = 10,
+             height = 15,
              width = 25,
              create.dir = TRUE,
              dpi = 2000)
@@ -219,7 +219,7 @@ Combined_MutationDensityPlots1 <- wrap_plots(MutationDensityPlots[
 
 # --- Save the combined figure ---
 ggsave(
-  filename = "~/DPhil/R_Data/Plots/2_GeneBody_Plots/Combined_MutationDensityPlots1.png",
+  filename = "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/Combined_MutationDensityPlots1.png",
   plot = Combined_MutationDensityPlots1,
   width = 40,
   height = 10 * length(Combined_MutationDensityPlots1),
@@ -242,7 +242,7 @@ Combined_MutationDensityPlots2 <- wrap_plots(MutationDensityPlots[
 
 # --- Save the combined figure ---
 ggsave(
-  filename = "~/DPhil/R_Data/Plots/2_GeneBody_Plots/Combined_MutationDensityPlots2.png",
+  filename = "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/Combined_MutationDensityPlots2.png",
   plot = Combined_MutationDensityPlots2,
   width = 40,
   height = 10 * length(Combined_MutationDensityPlots2),
@@ -266,7 +266,7 @@ Combined_MutationDensityPlots3 <- wrap_plots(MutationDensityPlots[
 
 # --- Save the combined figure ---
 ggsave(
-  filename = "~/DPhil/R_Data/Plots/2_GeneBody_Plots/Combined_MutationDensityPlots3.png",
+  filename = "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/Combined_MutationDensityPlots3.png",
   plot = Combined_MutationDensityPlots3,
   width = 40,
   height = 10 * length(Combined_MutationDensityPlots3),

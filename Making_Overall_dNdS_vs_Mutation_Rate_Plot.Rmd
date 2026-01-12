@@ -1,0 +1,206 @@
+---
+title: "Making_Overall_dNdS_vs_Mutation_Rate_Plot"
+output: html_document
+date: "2025-12-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(GenomicRanges)
+library(GenomicFeatures)
+library(Biostrings)
+library(patchwork)
+library(Rsamtools)
+library(ggpubr)
+library(clinfun)
+library(segmented)
+library(mgcv)
+library(tidyverse)
+library(stringr)
+library(dplyr)
+library(seqinr)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Loading Data}
+
+# Saving dNdS Mutation Rate Testing Statistics
+load(file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Spearman_Tests")
+load(file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Pearson_Tests")
+load(file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly")
+load(file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Pearson_TestsMutatedOnly")
+
+# Saving dNdS Mutation Category Association Testing Statistics
+# "T>A | A>T"
+load(file = "~/DPhil/R_Data/Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests") 
+load(file = "~/DPhil/R_Data/Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests")
+# "C>G | G>C"
+load(file = "~/DPhil/R_Data/Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests")
+load(file = "~/DPhil/R_Data/Species_dNdS_CtoG_or_GtoC_Rate_Pearson_Tests")
+# "C>T | G>A"
+load(file = "~/DPhil/R_Data/Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests")
+load(file = "~/DPhil/R_Data/Species_dNdS_CtoT_or_GtoA_Rate_Pearson_Tests")
+# "C>A | G>T"
+load(file = "~/DPhil/R_Data/Species_dNdS_CtoA_or_GtoT_Rate_Spearman_Tests") 
+load(file = "~/DPhil/R_Data/Species_dNdS_CtoA_or_GtoT_Rate_Pearson_Tests") 
+# "T>G | A>C"
+load(file = "~/DPhil/R_Data/Species_dNdS_TtoG_or_AtoC_Rate_Spearman_Tests") 
+load(file = "~/DPhil/R_Data/Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests")
+# "T>C | A>G"
+load(file = "~/DPhil/R_Data/Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests") 
+load(file = "~/DPhil/R_Data/Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests") 
+
+
+# Saving dNdS Mutation Rate Testing Statistics
+load(file = "~/DPhil/R_Data/Species_dNdS_Synonymous_MutationRate_Spearman_Tests")
+load(file = "~/DPhil/R_Data/Species_dNdS_Synonymous_MutationRate_Pearson_Tests")
+load(file = "~/DPhil/R_Data/Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly")
+load(file = "~/DPhil/R_Data/Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly")
+
+```
+
+```{r Combined Plot}
+# Combined Plot
+all_tests <- list(
+  All = Species_dNdS_MutationRate_Spearman_Tests,
+  Mutated = Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly,
+  All_Synonymous = Species_dNdS_Synonymous_MutationRate_Spearman_Tests,
+  Mutated_Synonymous = Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly,
+  TtoA_AtoT = Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests,
+  CtoG_GtoC = Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests,
+  CtoT_GtoA = Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests,
+  CtoA_GtoT = Species_dNdS_CtoA_or_GtoT_Rate_Spearman_Tests,
+  TtoG_AtoC = Species_dNdS_TtoG_or_AtoC_Rate_Spearman_Tests,
+  TtoC_AtoG = Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests
+)
+
+df <- map_df(names(all_tests), function(mutation_type) {
+
+  # each object is a list of 7 htests
+  tests <- all_tests[[mutation_type]]
+
+  map_df(names(tests), function(species) {
+    res <- tests[[species]]  # an htest object
+    tibble(
+      MutationType = mutation_type,
+      Species = species,
+      Rho = unname(res$estimate),
+      Pvalue = res$p.value
+    )
+  })
+})
+
+
+df <- subset(df, Species %ni% c("denovoDB_XXXX_Trio_Hsapiens_hg38",
+                                "Franciolo_2015_Trio_Hsapiens_hg38"))
+
+df$Species <- factor(df$Species, 
+                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+                                "SaxenaKonrad_2019_MA_Celegans_WS235",
+                                "Behringer_2016_MA_Spombe_ASM294v2",
+                                "Goldmann_2016_Trio_Hsapiens_hg38",
+                                "Villalbadelapena_2023_MA_Ncrassa_NC12"))
+
+df$MutationType <- factor(df$MutationType, 
+                          levels = c("All",
+                                     "Mutated",
+                                     "All_Synonymous",
+                                     "Mutated_Synonymous",
+                                     "TtoA_AtoT",
+                                     "TtoG_AtoC",
+                                     "TtoC_AtoG",
+                                     "CtoG_GtoC",
+                                     "CtoT_GtoA",
+                                     "CtoA_GtoT"))
+
+df$Signif <- df$Pvalue < 0.01
+
+test <-
+ggplot(df, aes(x = Species, y = Rho, fill = MutationType, group = MutationType)) +
+  geom_col(
+  linewidth = 3,
+  aes(colour = as.character(Pvalue > 0.01),    # TRUE -> white outline, FALSE -> black outline
+      alpha  = Pvalue < 0.01),                  # keep your alpha mapping
+  position = position_dodge2(width = 0.5, preserve = "single"),
+  width = 0.2
+) +
+scale_colour_manual(values = c("TRUE" = "white", "FALSE" = "black"), guide = "none") +
+  theme_bw() +
+  labs(
+    title = "Spearman Correlations of dN/dS vs Mutation Rates",
+    y = "Spearman Rho [Mutation Rate vs dNdS]",
+    x = "Species"
+  ) +
+  geom_hline(yintercept = 0, color = "black")  +
+   theme_bw() +
+  theme(
+    # Subtle grid
+        panel.grid.major.y     = element_line(colour = "white", linewidth = 0.3),
+        panel.grid.minor.y     = element_line(colour = "white", linewidth = 0.2),
+        panel.grid.major.x     = element_line(colour = "white", linewidth = 0.3),
+        panel.grid.minor.x     = element_line(colour = "white", linewidth = 0.2),
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.title.y = element_text(colour = "white", size = 28, margin = margin(r = 2)),
+    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
+    axis.line.x = element_blank(),
+    legend.title = element_text(size = 70, color = "white", vjust = 0),
+    legend.text = element_text(size = 50, color = "white"),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.background = element_blank(),
+    legend.key.width = unit(2, "cm"),
+    legend.key.spacing = unit(1, "cm"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_blank(),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    panel.border = element_blank(),
+    panel.spacing = unit(8, "lines"),
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 14) +
+  scale_x_discrete(expand = expansion(mult = 0.12)) +
+  scale_fill_manual(values = c("black",
+                               "grey",
+                               "#333333",
+                               "#eeeeee",
+                               "#B21801",
+                               "red",
+                               "#ff5800",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#66ff00",
+                               "#008000")) +
+  scale_colour_manual(values = c("black",
+                               "grey",
+                               "#333333",
+                               "#eeeeee",
+                               "#B21801",
+                               "red",
+                               "#ff5800",
+                               "#FFB703",
+                               "#c8ff00",
+                               "#66ff00",
+                               "#008000")) +
+  guides(colour = "none",
+         fill = guide_legend(title.position = "top"),
+         alpha = guide_legend(title.position = "top")) +
+  facet_grid(~Species, scales = "free_x", space = "free")
+
+# Save the plot — change width/height as needed
+      ggsave(plot = test,
+      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       "Species_Mutation_Category_vs_dNdS_Plot.png"),
+      create.dir = TRUE,
+      width = 40,
+      height = 9,
+      dpi = 800,
+      device = ragg::agg_png)
+
+```

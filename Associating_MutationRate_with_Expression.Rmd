@@ -436,7 +436,7 @@ ggplot(data = subset(df,
   geom_boxplot(outliers = FALSE) +
   labs(title = paste(name, "\n",
                        subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
-                       unique() %>% length(), "Protein Coding Genes with Embyonic Expression"),
+                       unique() %>% length(), "Protein Coding Genes\nwith Embyonic Expression"),
        subtitle = 
                 paste("Johnckheere =", 
                 jonckheere.test(
@@ -450,16 +450,16 @@ ggplot(data = subset(df,
                 alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
      theme_bw() +
   theme(
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
+    plot.title = element_text(size = 6.5, colour = "black", hjust = .5),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text.x = element_text(size = 4, color = "black", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 6, color = "black"),
+    legend.title = element_text(color = "black"),
+    legend.text = element_text(color = "black"),
+    plot.subtitle = element_text(size = 7, color = "black", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "black"),
     panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
     plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
   ) +
@@ -475,7 +475,7 @@ ggplot(data = subset(df,
                        name, "_Binned_More_Expression_vs_Mutation_Rate_Plot.png"),
       bg = "transparent",
       create.dir = TRUE,
-      width = 2.75,
+      width = 2.25,
       height = 4,
       dpi = 2500)
       

@@ -10,19 +10,32 @@ rm -rf /home/ocdm0351/DPhil/logs/
 SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
 prev_jobid=""
 
-# Find all scripts starting with a number (1–15, or more), sort numerically, and run them
-for script in $(find "$SCRIPT_DIR" -maxdepth 1 -type f -name "*.sh" | sort -V); do
-    filename=$(basename "$script")
-    num=${filename%%_*}  # extract the leading number, e.g. "1" from "1_script.sh"
+# Build a list of scripts sorted ONLY by their numeric prefix
+SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
+prev_jobid=""
 
-    # only run scripts numbered 1–12
+# Pure numeric sort
+sorted_scripts=$(find "$SCRIPT_DIR" -maxdepth 1 -type f -name "*.sh" \
+    | awk -F/ '{print $NF}' \
+    | awk -F_ '{print $1, $0}' \
+    | sort -n \
+    | awk '{print $2}')
+
+for script in $sorted_scripts; do
+    fullpath="$SCRIPT_DIR/$script"
+    num=${script%%_*}
+
     if (( num >= 1 && num <= 12 )); then
         if [ -z "$prev_jobid" ]; then
-            jobid=$(sbatch "$script" | awk '{print $4}')
+            jobid=$(sbatch "$fullpath" | awk '{print $4}')
         else
-            jobid=$(sbatch --dependency=afterok:$prev_jobid --kill-on-invalid-dep=yes "$script" | awk '{print $4}')
+            jobid=$(sbatch --dependency=afterok:$prev_jobid "$fullpath" | awk '{print $4}')
         fi
+
         echo "Submitted $script as job $jobid"
         prev_jobid=$jobid
+
+        # FIX: Give SLURM 1 second to register job before next dependency
+        sleep 1
     fi
 done
