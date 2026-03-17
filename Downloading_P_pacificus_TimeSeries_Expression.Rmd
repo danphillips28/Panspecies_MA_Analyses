@@ -1,0 +1,90 @@
+---
+title: "Wrangling_Ppacificus_Embryo_TimeSeries_Expression_Data"
+output: html_document
+date: "2025-10-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# --- User-editable paths ----------------------------------------------------
+expr_url <- "https://raw.githubusercontent.com/drjuliejung/GRN-shiny/main/values_All_nottransformed.csv"
+gtf_file <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/P_pacificus/Elpaco/genes.gtf"
+outdir   <- path.expand("/home/ocdm0351/DPhil/R_Data/")
+# ---------------------------------------------------------------------------
+
+# 1) Read expression matrix
+expr <- read.csv(expr_url, row.names = 1, stringsAsFactors = FALSE, check.names = FALSE)
+message("Loaded expression matrix: ", nrow(expr), " genes x ", ncol(expr), " samples")
+
+# 2) detect timepoints from columns of form AG_*_n (capture the middle token)
+#    regex: ^AG_([^_]+)_[0-9]+$
+col_names <- colnames(expr)
+m <- regexec("^AG_([^_]+)_[0-9]+$", col_names)
+matches <- regmatches(col_names, m)
+# extract token (group 1) where match exists
+timepoints <- unique(unlist(lapply(matches, function(x) if(length(x)>=2) x[2] else NULL)))
+timepoints <- timepoints[!is.na(timepoints) & nzchar(timepoints)]
+if (length(timepoints) == 0) stop("No AG_*_n columns found. Column names: ", paste(head(col_names,40), collapse = ", "))
+message("Detected timepoints: ", paste(timepoints, collapse = ", "))
+
+# 3) build mapping table from GTF once (PPA -> WBGene) if GTF exists
+map <- NULL
+if (file.exists(gtf_file)) {
+  message("Parsing GTF for mapping: ", gtf_file)
+  gtf_lines <- readLines(gtf_file, warn = FALSE)
+  gtf_lines <- gtf_lines[!grepl("^\\s*#", gtf_lines)]
+  # keep only gene lines (avoid duplicating mapping from exon/transcript lines)
+  gtf_gene <- gtf_lines[sapply(strsplit(gtf_lines, "\t", fixed = TRUE), function(x) length(x) >= 9 && x[3] == "gene")]
+  if (length(gtf_gene) > 0) {
+    attrs <- sapply(gtf_gene, function(l) strsplit(l, "\t", fixed = TRUE)[[1]][9], USE.NAMES = FALSE)
+    extract_attr <- function(key, attrs_vec=attrs) {
+      pat <- paste0(key, ' "([^"]+)"')
+      m <- regexec(pat, attrs_vec)
+      sapply(regmatches(attrs_vec, m), function(x) if (length(x) >= 2) x[2] else NA_character_)
+    }
+    map <- data.frame(PPA = extract_attr("gene_name"), WBGene = extract_attr("gene_id"), stringsAsFactors = FALSE)
+    map <- unique(map[!is.na(map$PPA) & !is.na(map$WBGene), ])
+    message("Extracted ", nrow(map), " unique PPA <-> WBGene mappings from GTF")
+  } else {
+    message("No 'gene' feature lines found in GTF; mapping not created.")
+  }
+} else {
+  message("GTF not found at: ", gtf_file, " — output will keep PPA IDs.")
+}
+
+# ensure output dir
+if (!dir.exists(outdir)) dir.create(outdir, recursive = TRUE)
+
+# 4) for each timepoint collapse replicates and save a TSV
+for (tp in sort(timepoints)) {
+  pattern <- paste0("^AG_", tp, "_[0-9]+$")
+  cols <- grep(pattern, col_names, value = TRUE)
+  if (length(cols) == 0) {
+    message("No columns found for timepoint ", tp, " (pattern ", pattern, ") — skipping")
+    next
+  }
+  message("Processing timepoint ", tp, ": found ", length(cols), " columns")
+  df <- data.frame(
+    PPA = rownames(expr),
+    logVST = rowMeans(expr[, cols, drop = FALSE], na.rm = TRUE),
+    stringsAsFactors = FALSE,
+    row.names = NULL
+  )
+  # map to WBGene if mapping available
+  if (!is.null(map)) {
+    ix <- match(df$PPA, map$PPA)
+    df$Gene_ID <- ifelse(!is.na(ix) & nzchar(map$WBGene[ix]), map$WBGene[ix], df$PPA)
+  } else {
+    df$Gene_ID <- df$PPA
+  }
+  out <- df[, c("Gene_ID", "logVST")]
+  outpath <- file.path(outdir, paste0("P_pacificus_Embryonic_TimeSeries_", tp, "_Expression.tsv")) 
+  write.table(out, outpath, sep = "\t", row.names = FALSE, quote = FALSE)
+  message("Saved: ", outpath, " (", nrow(out), " rows)")
+}
+
+message("Done — produced files for timepoints: ", paste(sort(timepoints), collapse = ", "))
+```

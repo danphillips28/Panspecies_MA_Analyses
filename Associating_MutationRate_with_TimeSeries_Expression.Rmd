@@ -15,16 +15,27 @@ library(data.table)
 `%ni%` <- Negate(`%in%`)
 ```
 
+
+```{r Setting Paths}
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+```
+
+
 ```{r Loading Data}
-load(file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
-Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[
-                                                                      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Dmelanogaster" |
-                                                                      #names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      #"Hsapiens" |
+                                                                     # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                    #  "Hsapiens" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Celegans"]
+                                                                      "Celegans" |
+                                                                      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Ppacificus"]
 ```
 
 ```{r Read and Merge TimeSeries Expression Data}
@@ -44,7 +55,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   # Find all relevant files
   species_files <- list.files(
-    path = "~/DPhil/R_Data",
+    path = R_Data,
     pattern = paste0("^", species_prefix, ".*TimeSeries_([0-9]+).*"),
     full.names = TRUE
   )
@@ -188,7 +199,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     ggsave(
       p1,
       filename = paste0(
-        "~/DPhil/R_Data/Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
         species_prefix, "/",
         plot_tag, "_Linear_Association_Plot.png"
       ),
@@ -265,7 +276,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     ggsave(
       p1,
       filename = paste0(
-        "~/DPhil/R_Data/Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
         species_prefix, "/",
         plot_tag, "_MutatedOnly_Linear_Association_Plot.png"
       ),
@@ -376,10 +387,10 @@ ggplot(Spearman_summary, aes(x = timepoint, y = coefficient)) +
 ggsave(
       testgpt,
       filename = paste0(
-        "~/DPhil/R_Data/Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
         "Pan_Species_MutationRate_vs_Expression_Coefficients_Across_Development.png"
       ),
-      width = 8,
+      width = 10,
       height = 7,
       dpi = 1000,
       create.dir = TRUE
@@ -403,7 +414,7 @@ library(scales)
 nquant <- c(5,10)
 
 # Create directory for plots
-dir.create("~/DPhil/R_Data/Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles", recursive = TRUE, showWarnings = FALSE)
+dir.create(paste0(R_Data, "Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles"), recursive = TRUE, showWarnings = FALSE)
 
 # Loop through all species dataframes
 for (n_quantiles in nquant) {
@@ -513,7 +524,7 @@ df_sub <- df_sub %>%
   
   # --- Save plot ---
   ggsave(p_median,
-    filename = paste0("~/DPhil/R_Data/Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles/",
+    filename = paste0(R_Data, "Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles/",
                       species_prefix, "_", n_quantiles, "_Quantile_Median_Expression_Trajectories.png"),
     width = 7,
     height = 5,
@@ -553,7 +564,7 @@ df_sub <- df_sub %>%
   
   # --- Save plot ---
   ggsave(p_mean,
-    filename = paste0("~/DPhil/R_Data/Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles/",
+    filename = paste0(R_Data, "R_Data/Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles/",
                       species_prefix, "_", n_quantiles, "_Quantile_Mean_Expression_Trajectories.png"),
     width = 7,
     height = 5,
@@ -594,7 +605,7 @@ df_sub <- df_sub %>%
   
   # --- Save plot ---
   ggsave(p_mean_dNdS,
-    filename = paste0("~/DPhil/R_Data/Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles/",
+    filename = paste0(R_Data, "Plots/7_MutationRate_vs_TimeSeries_Expression_Quantiles/",
                       species_prefix, "_", "_Quantile_Mean_dNdS_Expression_Trajectories.png"),
     width = 7,
     height = 5,

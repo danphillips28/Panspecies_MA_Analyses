@@ -1,0 +1,4 @@
+#!/bin/bash
+
+wget https://oup.silverchair-cdn.com/oup/backfile/Content_public/Journal/g3journal/PAP/10.1093_g3journal_jkag038/1/jkag038_supplementary_data.zip?Expires=1774383367&Signature=zc~t7z9zqVG3t1SHygPCqP4miCBA7zKDHiKObB1bK4eGL2yA~xTFR7E3UAlY4upoGYadfYDn4~qPmTDGVCk3EHyfG8WDIN3CM5bzN-obk6hlpyqFcAQQUqUcP49w-GPLCQprPzsIddOqExA12rrKkFHXDF4CRe4pqAv3u5Yr6gcUfWsUzVMLhvLOy60XnzfJvcXsOu0poDjcL1E18UNyXy7ShFAL6lucu506Z7W8nQwFyTJ~-Uvxb8Y6Ks761VIoUii6HL-ZMrb1LV3wW~SlBZTwt1mtojZS9mokRnQqjNhDtY1hD~3qxZ3VW62hMhEprLhmYSpqLnaLM-~UhLXtgQ__&Key-Pair-Id=APKAIE5G5CRDK6RD3PGA
+

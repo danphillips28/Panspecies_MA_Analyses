@@ -25,7 +25,7 @@ for script in $sorted_scripts; do
     fullpath="$SCRIPT_DIR/$script"
     num=${script%%_*}
 
-    if (( num >= 1 && num <= 12 )); then
+    if (( num >= 1 && num <= 14 )); then
         if [ -z "$prev_jobid" ]; then
             jobid=$(sbatch "$fullpath" | awk '{print $4}')
         else

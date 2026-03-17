@@ -20,7 +20,7 @@ download.file(expr_url, destfile = "SRP000401_expr.tsv.gz", mode = "wb")
 
 # Load Data Matrix
 library(data.table)
-expr <- fread("SRP000401_expr.tsv.gz")
+expr <- fread(cmd = paste("gzip -dc", shQuote("SRP000401_expr.tsv.gz")))
 
 clean_df <- subset(expr, `Stage name` == "embryo stage" & Strain == "N2") %>% 
         select(c("Gene ID","FPKM"))

@@ -2,7 +2,7 @@
 #SBATCH --job-name=6_snpEffSift.sh
 #SBATCH --output=/home/ocdm0351/DPhil/logs/6_snpEffSift_%A_%a.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/6_snpEffSift_%A_%a.err
-#SBATCH --array=1-8%4
+#SBATCH --array=1-10%4
 
 module load Anaconda3
 source activate snpEff

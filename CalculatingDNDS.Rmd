@@ -21,7 +21,7 @@ Sister_Species_Table <-
 read.table(file = "/home/ocdm0351/DPhil/R_Data/Sister_Species_Table.txt", header = TRUE)
 
 Sister_Species_Table <- 
-Sister_Species_Table[,c("species","end_build","sister_species")] %>% subset(., species != "P_pacificus") %>% unique()
+Sister_Species_Table[,c("species","end_build","sister_species")] %>% unique()  #subset(., species != "P_pacificus") %>% unique()
 ```
 
 ```{r Running OrthologR}

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=11_Renaming_References_for_OrthologR
-#SBATCH --array=1-7%2 # Should be 1 to the number of files (rows) in the summary file
+#SBATCH --array=1-10%2 # Should be 1 to the number of files (rows) in the summary file
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A_%a.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A_%a.err
 

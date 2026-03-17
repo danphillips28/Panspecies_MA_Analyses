@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=4_lifting_Over
-#SBATCH --array=1-8%2 # Should be 1 to the number of files (rows) in the summary file
+#SBATCH --array=1-10%2 # Should be 1 to the number of files (rows) in the summary file
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A_%a.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A_%a.err
 
@@ -38,9 +38,19 @@ mkdir -p "$END_BUILD_DIR"
 
 # Download references
 echo "Downloading references..."
+# FASTA Genome
 wget -q -O "$END_BUILD_DIR/sequences.fa.gz" "$end_build_fasta_url" && gunzip -f "$END_BUILD_DIR/sequences.fa.gz"
+# Fix FASTA chromosome names (was an issue for P. pacificus)
+sed -i '/^>/ s/>PPA_Chr/>/' "$END_BUILD_DIR/sequences.fa"
+# GTF Annotation 
 wget -q -O "$END_BUILD_DIR/genes.gtf.gz" "$end_build_gtf_url" && gunzip -f "$END_BUILD_DIR/genes.gtf.gz"
+# Fix GTF chromosome column (was an issue for P. pacificus)
+# safe: treat file as tab-separated so field 9 remains the whole attributes string
+awk 'BEGIN{FS=OFS="\t"} {sub(/PPA_Chr/,"",$1); print}' "$END_BUILD_DIR/genes.gtf" > "$END_BUILD_DIR/genes.fixed.gtf"
+mv "$END_BUILD_DIR/genes.fixed.gtf" "$END_BUILD_DIR/genes.gtf"
+# Coding Sequences FASTA
 wget -q -O "$END_BUILD_DIR/cds.fa.gz" "$end_build_cds_url" && gunzip -f "$END_BUILD_DIR/cds.fa"
+# Protein Sequences FASTA
 wget -q -O "$END_BUILD_DIR/protein.fa.gz" "$end_build_aa_url" && gunzip -f "$END_BUILD_DIR/protein.fa.gz"
 
 REFERENCE="$END_BUILD_DIR/sequences.fa"

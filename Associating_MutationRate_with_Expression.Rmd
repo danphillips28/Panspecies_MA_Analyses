@@ -18,15 +18,27 @@ library(clinfun)
 `%ni%` <- Negate(`%in%`)
 ```
 
+
+```{r Setting Paths}
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+```
+
+
 ```{r Loading Data}
-load(file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Dmelanogaster" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Hsapiens" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Celegans"]
+                                                                      "Celegans" |
+                                                                      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Ppacificus"]
 ```
 
 ```{r Merge Expression to Annotated_VCFs}
@@ -39,7 +51,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   species <- str_split(element_name, "_", simplify = TRUE)[4]
   species_prefix <- paste0(substr(species, 1, 1), "_", substr(species, 2, nchar(species)))
   # Read in Embryonic Expression
-  expression <- read_tsv(file = paste0("~/DPhil/R_Data/", species_prefix, "_Embryonic_Expression.tsv"))
+  expression <- read_tsv(file = paste0(R_Data, species_prefix, "_Embryonic_Expression.tsv"))
   # Rename columns
   colnames(expression) <- c("gene_id","Expression_value")
   # Remove version number if present
@@ -119,7 +131,7 @@ Genewise_MutationRate_by_Expression_Plots <- Map(
 
     # Save the plot — change width/height as needed
     ggsave(plot = p1,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_Expression_vs_Mutation_Rate_Plot.png"),
       create.dir = TRUE,
@@ -183,7 +195,7 @@ Genewise_MutationRate_by_Expression_Plots <- Map(
 
     # Save the plot — change width/height as needed
       ggsave(plot = p2,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_GAM_SegReg_Expression_value_vs_Mutation_Rate_Plot.png"),
       create.dir = TRUE,
@@ -263,7 +275,7 @@ MutatedOnly_Genewise_MutationRate_by_Expression_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p1,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_Expression_vs_Mutation_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -414,7 +426,7 @@ ggplot(data = subset(df,
 
     # Save the plot — change width/height as needed
       ggsave(plot = p1,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_Binned_Expression_vs_Mutation_Rate_Plot.png"),
       bg = "transparent",
@@ -470,7 +482,7 @@ ggplot(data = subset(df,
 
     # Save the plot — change width/height as needed
       ggsave(plot = p2,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_Binned_More_Expression_vs_Mutation_Rate_Plot.png"),
       bg = "transparent",
@@ -483,6 +495,139 @@ ggplot(data = subset(df,
   Annotated_VCFs_PC_Gene_Body_Variants,
   names(Annotated_VCFs_PC_Gene_Body_Variants)
 )
+
+
+``` 
+
+```{r Associating Expression and Mutation Rate Mutated Only}
+# 1 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
+Genewise_Binned_MutationRate_by_Expression_Plots_MutatedOnly <- Map(
+  function(df, name) {
+    
+    df <- subset(df, UniqueVariants > 0)
+
+    species_name <- strsplit(name, "_")[[1]][4]
+    species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+  
+# Subset to only loci with Expression
+df <- subset(df, is.na(log2_Expression_Plus_One) == FALSE) 
+
+# Plot Association of Expression Bins with MutationsPlusOnePerBP 
+p1 <-
+ggplot(data = subset(df,
+                     is.na(Overall_Expression_Group) == FALSE),
+       aes(x = Overall_Expression_Group, 
+           y = UniqueVariantsPlusOnePerBP,
+           fill = Overall_Expression_Group)) +
+  theme_bw() +
+  geom_boxplot(outliers = FALSE) +
+  labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Mutated Protein Coding Genes with Embyonic Expression"),
+       subtitle = 
+                paste("Johnckheere =", 
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group, 
+                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
+                "p =",
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group, 
+                alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
+     theme_bw() +
+  theme(
+    plot.title = element_text(size = 6, colour = "white", hjust = .5),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 6, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "white"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group)))) +
+  guides(fill = "none")
+
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p1,
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Binned_Expression_vs_Mutation_Rate_Plot_MutatedOnly.png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2.75,
+      height = 4,
+      dpi = 2500)
+      
+      
+      
+# Plot Association of More Expression Bins with MutationsPlusOnePerBP 
+p2 <-
+ggplot(data = subset(df,
+                     is.na(Overall_Expression_Group_More) == FALSE),
+       aes(x = Overall_Expression_Group_More, 
+           y = UniqueVariantsPlusOnePerBP,
+           fill = Overall_Expression_Group_More)) +
+  theme_bw() +
+  geom_boxplot(outliers = FALSE) +
+  labs(title = paste(name, "\n",
+                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
+                       unique() %>% length(), "Mutated Protein Coding Genes\nwith Embyonic Expression"),
+       subtitle = 
+                paste("Johnckheere =", 
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group_More, 
+                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
+                "p =",
+                jonckheere.test(
+                df$UniqueVariantsPlusOne, 
+                df$Overall_Expression_Group_More, 
+                alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
+     theme_bw() +
+  theme(
+    plot.title = element_text(size = 6.5, colour = "black", hjust = .5),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text.x = element_text(size = 4, color = "black", vjust = .6, angle = 15),
+    axis.text.y = element_text(size = 6, color = "black"),
+    legend.title = element_text(color = "black"),
+    legend.text = element_text(color = "black"),
+    plot.subtitle = element_text(size = 7, color = "black", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
+    strip.text = element_text(color = "black"),
+    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
+    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
+  ) +
+  scale_y_continuous(n.breaks = 20) +
+  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More)))) +
+  guides(fill = "none")
+
+
+    # Save the plot — change width/height as needed
+      ggsave(plot = p2,
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
+                       species_name, "/",
+                       name, "_Binned_More_Expression_vs_Mutation_Rate_Plot_MutatedOnly.png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2.25,
+      height = 4,
+      dpi = 2500)
+      
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+
+
 ``` 
 
 ```{r Plotting Mutation Rate vs Expression Facetted by Mutation Category}
@@ -622,7 +767,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoA_or_AtoT,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_Expression_vs_TtoA_or_AtoT_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -670,7 +815,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoG_or_GtoC,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_dNdS_vs_CtoG_or_GtoC_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -718,7 +863,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoT_or_GtoA,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_dNdS_vs_CtoT_or_GtoA_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -766,7 +911,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoA_or_GtoT,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_dNdS_vs_CtoA_or_GtoT_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -814,7 +959,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoG_or_AtoC,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_dNdS_vs_TtoG_or_AtoC_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -862,7 +1007,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoC_or_AtoG,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_dNdS_vs_TtoC_or_AtoG_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
@@ -909,10 +1054,10 @@ df <- map_df(names(all_tests), function(mutation_type) {
 dfF <- subset(df, Species %ni% c("denovoDB_XXXX_Trio_Hsapiens_hg38",
                                 "Goldmann_2016_Trio_Hsapiens_hg38"))
 
-dfF$Species <- factor(dfF$Species, 
-                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
-                                "Franciolo_2015_Trio_Hsapiens_hg38",
-                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
+#dfF$Species <- factor(dfF$Species, 
+#                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+#                                "Franciolo_2015_Trio_Hsapiens_hg38",
+#                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
 
 dfF$MutationType <- factor(dfF$MutationType, 
                           levels = c("Overall",
@@ -997,7 +1142,7 @@ ggplot(dfF, aes(x = Species, y = Rho, fill = MutationType)) +
 
 # Save the plot — change width/height as needed
       ggsave(plot = testF,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        "Species_Mutation_Category_vs_Expression_PlotF.png"),
       create.dir = TRUE,
       width = 40,
@@ -1009,10 +1154,10 @@ ggplot(dfF, aes(x = Species, y = Rho, fill = MutationType)) +
 dfG <- subset(df, Species %ni% c("denovoDB_XXXX_Trio_Hsapiens_hg38",
                                  "Franciolo_2015_Trio_Hsapiens_hg38"))
 
-dfG$Species <- factor(dfG$Species, 
-                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
-                                "Goldmann_2016_Trio_Hsapiens_hg38",
-                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
+#dfG$Species <- factor(dfG$Species, 
+#                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+#                                "Goldmann_2016_Trio_Hsapiens_hg38",
+#                                "SaxenaKonrad_2019_MA_Celegans_WS235"))
 
 dfG$MutationType <- factor(dfG$MutationType, 
                           levels = c("Overall",
@@ -1097,7 +1242,7 @@ ggplot(dfG, aes(x = Species, y = Rho, fill = MutationType)) +
 
 # Save the plot — change width/height as needed
       ggsave(plot = testG,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        "Species_Mutation_Category_vs_Expression_PlotG.png"),
       create.dir = TRUE,
       width = 40,
@@ -1198,7 +1343,7 @@ ggplot(dfD, aes(x = Species, y = Rho, fill = MutationType)) +
 
 # Save the plot — change width/height as needed
       ggsave(plot = testD,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        "Species_Mutation_Category_vs_Expression_PlotD.png"),
       create.dir = TRUE,
       width = 40,
@@ -1269,7 +1414,7 @@ Genewise_dNdS_by_Expression_Plots <- Map(
 
     # Save the plot — change width/height as needed
     ggsave(plot = p1,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name,"/",
                        name, "_Expression_vs_dNdS_Rate_Plot.png"),
       create.dir = TRUE,
@@ -1327,7 +1472,7 @@ Genewise_dNdS_by_Expression_Plots <- Map(
 
     # Save the plot — change width/height as needed
       ggsave(plot = p2,
-      filename = paste("~/DPhil/R_Data/Plots/4_Mutation_and_Expression_Association_Plots/",
+      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name,"/",
                        name, "_GAM_SegReg_Expression_value_vs_dNdS_Rate_Plot.png"),
       create.dir = TRUE,
@@ -1346,38 +1491,39 @@ Genewise_dNdS_by_Expression_Plots <- Map(
 ```{r Saving Annotated_VCFs}
 # Saving Annotated Gene Body Variants
 save(Annotated_VCFs_PC_Gene_Body_Variants, 
-     file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+     file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 # Saving Annotated Gene Body Variants
 save(Annotated_VCFs_PC_Gene_Body_Variants, 
-     file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+     file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 
 # Saving dNdS Mutation Rate Testing Statistics
 save(Species_Expression_MutationRate_Spearman_Tests, 
-     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Spearman_Tests")
+     file = paste0(R_Data, "Species_Expression_MutationRate_Spearman_Tests"))
 save(Species_Expression_MutationRate_Pearson_Tests, 
-     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Pearson_Tests")
+     file = paste0(R_Data, "Species_Expression_MutationRate_Pearson_Tests"))
 save(Species_Expression_MutationRate_Spearman_Tests_MutatedOnly, 
-     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Spearman_Tests_MutatedOnly")
+     file = paste0(R_Data, "Species_Expression_MutationRate_Spearman_Tests_MutatedOnly"))
 save(Species_Expression_MutationRate_Pearson_TestsMutatedOnly, 
-     file = "~/DPhil/R_Data/Species_Expression_MutationRate_Pearson_TestsMutatedOnly")
+     file = paste0(R_Data, "Species_Expression_MutationRate_Pearson_TestsMutatedOnly"))
 
 # Saving Expression Mutation Category Association Testing Statistics
 # "T>A | A>T"
-save(Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests") 
-save(Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests")
+save(Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests, file = paste0(R_Data, "Species_Expression_TtoA_or_AtoT_Rate_Spearman_Tests")) 
+save(Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests, file = paste0(R_Data, "/Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests"))
 # "C>G | G>C"
-save(Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests")
-save(Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests")
+save(Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests, file = paste0(R_Data, "Species_Expression_CtoG_or_GtoC_Rate_Spearman_Tests"))
+save(Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests, file = paste0(R_Data, "Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests"))
 # "C>T | G>A"
-save(Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests")
-save(Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests , file = "~/DPhil/R_Data/Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests")
+save(Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests, file = paste0(R_Data, "Species_Expression_CtoT_or_GtoA_Rate_Spearman_Tests"))
+save(Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests , file = paste0(R_Data, "Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests"))
 # "C>A | G>T"
-save(Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests") 
-save(Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests") 
+save(Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests, file = paste0(R_Data, "Species_Expression_CtoA_or_GtoT_Rate_Spearman_Tests")) 
+save(Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests, file = paste0(R_Data, "Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests")) 
 # "T>G | A>C"
-save(Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests") 
-save(Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests")
+save(Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests, file = paste0(R_Data, "Species_Expression_TtoG_or_AtoC_Rate_Spearman_Tests"))  
+save(Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests, file = paste0(R_Data, "Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests"))
 # "T>C | A>G"
-save(Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests") 
-save(Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests") 
+save(Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests, file = paste0(R_Data, "Species_Expression_TtoC_or_AtoG_Rate_Spearman_Tests")) 
+save(Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests, file = paste0(R_Data, "Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests")) 
 ```
+

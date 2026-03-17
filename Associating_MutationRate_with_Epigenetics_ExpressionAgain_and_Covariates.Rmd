@@ -22,14 +22,25 @@ library(cutnumberint)
 library(ggnewscale)
 ```
 
-```{r Read in Annotated VCFs and Source Table for Epigenetic Modification Files}
-# Loading Annotated Gene Body Variants
-load(file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
-Annotated_VCFs_PC_Gene_Body_Variants <- 
-  Annotated_VCFs_PC_Gene_Body_Variants[
-                                    names(Annotated_VCFs_PC_Gene_Body_Variants) == "SaxenaKonrad_2019_MA_Celegans_WS235"] # |
-                                    #names(Annotated_VCFs_PC_Gene_Body_Variants) == "Assaf_2017_MA_Dmelanogaster_BDGP6"]
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+# Subset to just Drosophila for testing
+Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Dmelanogaster"] # |
+                                                                     # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                    #  "Hsapiens" |
+                                                                   #   names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                #      "Celegans"] #|
+                                                                #      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                #      "Ppacificus"]
 ```
 
 ```{r Read and Save Epigenetics and Covariate Data}
@@ -47,7 +58,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   
   # 3. Find all bedgraph files starting with species_prefix and ending with "bedgraph"
   species_files <- list.files(
-    path = "~/DPhil/R_Data",
+    path = R_Data,
     pattern = paste0("^", species_prefix, ".*bedgraph$"),
     full.names = TRUE)
   
@@ -79,6 +90,7 @@ Species_Epigenetics_and_Covariates <- lapply(Species_Epigenetics_and_Covariates,
     if (ncol(df) == 3) df <- df[,c("V1","V2","V2","V3")]
     colnames(df) <- c("chrom","start","end","value")
     df$chrom <- sub("^chr", "", df$chrom)  # remove "chr" from first column (chromosome)
+    df$chrom <- sub("^Chr", "", df$chrom)  # remove "chr" from first column (chromosome)
    # set.seed(123)
   #  df$Overall_Mutation_Rate_Group <- cut_number(jitter(df$UniqueVariantsPlusOnePerBP), n = 5)
     df
@@ -248,36 +260,36 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       fill = "Mutation \n Rate \n Quantile") +
       theme_bw() +
     theme(# Transparent backgrounds
-          panel.background = element_rect(fill = "transparent", colour = NA),
+          panel.background = element_rect(fill = "white", colour = NA),
           plot.background = element_rect(fill = "transparent", colour = NA),
           legend.background = element_rect(fill = "transparent", colour = NA),
           legend.box.background = element_rect(fill = "transparent", colour = NA),
           # Keep grid lines visible and black
           panel.grid.major = element_line(color = "black", size = 0.2),
           panel.grid.minor = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+          plot.title = element_text(size = 6, colour = "white", hjust = .5),
+          text = element_text(color = "white"),
+          axis.title = element_text(color = "white"),
+          axis.text = element_text(color = "white"),
+          legend.title = element_text(color = "white"),
+          legend.text = element_text(color = "white"),
+          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "white")) +
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 
           # ggSaving
           ggsave(MutationDensityPlot,
-             filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/",
+             filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
                                "Epigenetic_EnrichedHeatmaps/",
                                species_prefix,
-                                "/GeneBody_Enrichment_of_", mark_name_nospecies, ".png"),
+                                "/GeneBody_Enrichment_of_", mark_name_nospecies, "_", element_name, ".png"),
              bg = "transparent",
              type="cairo",
              units = "cm",
              height = 8,
-             width = 13,
+             width = 15,
              create.dir = TRUE,
              dpi = 2000)
           
@@ -370,11 +382,11 @@ ggplot(
 
     # Save the plot — change width/height as needed
     ggsave(plot = p1,
-       filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/", 
+       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
                                "Epigenetic_MutationRate_Scatter_Plots/",
                                species_prefix,"/",
                                species_prefix,"_",
-                                mark_name_nospecies,"_versus_MutationRate",".png"),
+                                mark_name_nospecies,"_versus_MutationRate", "_", element_name, ".png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
@@ -452,11 +464,11 @@ ggplot(plot_df, aes(x = Overall_Mark_Group,
 
     # Save the plot — change width/height as needed
     ggsave(plot = p2,
-       filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/", 
+       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
                                "Epigenetic_MutationRate_JK_Plots/",
                                species_prefix,"/",
                                species_prefix,"_",
-                                mark_name_nospecies,"_Bins_versus_MutationRate",".png"),
+                                mark_name_nospecies,"_Bins_versus_MutationRate", "_", element_name, ".png"),
       bg = "transparent",
       create.dir = TRUE,
       width = 2,
@@ -503,7 +515,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   
   # Subset to Only Covariate and Predictor Columns
   element_data <- element %>%
-  select(GENE_ID, 
+  dplyr::select(GENE_ID, 
          UniqueVariantsPlusOnePerBP, 
          log2_Expression_Plus_One, 
          GC_Percentage,
@@ -512,7 +524,8 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                  "H3K9me2$","H3K9me3$",
                  "H3K9ac$","H4K5ac$",
                  "H3K4me1$","H3K4me3",
-                 "plus$","minus4",
+                 #"plus$",
+                 #"minus$",
                  "mean_replication")))
   
   # Working with complete cases for now
@@ -602,7 +615,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
-  scale_fill_gradient2(low = "#003300", mid = "white", high = "#ff3c00", midpoint = 0) +
+  scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
     guides(fill = "none") +
   
   # Reset Scales
@@ -615,7 +628,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
-  scale_fill_gradient2(low = "#003300", mid = "white", high = "#ff3c00", midpoint = 0) +
+  scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
     guides(fill = "none") +
     
   # Theming
@@ -628,18 +641,18 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   ) +
   theme_minimal(base_size = 13) +
   theme(
-    plot.title = element_text(size = 10, face = "bold", colour = "black", hjust = .5),
-    plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text.x = element_text(size = 5, color = "black"),  # smaller labels
-    axis.text.y = element_text(size = 8, color = "black"),
-    legend.title = element_text(color = "black"),
-    legend.text = element_text(color = "black"),
-    strip.text = element_text(color = "black"),
+    plot.title = element_text(size = 10, face = "bold", colour = "white", hjust = .5),
+    plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
+    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+    text = element_text(color = "white"),
+    axis.title = element_text(color = "white"),
+    axis.text.x = element_text(size = 5, color = "white"),  # smaller labels
+    axis.text.y = element_text(size = 8, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white"),
+    strip.text = element_text(color = "white"),
     legend.position = "top",
-    panel.background = element_rect(fill = NA, color = NA),
+    panel.background = element_rect(fill = "white", color = "black"),
     plot.background = element_rect(fill = NA, color = NA),
     legend.background = element_rect(fill = NA, color = NA),
     panel.grid.major = element_line(colour = "black", size = .3)) +    
@@ -647,13 +660,13 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   # Save the plot — change width/height as needed
     ggsave(plot = LASSO_Spearman_Coefficients_Plot,
-       filename = paste0("~/DPhil/R_Data/Plots/5_Mutation_and_Methylation_Association_Plots/", 
+       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
                                "Expression_Methylation_LASSO_Plots/",
-                               species_prefix,"_",
+                               element_name, "_",
                                "_LASSO_Model_Plot",".png"),
       bg = "transparent",
       create.dir = TRUE,
-      width = 8,
+      width = 5.5,
       height = 3.4,
       dpi = 1000)
   

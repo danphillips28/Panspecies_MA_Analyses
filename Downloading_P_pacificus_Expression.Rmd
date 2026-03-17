@@ -1,0 +1,51 @@
+---
+title: "Wrangling_Ppacificus_Embryo_TimeSeries_Expression_Data"
+output: html_document
+date: "2025-10-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Simple: read expression, average replicates, map PPA -> WBGene from GTF, save.
+expr <- read.csv("https://raw.githubusercontent.com/drjuliejung/GRN-shiny/main/values_All_nottransformed.csv",
+                 row.names = 1, stringsAsFactors = FALSE, check.names = FALSE)
+
+# collapse replicates for AG_24
+df <- data.frame(
+  PPA = rownames(expr),
+  normCounts = rowMeans(expr[, c("AG_24_1","AG_24_2","AG_24_3")], na.rm = TRUE),
+  stringsAsFactors = FALSE
+)
+
+# parse GTF for mapping (edit path if needed)
+gtf_file <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/P_pacificus/Elpaco/genes.gtf"
+if (file.exists(gtf_file)) {
+  gtf <- readLines(gtf_file, warn = FALSE)
+  gtf <- gtf[!grepl("^\\s*#", gtf)]
+  gtf_gene <- gtf[sapply(strsplit(gtf, "\t"), function(x) length(x) >= 9 && x[3] == "gene")]
+  attrs <- sapply(gtf_gene, function(l) strsplit(l, "\t")[[1]][9])
+  extract <- function(key) {
+    pat <- paste0(key, ' "([^"]+)"')
+    v <- regmatches(attrs, regexec(pat, attrs))
+    sapply(v, function(x) if(length(x)>=2) x[2] else NA_character_)
+  }
+  map <- data.frame(PPA = extract("gene_name"), WBGene = extract("gene_id"), stringsAsFactors = FALSE)
+  map <- unique(map[!is.na(map$PPA) & !is.na(map$WBGene), ])
+  # perform mapping: prefer WBGene, fallback to PPA
+  ix <- match(df$PPA, map$PPA)
+  df$Gene_ID <- ifelse(!is.na(ix) & nzchar(map$WBGene[ix]), map$WBGene[ix], df$PPA)
+} else {
+  df$Gene_ID <- df$PPA
+}
+
+# final output and save
+out <- df[, c("Gene_ID", "normCounts")]
+outpath <- file.path(path.expand("~/DPhil/R_Data"), "P_pacificus_Embryonic_Expression.tsv")
+if (!dir.exists(dirname(outpath))) dir.create(dirname(outpath), recursive = TRUE)
+write.table(out, outpath, sep = "\t", row.names = FALSE, quote = FALSE)
+message("Saved: ", outpath)
+print(head(out))
+```

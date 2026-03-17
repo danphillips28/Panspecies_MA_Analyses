@@ -8,6 +8,11 @@ date: "2025-09-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r Setting Paths for HPC vs Laptop}
+#Laptop_
+#HPC_R_Data <- ""
+```
+
 ```{r Libraries}
 library(GenomicRanges)
 library(GenomicFeatures)
@@ -24,16 +29,23 @@ library(dplyr)
 `%ni%` <- Negate(`%in%`)
 ```
 
+```{r Setting Paths}
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+```
+
 ```{r Loading VCFs GTF dNdS and snpEff Canonical Transcripts to Filter All By}
-load(file = "~/DPhil/R_Data/Annotated_VCFs_Raw")
-load(file = "~/DPhil/R_Data/Species_dNdS_Ratios")
-load(file = "~/DPhil/R_Data/Species_Genes_gtf")
-load(file = "~/DPhil/R_Data/Species_Canonical_Transcripts_gtf")
-load(file = "~/DPhil/R_Data/Species_Canonical_Mappings")
+load(file = paste0(R_Data,"Annotated_VCFs_Raw"))
+load(file = paste0(R_Data,"Species_dNdS_Ratios"))
+load(file = paste0(R_Data,"Species_Genes_gtf"))
+load(file = paste0(R_Data,"Species_Canonical_Transcripts_gtf"))
+load(file = paste0(R_Data,"Species_Canonical_Mappings"))
 
 # Subset for Debugging Purposes
-Annotated_VCFs_Raw <- Annotated_VCFs_Raw[names(Annotated_VCFs_Raw) %ni% c(
-                                                                          "Weller_2014_MA_Ppacificus_El_paco")]
+#Annotated_VCFs_Raw <- Annotated_VCFs_Raw[names(Annotated_VCFs_Raw) %ni% c(
+#                                                                          "Weller_2014_MA_Ppacificus_El_paco")]
 #Annotated_VCFs_Raw <- Annotated_VCFs_Raw[1:6]
 ```
 
@@ -144,7 +156,7 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
   speciesANDbuild <- paste(species, build, sep = "_") 
   # Step Two: Calculate Nucleotide Composition per Transcript
   DNA_fasta <-
-  Biostrings::readDNAStringSet(paste0("~/DPhil/R_Data/data/", species, "/", build, "/", "sequences.fa"),
+  Biostrings::readDNAStringSet(paste0(Species_Data, species, "/", build, "/", "sequences.fa"),
                              format = "fasta") 
   # Get Chromosome Names
   names(DNA_fasta) <- str_split(names(DNA_fasta), pattern = " ", simplify = TRUE)[,1]
@@ -177,7 +189,7 @@ Annotated_VCFs_Gene_Body_Variants <- lapply(
     df %>%
       group_by(GENE_ID) %>%
       mutate(UniqueVariants = n_distinct(Variant_ID[!is.na(Variant_ID)])) %>%
-      mutate(UniqueVariantsPlusOne = UniqueVariants+0.5) %>%      
+      mutate(UniqueVariantsPlusOne = UniqueVariants+.5) %>%      
       mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/cDNA_length) %>%
       ungroup()
   }
@@ -193,17 +205,17 @@ df %>%
   group_by(GENE_ID) %>%
   mutate(
     TtoA_or_AtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>A | A>T"]) %>% as.numeric,
-        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+1.0)/as.numeric(AT_Length),
+        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+.5)/as.numeric(AT_Length),
     CtoG_or_GtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>G | G>C"]) %>% as.numeric,
-        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+1.0)/as.numeric(GC_Length),
+        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+.5)/as.numeric(GC_Length),
     CtoT_or_GtoA_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>T | G>A"]) %>% as.numeric,
-        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+1.0)/as.numeric(GC_Length),
+        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+.5)/as.numeric(GC_Length),
     CtoA_or_GtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>A | G>T"]) %>% as.numeric,
-        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+1.0)/as.numeric(GC_Length),
+        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+.5)/as.numeric(GC_Length),
     TtoG_or_AtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>G | A>C"]) %>% as.numeric,
-        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+1.0)/as.numeric(AT_Length),
+        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+.5)/as.numeric(AT_Length),
     TtoC_or_AtoG_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>C | A>G"]) %>% as.numeric,
-        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+1.0)/as.numeric(AT_Length)) %>%
+        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+.5)/as.numeric(AT_Length)) %>%
   ungroup()
   })
 
@@ -264,7 +276,7 @@ Genewise_Body_Mutation_Counts_Plots <- Map(
     ggsave(
       plot = p1,
       filename = paste0(
-        "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
         name, "_Mutation_Count_Distribution_Plot.png"
       ),
       units = "cm",
@@ -298,7 +310,7 @@ Combined_Counts_Plots <- wrap_plots(Genewise_Body_Mutation_Counts_Plots[
 
 # --- Save the combined figure ---
 ggsave(
-  filename = "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/Combined_Mutation_Count_Distribution_Plots.png",
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/Combined_Mutation_Count_Distribution_Plots.png"),
   plot = Combined_Counts_Plots,
   width = 50,
   height = 10 * length(Genewise_Body_Mutation_Counts_Plots),
@@ -346,7 +358,7 @@ Genewise_Body_Mutation_Rate_Plots <- Map(
     
     # Save the plot — change width/height as needed
     ggsave(plot = p1,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_Mutation_Rate_Distribution_Plot.png"),
       create.dir = TRUE,
       units = "cm",
@@ -407,7 +419,7 @@ Genewise_Protein_Body_Mutation_Rate_Plots <- Map(
     ggsave(
       plot = p1,
       filename = paste0(
-        "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
         name, "_Protein_Mutation_Count_Distribution_Plot.png"
       ),
       create.dir = TRUE,
@@ -439,12 +451,12 @@ Combined_Protein_Plots <- wrap_plots(Genewise_Protein_Body_Mutation_Rate_Plots[
 
 # --- Save the combined figure ---
 ggsave(
-  filename = "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/Combined_Protein_Mutation_Count_Distribution_Plots.png",
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/Combined_Protein_Mutation_Count_Distribution_Plots.png"),
   plot = Combined_Protein_Plots,
   width = 55,
   height = 10 * length(Genewise_Protein_Body_Mutation_Rate_Plots),
   units = "cm",
-  dpi = 900,
+  dpi = 90,
   bg = "transparent")  # <--- critical for transparent composite
 
 
@@ -493,7 +505,7 @@ Genewise_Protein_dNdS_Plots <- Map(
 # Save the plot with transparent background
 ggsave(
   plot = p1,
-  filename = paste0("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                     name, "_Protein_dNdS_Distribution_Plot.png"),
   bg = "transparent",   # ensures transparency in saved image
   units = "cm",
@@ -505,8 +517,9 @@ ggsave(
   Annotated_VCFs_Gene_Body_Variants,
   names(Annotated_VCFs_Gene_Body_Variants)
 )
+```
 
-
+```{r Associating dNdS with Mutation Rates}
 Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
   Annotated_VCFs_Gene_Body_Variants,
   function(df) {
@@ -524,12 +537,12 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
     
   # Run Spearman Correlations
   spearman_test <- 
-    cor.test(log(df$dNdS),
+    cor.test(log(df$dNdS+.5),
              df$UniqueVariantsPlusOnePerBP,
              method = "spearman")
   # Run Pearson Correlations
   pearson_test <- 
-    cor.test(log(df$dNdS),
+    cor.test(log(df$dNdS+.5),
              df$UniqueVariantsPlusOnePerBP,
              method = "pearson")
   
@@ -541,7 +554,7 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
   p1 <- 
   ggplot(
   data = subset(df, !is.na(dNdS)),
-  aes(x = log(dNdS), y = UniqueVariantsPlusOnePerBP)
+  aes(x = log(dNdS+.5), y = UniqueVariantsPlusOnePerBP)
 ) +
   geom_point() +
   geom_smooth(
@@ -591,7 +604,7 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
 ggsave(
   plot = p1,
   filename = paste0(
-    "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
     name, "_dNdS_vs_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensures background transparency in PNG
@@ -649,7 +662,7 @@ ggsave(
 
     # Save the plot — change width/height as needed
       ggsave(plot = p2,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_GAM_SegReg_dNdS_vs_Mutation_Rate_Plot.png"),
       create.dir = TRUE,
       width = 6,
@@ -670,12 +683,12 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
   function(df, name) {
   # Run Spearman Correlations
   spearman_test <- 
-    cor.test(log(subset(df, UniqueVariants > 0)$dNdS),
+    cor.test(log(subset(df, UniqueVariants > 0)$dNdS+.5),
              subset(df, UniqueVariants > 0)$UniqueVariantsPlusOnePerBP,
              method = "spearman")
   # Run Pearson Correlations
   pearson_test <- 
-    cor.test(log(subset(df, UniqueVariants > 0)$dNdS),
+    cor.test(log(subset(df, UniqueVariants > 0)$dNdS+.5),
              subset(df, UniqueVariants > 0)$UniqueVariantsPlusOnePerBP,
              method = "pearson")
   
@@ -686,8 +699,8 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
   # Create a Scatter Plot
   p1 <- 
   ggplot(
-  data = subset(df, !is.na(dNdS)),
-  aes(x = log(dNdS), y = UniqueVariantsPlusOnePerBP)
+  data = subset(df, UniqueVariants > 0 & !is.na(dNdS)),
+  aes(x = log(dNdS+.5), y = UniqueVariantsPlusOnePerBP)
 ) +
   geom_point() +
   geom_smooth(
@@ -732,7 +745,7 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p1,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_Mutation_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
@@ -826,7 +839,7 @@ p1 <-
 ggsave(
   plot = p1,
   filename = paste0(
-    "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
     name, "_Binned_dNdS_vs_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensure transparent PNG background
@@ -894,7 +907,7 @@ p2 <-
 ggsave(
   plot = p2,
   filename = paste0(
-    "~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
     name, "_More_Binned_dNdS_vs_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensure transparent PNG background
@@ -1040,7 +1053,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoA_or_AtoT,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoA_or_AtoT_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
@@ -1087,7 +1100,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoG_or_GtoC,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoG_or_GtoC_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
@@ -1134,7 +1147,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoT_or_GtoA,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoT_or_GtoA_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
@@ -1181,7 +1194,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoA_or_GtoT,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoA_or_GtoT_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
@@ -1228,7 +1241,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoG_or_AtoC,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoG_or_AtoC_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
@@ -1275,7 +1288,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoC_or_AtoG,
-      filename = paste("~/DPhil/R_Data/Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoC_or_AtoG_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
@@ -1293,37 +1306,37 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
 ```{r Saving Annotated_VCFs}
 # Saving Annotated Gene Body Variants
 save(Annotated_VCFs_Gene_Body_Variants, 
-     file = "~/DPhil/R_Data/Annotated_VCFs_Gene_Body_Variants")
+     file = paste0(R_Data,"Annotated_VCFs_Gene_Body_Variants"))
 save(Annotated_VCFs_PC_Gene_Body_Variants, 
-     file = "~/DPhil/R_Data/Annotated_VCFs_PC_Gene_Body_Variants")
+     file = paste0(R_Data,"Annotated_VCFs_PC_Gene_Body_Variants"))
 
 # Saving dNdS Mutation Rate Testing Statistics
 save(Species_dNdS_MutationRate_Spearman_Tests, 
-     file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Spearman_Tests")
+     file = paste0(R_Data,"Species_dNdS_MutationRate_Spearman_Tests"))
 save(Species_dNdS_MutationRate_Pearson_Tests, 
-     file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Pearson_Tests")
+     file = paste0(R_Data,"Species_dNdS_MutationRate_Pearson_Tests"))
 save(Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly, 
-     file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly")
+     file = paste0(R_Data,"Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly"))
 save(Species_dNdS_MutationRate_Pearson_TestsMutatedOnly, 
-     file = "~/DPhil/R_Data/Species_dNdS_MutationRate_Pearson_TestsMutatedOnly")
+     file = paste0(R_Data,"Species_dNdS_MutationRate_Pearson_TestsMutatedOnly"))
 
 # Saving dNdS Mutation Category Association Testing Statistics
 # "T>A | A>T"
-save(Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests") 
-save(Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests")
+save(Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests")) 
+save(Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests, file = paste0(R_Data,"Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests"))
 # "C>G | G>C"
-save(Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests")
-save(Species_dNdS_CtoG_or_GtoC_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_dNdS_CtoG_or_GtoC_Rate_Pearson_Tests")
+save(Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests"))
+save(Species_dNdS_CtoG_or_GtoC_Rate_Pearson_Tests, file = paste0(R_Data,"Species_dNdS_CtoG_or_GtoC_Rate_Pearson_Tests"))
 # "C>T | G>A"
-save(Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests")
-save(Species_dNdS_CtoT_or_GtoA_Rate_Pearson_Tests , file = "~/DPhil/R_Data/Species_dNdS_CtoT_or_GtoA_Rate_Pearson_Tests")
+save(Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests"))
+save(Species_dNdS_CtoT_or_GtoA_Rate_Pearson_Tests , file = paste0(R_Data,"Species_dNdS_CtoT_or_GtoA_Rate_Pearson_Tests"))
 # "C>A | G>T"
-save(Species_dNdS_CtoA_or_GtoT_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_dNdS_CtoA_or_GtoT_Rate_Spearman_Tests") 
-save(Species_dNdS_CtoA_or_GtoT_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_dNdS_CtoA_or_GtoT_Rate_Pearson_Tests") 
+save(Species_dNdS_CtoA_or_GtoT_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_CtoA_or_GtoT_Rate_Spearman_Tests")) 
+save(Species_dNdS_CtoA_or_GtoT_Rate_Pearson_Tests, file = paste0(R_Data,"Species_dNdS_CtoA_or_GtoT_Rate_Pearson_Tests")) 
 # "T>G | A>C"
-save(Species_dNdS_TtoG_or_AtoC_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_dNdS_TtoG_or_AtoC_Rate_Spearman_Tests") 
-save(Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests")
+save(Species_dNdS_TtoG_or_AtoC_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_TtoG_or_AtoC_Rate_Spearman_Tests")) 
+save(Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests, file = paste0(R_Data,"Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests"))
 # "T>C | A>G"
-save(Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests, file = "~/DPhil/R_Data/Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests") 
-save(Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests, file = "~/DPhil/R_Data/Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests") 
+save(Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests")) 
+save(Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests, file = paste0(R_Data,"Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests")) 
 ```

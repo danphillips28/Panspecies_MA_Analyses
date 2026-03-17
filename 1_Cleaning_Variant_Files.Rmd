@@ -76,6 +76,22 @@ colnames(Weller_2014_MA_Ppacificus_Variants_Simple) <-
   c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
 ```
 
+```{r P pacificus Again}
+VCF_File <-
+read.csv(file = "/home/ocdm0351/DPhil/Raw_Data/Supplemental_Table_1_G3-2025-406371.csv")
+VCF_File <- subset(VCF_File, Strain == "PS312")
+
+VCF_File <- VCF_File[, c("Chromosome","Position","Ref_allele","Alt_allele")]
+VCF_File$Chromosome <- gsub("Chr","", VCF_File$Chromosome)
+VCF_File$ID <- "."
+VCF_File$QUAL <- "."
+VCF_File$FILTER <- "."
+VCF_File$INFO <- "."
+
+Wang_2026_MA_Ppacificus_Variants_Simple <- VCF_File[ , c("Chromosome","Position","ID","Ref_allele","Alt_allele","QUAL","FILTER","INFO")]
+colnames(Wang_2026_MA_Ppacificus_Variants_Simple) <- c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+```
+
 ```{r Drosophila}
 # Drosophila
 Assaf_2017_MA_Dmelanogaster_Variants <-
@@ -158,6 +174,23 @@ colnames(Goldmann_2016_Trio_Hsapiens_Variants_Simple) <-
 
 ```
 
+
+```{r C elegans hiDEFSeq Candidate Variants}
+# Load File
+VCF_File <-
+read.csv(file = "/home/ocdm0351/DPhil/Raw_Data/C_elegans_hiDEFSeq_Candidate_Variants.csv")
+
+VCF_File <- VCF_File[, c("chr","pos","ref","alt")]
+VCF_File$ID <- "."
+VCF_File$QUAL <- "."
+VCF_File$FILTER <- "."
+VCF_File$INFO <- "."
+
+Sarkies_2025_Em_Celegans_Variants_Simple <- VCF_File[ , c("chr","pos","ID","ref","alt","QUAL","FILTER","INFO")]
+colnames(Sarkies_2025_Em_Celegans_Variants_Simple) <- c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
+
+```
+
 ```{r denovoDB Human Trios}
 system("cat /home/ocdm0351/DPhil/Raw_Data/denovoDB_XXXX_Trio_Hsapiens_Variants.vcf | cut -f 1-8 > /home/ocdm0351/DPhil/VCF_DATA/denovoDB_XXXX_Trio_Hsapiens_Variants_Simple.vcf")
 ```
@@ -169,6 +202,8 @@ system("cat /home/ocdm0351/DPhil/Raw_Data/Villalbadelapena_2023_MA_Ncrassa_Varia
 ```{r Saving Simplified Variant Files}
 write_tsv(Assaf_2017_MA_Dmelanogaster_Variants_Simple,
           file = "/home/ocdm0351/DPhil/VCF_DATA/Assaf_2017_MA_Dmelanogaster_Variants_Simple.vcf")
+write_tsv(Sarkies_2025_Em_Celegans_Variants_Simple,
+          file = "/home/ocdm0351/DPhil/VCF_DATA/Sarkies_2025_Em_Celegans_Variants_Simple.vcf")
 write_tsv(SaxenaKonrad_2019_MA_Celegans_Variants_Simple,
           file = "/home/ocdm0351/DPhil/VCF_DATA/SaxenaKonrad_2019_MA_Celegans_Variants_Simple.vcf")
 #write_tsv(Villalbadelapena_2023_MA_Ncrassa_Variants_Simple,
@@ -181,6 +216,9 @@ write_tsv(Goldmann_2016_Trio_Hsapiens_Variants_Simple,
           file = "/home/ocdm0351/DPhil/VCF_DATA/Goldmann_2016_Trio_Hsapiens_Variants_Simple.vcf")
 write_tsv(Weller_2014_MA_Ppacificus_Variants_Simple,
           file = "/home/ocdm0351/DPhil/VCF_DATA/Weller_2014_MA_Ppacificus_Variants_Simple.vcf")
+write_tsv(Wang_2026_MA_Ppacificus_Variants_Simple,
+          file = "/home/ocdm0351/DPhil/VCF_DATA/Wang_2026_MA_Ppacificus_Variants_Simple.vcf")
+
 ```
 
 ```{r Remove hashed lines}
