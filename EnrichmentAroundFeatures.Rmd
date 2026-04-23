@@ -19,7 +19,6 @@ library(readr)
 
 ```{r Loading Annotated VCF List}
 load(file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Raw")
-#Annotated_VCFs_Raw <- Annotated_VCFs_Raw[names(Annotated_VCFs_Raw) != "Weller_2014_MA_Ppacificus_El_paco"]
 ```
 
 ```{r Reduced to Unique Variants}

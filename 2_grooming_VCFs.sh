@@ -11,20 +11,29 @@ for file in "$INPUT_DIR"/*.vcf; do
     filename=$(basename "$file")
     output_file="$OUTPUT_DIR/${filename%.vcf}_Groomed.vcf"
 
-    # If the first line is not fileformat, add it to the top
+    # Ensure file starts with a fileformat header
     firstline=$(head -n 1 "$file")
     if [[ ! $firstline =~ ^##fileformat ]]; then
         echo "##fileformat=VCFv4.2" > "$output_file"
     else
-        : > "$output_file"  # clear any previous contents
+        : > "$output_file"
     fi
 
-    # Then append the (cleaned) original content
-    sed 's/[[:space:]]\+/\t/g' "$file" \
-      | awk 'BEGIN{OFS="\t"} /^#/ {print; next} {gsub("-", "", $4); gsub("-", "", $5); print}' \
-      | awk 'BEGIN{OFS="\t"} !($4==$5)' \
-      | awk 'BEGIN{OFS="\t"} !((length($4)==1) && ($4~/[ACGT]/) && ($5=="."))' \
-      >> "$output_file"
+    # Keep only SNPs:
+    # - REF and ALT are one base long
+    # - both are A/C/G/T
+    # - ALT is not multiallelic
+    # - REF != ALT
+    awk 'BEGIN{OFS="\t"}
+        /^#/ {print; next}
+        {
+            split($5, alts, ",")
+            if (length($4)==1 && length($5)==1 &&
+                $4 ~ /^[ACGT]$/ && $5 ~ /^[ACGT]$/ &&
+                $4 != $5) {
+                print
+            }
+        }' "$file" >> "$output_file"
 
     echo "Processed $filename -> $(basename "$output_file")"
 done

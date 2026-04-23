@@ -8,11 +8,6 @@ date: "2025-09-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r Setting Paths for HPC vs Laptop}
-#Laptop_
-#HPC_R_Data <- ""
-```
-
 ```{r Libraries}
 library(GenomicRanges)
 library(GenomicFeatures)
@@ -31,6 +26,8 @@ library(dplyr)
 
 ```{r Setting Paths}
 R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For HPC
+
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
@@ -42,11 +39,6 @@ load(file = paste0(R_Data,"Species_dNdS_Ratios"))
 load(file = paste0(R_Data,"Species_Genes_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Transcripts_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Mappings"))
-
-# Subset for Debugging Purposes
-#Annotated_VCFs_Raw <- Annotated_VCFs_Raw[names(Annotated_VCFs_Raw) %ni% c(
-#                                                                          "Weller_2014_MA_Ppacificus_El_paco")]
-#Annotated_VCFs_Raw <- Annotated_VCFs_Raw[1:6]
 ```
 
 ```{r Removing Version Number from dNdS Object}
@@ -109,6 +101,7 @@ for (element_name in unique(names(Annotated_VCFs_Gene_Body_Variants))) {
   # Step Two: Merge with dNdS Estimates but including ALL genes
   # First need to isolate the species name, because this is how to pull out the dNdS element
   species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
+  species_name <- gsub("_","", species)
   
   print(element_name)
   print(class(gtf_info))
@@ -135,6 +128,48 @@ for (element_name in unique(names(Annotated_VCFs_Gene_Body_Variants))) {
   element_info,
   -any_of(c("BIOTYPE","GENE_NAME","TRANSCRIPT_NAME","TRANSCRIPT_ID")))
   
+  # --- Step 4: Annotate Essential Genes (if file exists) ---
+  essential_file <- paste0(R_Data, species_name, "_Essential_Genes.tsv")
+
+  if (file.exists(essential_file)) {
+  
+  essential_ids <- readr::read_tsv(
+    essential_file,
+    col_names = FALSE,        # <-- important fix
+    show_col_types = FALSE
+  )[[1]] %>% unique()
+  
+  element_info$Essential <- ifelse(
+    element_info$GENE_ID %in% essential_ids,
+    "Essential",
+    "Non-Essential"
+  )
+  
+ } else {
+  element_info$Essential <- "Non-Essential"
+}
+
+
+# --- Step 5: Annotate HouseKeeping Genes (if file exists) ---
+housekeeping_file <- paste0(R_Data, species_name, "_HouseKeeping_Genes.tsv")
+
+if (file.exists(housekeeping_file)) {
+  
+  housekeeping_ids <- readr::read_tsv(
+    housekeeping_file,
+    col_names = FALSE,        # <-- important fix
+    show_col_types = FALSE
+  )[[1]] %>% unique()
+  
+  element_info$HouseKeeping <- ifelse(
+    element_info$GENE_ID %in% housekeeping_ids,  # <-- bug fixed here
+    "HouseKeeping",
+    "Non-HouseKeeping"
+  )
+  
+} else {
+  element_info$HouseKeeping <- "Non-HouseKeeping"
+}
   # Step Four: Replace elements in Annotated_VCFs_Raw with the updated one
   Annotated_VCFs_Gene_Body_Variants[[element_name]] <- subset(element_info, is.na(transcript_id) == FALSE)
   
@@ -221,6 +256,7 @@ df %>%
 
 ```
 
+
 ```{r Plotting Mutation Rates and dNdS Associations}
 # 1 Mutation Count Distribution 
 Genewise_Body_Mutation_Counts_Plots <- Map(
@@ -283,7 +319,8 @@ Genewise_Body_Mutation_Counts_Plots <- Map(
       height = 10,
       width = total_width,
       dpi = 1500,
-      bg = "transparent"
+      bg = "transparent",
+      create.dir = TRUE
     )
 
     # --- Return plot for patchwork ---
@@ -358,7 +395,7 @@ Genewise_Body_Mutation_Rate_Plots <- Map(
     
     # Save the plot — change width/height as needed
     ggsave(plot = p1,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_Mutation_Rate_Distribution_Plot.png"),
       create.dir = TRUE,
       units = "cm",
@@ -755,6 +792,225 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
   },
   Annotated_VCFs_PC_Gene_Body_Variants,
   names(Annotated_VCFs_PC_Gene_Body_Variants)
+)
+
+```
+
+
+```{r Essential_vs_NonEssential_Mutation_Rate_Boxplots}
+for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
+
+  df <- Annotated_VCFs_Gene_Body_Variants[[element_name]]
+
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
+    str_replace(., "^(.)(.*)$", "\\1_\\2")
+
+  df <- df %>% distinct(GENE_ID, .keep_all = TRUE)
+
+  # =========================
+  # ===== ESSENTIAL =========
+  # =========================
+  if ("Essential" %in% colnames(df)) {
+
+    ess_df <- df %>%
+      filter(!is.na(Essential), !is.na(UniqueVariantsPlusOnePerBP)) %>%
+      mutate(
+        Essential = factor(Essential, levels = c("Non-Essential", "Essential")),
+        logRate = log10(UniqueVariantsPlusOnePerBP)
+      )
+
+    if (length(unique(na.omit(ess_df$Essential))) == 2) {
+
+      n1 <- sum(ess_df$Essential == "Non-Essential", na.rm = TRUE)
+      n2 <- sum(ess_df$Essential == "Essential", na.rm = TRUE)
+
+      y_pos <- max(ess_df$logRate, na.rm = TRUE) +
+        0.15 * diff(range(ess_df$logRate, na.rm = TRUE))
+
+      p1 <- ggplot(ess_df, aes(x = Essential, y = logRate, fill = Essential, colour = Essential)) +
+        geom_violin() +
+        geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        ggpubr::stat_compare_means(
+          comparisons = list(c("Non-Essential", "Essential")),
+          method = "wilcox.test",
+          label = "p.format",
+          label.y = y_pos
+        ) +
+        theme_bw() +
+        theme(
+          panel.background = element_rect(fill = "white", colour = NA),
+          plot.background = element_rect(fill = "transparent", colour = NA),
+          legend.position = "none",
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.box.background = element_rect(fill = "transparent", colour = NA),
+          panel.grid.major = element_line(color = "black", size = 0.2),
+          panel.grid.minor = element_line(color = "black", size = 0.1),
+          plot.title = element_text(size = 12, colour = "white", hjust = .5),
+          text = element_text(color = "white"),
+          axis.title = element_text(color = "white"),
+          axis.text = element_text(color = "white"),
+          legend.title = element_text(color = "white"),
+          legend.text = element_text(color = "white"),
+          plot.subtitle = element_text(size = 5, color = "white", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "white"),
+          plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
+        ) +
+        scale_x_discrete(labels = c(
+          "Non-Essential" = paste0("Non-Essential\nn = ", n1),
+          "Essential" = paste0("Essential\nn = ", n2)
+        )) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_color_manual(values = c("orange", "purple")) +
+        scale_fill_manual(values = c(alpha("orange", alpha = .4),
+                                     alpha("purple", alpha = .4))) +
+        labs(
+          title = paste0(species, " Essential Genes"),
+          subtitle = "Wilcoxon test on log10-transformed mutation rates",
+          x = NULL,
+          y = "log10(Mutation rate (+1 per bp))"
+        )
+
+      ggsave(
+        plot = p1,
+        filename = paste0(R_Data, "Plots/", species, "_Essential_Boxplot.png"),
+        width = 3, height = 5,
+        background = "transparent"
+      )
+    }
+  }
+
+  # =========================
+  # ===== HOUSEKEEPING ======
+  # =========================
+  if ("HouseKeeping" %in% colnames(df)) {
+
+    hk_df <- df %>%
+      filter(!is.na(HouseKeeping), !is.na(UniqueVariantsPlusOnePerBP)) %>%
+      mutate(
+        HouseKeeping = factor(HouseKeeping, levels = c("Non-HouseKeeping", "HouseKeeping")),
+        logRate = log10(UniqueVariantsPlusOnePerBP)
+      )
+
+    if (length(unique(na.omit(hk_df$HouseKeeping))) == 2) {
+
+      n1 <- sum(hk_df$HouseKeeping == "Non-HouseKeeping", na.rm = TRUE)
+      n2 <- sum(hk_df$HouseKeeping == "HouseKeeping", na.rm = TRUE)
+
+      y_pos <- max(hk_df$logRate, na.rm = TRUE) +
+        0.15 * diff(range(hk_df$logRate, na.rm = TRUE))
+
+      p2 <- ggplot(hk_df, aes(x = HouseKeeping, y = logRate, fill = HouseKeeping, colour = HouseKeeping)) +
+        geom_violin() +
+        geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        ggpubr::stat_compare_means(
+          comparisons = list(c("Non-HouseKeeping", "HouseKeeping")),
+          method = "wilcox.test",
+          label = "p.format",
+          label.y = y_pos
+        ) +
+        theme_bw() +
+        theme(
+          panel.background = element_rect(fill = "white", colour = NA),
+          plot.background = element_rect(fill = "transparent", colour = NA),
+          legend.position = "none",
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.box.background = element_rect(fill = "transparent", colour = NA),
+          panel.grid.major = element_line(color = "black", size = 0.2),
+          panel.grid.minor = element_line(color = "black", size = 0.1),
+          plot.title = element_text(size = 12, colour = "white", hjust = .5),
+          text = element_text(color = "white"),
+          axis.title = element_text(color = "white"),
+          axis.text = element_text(color = "white"),
+          legend.title = element_text(color = "white"),
+          legend.text = element_text(color = "white"),
+          plot.subtitle = element_text(size = 5, color = "white", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "white"),
+          plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
+        ) +
+        scale_x_discrete(labels = c(
+          "Non-HouseKeeping" = paste0("Non-HouseKeeping\nn = ", n1),
+          "HouseKeeping" = paste0("HouseKeeping\nn = ", n2)
+        )) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_color_manual(values = c("orange", "purple")) +
+        scale_fill_manual(values = c(alpha("orange", alpha = .4),
+                                     alpha("purple", alpha = .4))) +
+        labs(
+          title = paste0(species, " HouseKeeping Genes"),
+          subtitle = "Wilcoxon test on log10-transformed mutation rates",
+          x = NULL,
+          y = "log10(Mutation rate (+1 per bp))"
+        )
+
+      ggsave(
+        plot = p2,
+        filename = paste0(R_Data, "Plots/", species, "_HouseKeeping_Boxplot.png"),
+        width = 5, height = 4,
+        background = "transparent"
+      )
+    }
+  }
+
+}
+```
+
+
+```{r Binning Genes into Mutation-Rate Quantiles}
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+    df <- df %>%
+      mutate(
+        Overall_Mutation_Rate_Group = ifelse(
+          UniqueVariantsPlusOnePerBP == 0, "0",
+          ifelse(
+            is.na(UniqueVariantsPlusOnePerBP), NA,
+            as.character(cut_number(UniqueVariantsPlusOnePerBP, n = 5))
+          )
+        ),
+        Overall_Mutation_Rate_Group_More = ifelse(
+          UniqueVariantsPlusOnePerBP == 0, "0",
+          ifelse(
+            is.na(UniqueVariantsPlusOnePerBP), NA,
+            as.character(cut_number(UniqueVariantsPlusOnePerBP, n = 12))
+          )
+        )
+      ) %>%
+      # Convert any scientific notation to decimal
+      mutate(
+        Overall_Mutation_Rate_Group = str_replace_all(
+          Overall_Mutation_Rate_Group,
+          "\\d+\\.?\\d*e[-+]?\\d+",
+          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
+        ),
+        Overall_Mutation_Rate_Group_More = str_replace_all(
+          Overall_Mutation_Rate_Group_More,
+          "\\d+\\.?\\d*e[-+]?\\d+",
+          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
+        )
+      ) %>%
+      # ✅ Order numerically by lower bound, treat as ordered factor
+      mutate(
+        Overall_Mutation_Rate_Group = forcats::fct_reorder(
+          factor(Overall_Mutation_Rate_Group, ordered = TRUE),
+          as.numeric(str_extract(Overall_Mutation_Rate_Group, "(?<=\\[|\\()[^,]+")),
+          .fun = min,
+          .desc = FALSE
+        ),
+        Overall_Mutation_Rate_Group_More = forcats::fct_reorder(
+          factor(Overall_Mutation_Rate_Group_More, ordered = TRUE),
+          as.numeric(str_extract(Overall_Mutation_Rate_Group_More, "(?<=\\[|\\()[^,]+")),
+          .fun = min,
+          .desc = FALSE
+        )
+      )
+
+    return(df)
+  }
 )
 
 ```
@@ -1301,6 +1557,148 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
 )
 
 
+```
+
+```{r NEEDS FIXING Mutation Enrichment by dNdS Group, eval=FALSE, include=FALSE}
+
+Annotated_VCFs_Raw <- mapply(function(raw_df, pc_df) {
+
+  merge(
+    raw_df,
+    pc_df[, c("GENE_ID", "Overall_dNdS_Group")],
+    by = "GENE_ID",
+    all.x = TRUE
+  )
+
+}, Annotated_VCFs_Raw, Annotated_VCFs_PC_Gene_Body_Variants, SIMPLIFY = FALSE)
+
+
+GeneBody_MutationEnrichment_by_dNdS_Plots <- Map(
+  function(df, name) {
+
+    # Convert gene coordinates to GRanges
+    # Subset to only loci with dNdS 
+    #df <- subset(df, is.na(dNdS) == FALSE) 
+    gene_df <- subset(df, is.na(GENE_ID) == FALSE)
+    
+    gene_gr <- GRanges(
+    seqnames = gene_df$CHROM,
+    ranges = IRanges(start = gene_df$start, end = gene_df$end),
+    strand = gene_df$strand,
+    dNdS_Group = gene_df$Overall_dNdS_Group,
+    mut_Group = gene_df$Overall_Mutation_Rate_Group
+  )
+
+    mutated_df <- subset(df, UniqueVariants > 0)
+    # Convert gene coordinates to GRanges
+    variant_ranges <-
+  makeGRangesFromDataFrame(df,
+                           keep.extra.columns=FALSE,
+                           ignore.strand=TRUE,
+                           seqnames.field=c("CHROM"),
+                           na.rm = TRUE,
+                           start.field="POS",
+                           end.field=c("POS"),
+                           strand.field="strand",
+                           starts.in.df.are.0based=FALSE)
+  
+  variant_ranges <- coverage(variant_ranges)
+  # keep only non-zero coverage runs
+  variant_ranges <- as(variant_ranges, "GRanges")
+  variant_ranges <- variant_ranges[variant_ranges$score > 0]
+    
+    # Plot Metagene EnrichedHeatmap of dNdS Around Gene Body
+    body_DNV_enrichment <- normalizeToMatrix(DNVs_gr,
+                                             gene_gr,
+                                             extend = 5000,
+                                             mean_mode = "absolute",
+                                             w = 50,
+                                             target_ratio = .7,
+                                             smooth = FALSE,
+                                             background = 0)
+    
+    #test <-
+    #EnrichedHeatmap(body_epi_enrichment, name = "H3K9me3",
+    # top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = 2:4))),
+    # column_title = "H3K9me3",
+    # row_split = gene_gr$mut_Group)
+
+    # Extract Enrichment Bins and Grouping Indexing Information
+    mat <- as.matrix(body_DNV_enrichment)
+    groups <- as.factor(gene_gr$dNdS_Group)
+    # Combine into a tidy data frame
+    df <- as.data.frame(mat) %>%
+      mutate(dNdS_Group = groups) %>%
+      pivot_longer(cols = -c(dNdS_Group), names_to = "position", values_to = "value") %>%
+      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
+    # Summarise by dNdS group (mean + SE per position)
+    MutationDensities <- df %>%
+      group_by(dNdS_Group, position) %>%
+      summarise( mean_score = mean(value, na.rm = TRUE), se = sd(value, na.rm = TRUE) / sqrt(n()), .groups = "drop")
+
+    # --- keep your original boundary logic exactly ---
+    avg <- colMeans(mat)
+    regionLength <- ((0.7 * 100) * length(avg)) / 100
+    lengthEachSide <- (length(avg) - regionLength) / 2
+    start <- lengthEachSide
+    end <- length(avg) - lengthEachSide
+    # Renaming NA dNdS Group
+    #MutationDensities <- MutationDensities %>% mutate(dNds_Group = forcats::fct_explicit_na(group, na_level = "No Ortholog"))
+
+    # --- Plot grouped by dNdS version ---
+      MutationDensityPlot <-
+      ggplot(MutationDensities,
+             aes(x = position, y = mean_score, color = dNdS_Group, fill = dNdS_Group)) +
+      geom_line(size = .5) +
+      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+              alpha = 0.2, color = NA) +
+      geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      theme_bw() +
+      labs(
+      title = paste("Enrichment of DNVs Across", species_name, "Gene Bodies"),
+      x = "Windows",
+      y = paste("Mean DNVs"),
+      color = "dNdS \n Quantile",
+      fill = "dNdS \n Quantile") +
+      theme_bw() +
+    theme(# Transparent backgrounds
+          panel.background = element_rect(fill = "white", colour = NA),
+          plot.background = element_rect(fill = "transparent", colour = NA),
+          legend.background = element_rect(fill = "transparent", colour = NA),
+          legend.box.background = element_rect(fill = "transparent", colour = NA),
+          # Keep grid lines visible and black
+          panel.grid.major = element_line(color = "black", size = 0.2),
+          panel.grid.minor = element_line(color = "black", size = 0.1),
+          plot.title = element_text(size = 6, colour = "white", hjust = .5),
+          text = element_text(color = "white"),
+          axis.title = element_text(color = "white"),
+          axis.text = element_text(color = "white"),
+          legend.title = element_text(color = "white"),
+          legend.text = element_text(color = "white"),
+          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
+          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
+          strip.text = element_text(color = "white")) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+          # ggSaving
+          ggsave(MutationDensityPlot,
+             filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+                               "Epigenetic_EnrichedHeatmaps/",
+                               species_prefix,
+                                "/GeneBody_Enrichment_of_DNVs", name, ".png"),
+             bg = "transparent",
+             type="cairo",
+             units = "cm",
+             height = 8,
+             width = 15,
+             create.dir = TRUE,
+             dpi = 2000)
+   
+  },
+  Annotated_VCFs_Raw,
+  names(Annotated_VCFs_Raw)
+)
 ```
 
 ```{r Saving Annotated_VCFs}

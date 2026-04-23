@@ -18,13 +18,22 @@ library(data.table)
 library(glmnet)
 library(tidyverse)
 library(clinfun)
-library(cutnumberint)
+#library(cutnumberint)
 library(ggnewscale)
+
+cutnumberint <- function(x, n = 5) {
+  cut(
+    x,
+    breaks = quantile(x, probs = seq(0, 1, length.out = n + 1), na.rm = TRUE),
+    include.lowest = TRUE,
+    labels = FALSE
+  )
+}
 ```
 
 ```{r Setting Paths}
-#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
@@ -34,13 +43,13 @@ Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # F
 load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Dmelanogaster"] # |
+                                                                      "Dmelanogaster" |
                                                                      # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                     #  "Hsapiens" |
-                                                                   #   names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                #      "Celegans"] #|
-                                                                #      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                #      "Ppacificus"]
+                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Celegans" |
+                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Ppacificus"]
 ```
 
 ```{r Read and Save Epigenetics and Covariate Data}
@@ -344,7 +353,6 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   
   # Create a Scatter Plot
   p1 <- 
-  
 ggplot(
   data = subset(vcf_df, !is.na(vcf_df[[mean_mark_name]])),
   aes(x = !!sym(mean_mark_name),
@@ -672,4 +680,9 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   
 }
 
+```
+
+```{r Saving}
+save(Annotated_VCFs_PC_Gene_Body_Variants, 
+     file = paste0(R_Data,"Annotated_VCFs_PC_Gene_Body_Variants"))
 ```

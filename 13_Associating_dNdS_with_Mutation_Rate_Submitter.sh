@@ -19,6 +19,6 @@ echo "Using Rscript: $(which Rscript)"
 
 # Render the R Markdown directly (safer than running a purlled script)
 #Rscript --vanilla -e 'rmarkdown::render("/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Synonymous_Mutation_Rate.Rmd", output_dir = "/home/ocdm0351/DPhil/R_Data/htmls", quiet = FALSE)'
-#Rscript --vanilla -e 'rmarkdown::render("/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Mutation_Rate.Rmd", output_dir = "/home/ocdm0351/DPhil/R_Data/htmls", quiet = FALSE)'
-Rscript --vanilla -e 'rmarkdown::render("/home/ocdm0351/DPhil/scripts/Making_Overall_dNdS_vs_Mutation_Rate_Plot.Rmd", output_dir = "/home/ocdm0351/DPhil/R_Data/htmls", quiet = FALSE)'
+Rscript --vanilla -e 'rmarkdown::render("/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Mutation_Rate.Rmd", output_dir = "/home/ocdm0351/DPhil/R_Data/htmls", quiet = FALSE)'
+#Rscript --vanilla -e 'rmarkdown::render("/home/ocdm0351/DPhil/scripts/Making_Overall_dNdS_vs_Mutation_Rate_Plot.Rmd", output_dir = "/home/ocdm0351/DPhil/R_Data/htmls", quiet = FALSE)'
 

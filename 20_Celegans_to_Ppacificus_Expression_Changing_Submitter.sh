@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=16_Associating_Epigenetics_and_Expression_etc_with_Mutation_Rate_Submitter.sh
-#SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out
-#SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err
+#SBATCH --job-name=20_Celegans_to_Ppacificus_Expression_Changing_Submitter
+#SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out   # Standard output (%x = job name, %j = job ID)
+#SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err    # Standard error
 
 module load Anaconda3
 source activate pandoc_env
@@ -18,10 +18,9 @@ which Rscript
 
 Rscript -e "print(.libPaths())"
 
-RMD_FILE="/home/ocdm0351/DPhil/scripts/Associating_MutationRate_with_Epigenetics_ExpressionAgain_and_Covariates.Rmd"
+RMD_FILE="/home/ocdm0351/DPhil/scripts/Celegans_to_Ppacificus_Expression_Changing.Rmd"
 OUTPUT_DIR="/home/ocdm0351/DPhil/R_Data/htmls"
 Rscript -e "rmarkdown::render('$RMD_FILE', output_dir = '$OUTPUT_DIR')"
-
 
 
 

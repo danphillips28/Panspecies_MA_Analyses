@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+
+#SBATCH --job-name=15_Downloading_C_elegans_TimeSeries_Expression2
+#SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
+#SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
+
+
 set -euo pipefail
 trap 'echo "❌ Error on line $LINENO"' ERR
 
@@ -7,14 +14,13 @@ trap 'echo "❌ Error on line $LINENO"' ERR
 #| gunzip -c > "/home/ocdm0351/DPhil/scripts/misc/GSE50548_Whole_embryo_interval_timecourse.tab"
 
 # Cut just gene names to upload to wormbase gene sanitizer
-#cat $GEO_FILE | cut -f 1 | sort | uniq \
+#cat /home/ocdm0351/DPhil/scripts/misc/GSE50548_Whole_embryo_interval_timecourse.tab | cut -f 1 | sort | uniq \
 #			 > /home/ocdm0351/DPhil/R_Data/GSE50548_Whole_embryo_interval_timecourse_gene_names.txt
 
-# Use WormBase Gene Sanitizer to Create Mapping File and Upload to Genoa
-#grep -o '<tr>.*</tr>' /home/ocdm0351/DPhil/scripts/misc/gene_sanitizer.cgi.html \
-#	| sed -e 's/<\/t[dh]>/\t/g' -e 's/<[^>]*>//g' \
-#	| awk 'NF' > /home/ocdm0351/DPhil/scripts/misc/gene_sanitizer.cgi.tsv
-
+# Used WormBase Gene Sanitizer to Create Mapping File and Upload to Genoa
+grep -o '<tr>.*</tr>' /home/ocdm0351/DPhil/scripts/misc/gene_sanitizer.cgi.html \
+	| sed -e 's/<\/t[dh]>/\t/g' -e 's/<[^>]*>//g' \
+	| awk 'NF' > /home/ocdm0351/DPhil/scripts/misc/gene_sanitizer.cgi.tsv
 
 # ==========================================================
 # Replace gene names (first column) in GEO time series file
@@ -29,13 +35,13 @@ OUTDIR="/home/ocdm0351/DPhil/R_Data"
 
 # Replace first column (gene name) with Ensembl/WBGene ID from mapping file
 # Assumes: mapping file column 1 = old name, column 3 = new Ensembl/WBGene ID
-#awk -F'\t' -v OFS='\t' '
-#  NR==FNR { if (NF>=3) map[$1]=$3; next }
-#  NR==1 { print; next }  # keep header unchanged
-#  {
-#    $1 = (map[$1] != "") ? map[$1] : $1
-#    print
-#  }' "$MAPPING" "$TIMESERIES" > "$OUTFILE"
+awk -F'\t' -v OFS='\t' '
+  NR==FNR { if (NF>=3) map[$1]=$3; next }
+  NR==1 { print; next }  # keep header unchanged
+  {
+    $1 = (map[$1] != "") ? map[$1] : $1
+    print
+  }' "$MAPPING" "$TIMESERIES" > "$OUTFILE"
 
 #echo "✅ Done. Output written to:"
 #echo "   $OUTFILE"
@@ -82,6 +88,7 @@ cut -f 1,35 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_400_Expression.
 cut -f 1,36 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_410_Expression.tsv"
 cut -f 1,37 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_420_Expression.tsv"
 cut -f 1,38 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_430_Expression.tsv"
+cut -f 1,38 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_Expression.tsv"
 cut -f 1,39 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_450_Expression.tsv"
 cut -f 1,40 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_490_Expression.tsv"
 cut -f 1,41 "$OUTFILE" > "$OUTDIR/C_elegans_Embryonic_TimeSeries_510_Expression.tsv"

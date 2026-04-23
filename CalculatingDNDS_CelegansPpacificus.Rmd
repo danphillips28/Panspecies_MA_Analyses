@@ -1,0 +1,45 @@
+---
+title: "CalculatingDNDS"
+output: html_document
+date: "2025-09-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(orthologr)
+library(dplyr)
+library(readr)
+library(stringr)
+library(Biostrings)
+```
+
+```{r Running OrthologR}
+# get a dNdS table using:
+# 1) reciprocal best hit for orthology inference (RBH)
+# 2) Needleman-Wunsch for pairwise amino acid alignments
+# 3) pal2nal for codon alignments
+# 4) Comeron for dNdS estimation
+# 5) single core processing 'comp_cores = 1'
+
+# Run dNdS on Canonical Transcripts Only
+CelegansPpacificus_dNdS_Table <- 
+     dNdS(query_file      = paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+                                   "C_elegans", "/", "WS235", "/","canonical_cds_", "WS235", ".fa"), 
+     subject_file    = paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+                                   "P_pacificus","/", "Elpaco", "/", "canonical_cds_", "Elpaco", ".fa"), 
+     aligner_path = '/home/ocdm0351/bin/',
+     ortho_detection = "RBH", 
+     aa_aln_type     = "pairwise",
+     aa_aln_tool     = "NW", 
+     codon_aln_tool  = "pal2nal", 
+     dnds_est.method = "Comeron", 
+     delete_corrupt_cds = TRUE,
+     comp_cores      = 1)
+
+# Save the output so we don't need to wait next time
+save(CelegansPpacificus_dNdS_Table, 
+     file = "/home/ocdm0351/DPhil/R_Data/CelegansPpacificus_dNdS_Table")
+```

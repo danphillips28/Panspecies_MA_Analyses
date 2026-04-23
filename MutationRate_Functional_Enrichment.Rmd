@@ -1,0 +1,215 @@
+---
+title: "MutationRate_Functional_Enrichment"
+output: html_document
+date: "2026-04-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(mgcv)
+library(segmented)
+library(clinfun)
+`%ni%` <- Negate(`%in%`)
+```
+
+
+```{r Setting Paths}
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+```
+
+```{r GO_GSEA_MutationRate_Celegans_Dmel}
+suppressPackageStartupMessages({
+  library(clusterProfiler)
+  library(enrichplot)
+  library(AnnotationDbi)
+  library(org.Ce.eg.db)
+  library(org.Dm.eg.db)
+  library(dplyr)
+  library(stringr)
+  library(ggplot2)
+  library(patchwork)
+  library(readr)
+})
+
+GO_GSEA_Results <- list()
+
+GO_GSEA_Plot_Dir <- file.path(
+  R_Data,
+  "Plots/3_Mutation_and_dNdS_Association_Plots/GO_GSEA_MutationRate"
+)
+dir.create(GO_GSEA_Plot_Dir, recursive = TRUE, showWarnings = FALSE)
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  if (!grepl("Celegans|C_elegans|Dmelanogaster|D_melanogaster", element_name, ignore.case = TRUE)) next
+
+  df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] %>%
+    distinct(GENE_ID, .keep_all = TRUE) %>%
+    filter(!is.na(GENE_ID), !is.na(UniqueVariantsPlusOnePerBP))
+
+  if (nrow(df) < 10) next
+
+  # ----------------------------
+  # Species-specific setup
+  # ----------------------------
+  if (grepl("Celegans|C_elegans", element_name, ignore.case = TRUE)) {
+    orgdb <- org.Ce.eg.db
+    keytype_used <- "WORMBASE"
+    species_tag <- "Celegans"
+  } else {
+    orgdb <- org.Dm.eg.db
+    keytype_used <- "FLYBASE"
+    species_tag <- "Dmelanogaster"
+  }
+
+  message("Running GO GSEA for: ", element_name)
+
+  # ----------------------------
+  # Ranking vector
+  # ----------------------------
+  geneList <- log10(df$UniqueVariantsPlusOnePerBP)
+  names(geneList) <- df$GENE_ID
+  geneList <- sort(geneList, decreasing = TRUE)
+
+  species_out_dir <- file.path(GO_GSEA_Plot_Dir, species_tag)
+  dir.create(species_out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  res_all <- list()
+
+  for (ont in c("BP", "MF", "CC")) {
+
+    gsea_res <- tryCatch(
+      gseGO(
+        geneList = geneList,
+        OrgDb = orgdb,
+        keyType = keytype_used,
+        ont = ont,
+        by = "fgsea",
+        minGSSize = 5,
+        maxGSSize = 500,
+        pvalueCutoff = 1,
+        verbose = FALSE,
+        seed = TRUE
+      ),
+      error = function(e) {
+        message("GSEA failed for ", element_name, " (", ont, ")")
+        return(NULL)
+      }
+    )
+
+    if (is.null(gsea_res)) next
+
+    gsea_df <- as.data.frame(gsea_res)
+    if (nrow(gsea_df) == 0) next
+
+    gsea_df <- gsea_df %>%
+      mutate(
+        species_experiment = element_name,
+        species = species_tag,
+        ontology = ont
+      )
+
+    res_all[[ont]] <- gsea_df
+
+    write_tsv(
+      gsea_df,
+      file.path(species_out_dir, paste0(element_name, "_", ont, "_gseGO.tsv"))
+    )
+
+    # ----------------------------
+    # BARPLOT
+    # ----------------------------
+    plot_df <- gsea_df %>%
+      arrange(p.adjust, desc(abs(NES))) %>%
+      slice_head(n = 18) %>%
+      mutate(Description = factor(Description, levels = Description[order(NES)]))
+
+    if (nrow(plot_df) > 0) {
+
+      p_bar <- ggplot(plot_df, aes(x = Description, y = NES, fill = NES)) +
+        geom_col(width = 0.7) +
+        coord_flip() +
+        scale_fill_gradient2(low = "#006600", mid = "white", high = "orange") +
+        labs(
+          title = paste0(species_tag, " ", ont, " GO GSEA"),
+          x = NULL,
+          y = "Normalized Enrichment Score (NES)"
+        ) +
+        theme_bw()
+
+      ggsave(
+        plot = p_bar,
+        filename = file.path(
+          species_out_dir,
+          paste0(element_name, "_", ont, "_gseGO_NES_barplot.png")
+        ),
+        width = 8,
+        height = 5,
+        dpi = 800,
+        bg = "transparent"
+      )
+    }
+
+    # ----------------------------
+    # ENRICHMENT CURVES
+    # ----------------------------
+    top_ids <- head(gsea_df$ID, 3)
+
+    if (length(top_ids) > 0) {
+
+      enrich_plots <- lapply(top_ids, function(id) {
+        tryCatch(
+          enrichplot::gseaplot2(
+            gsea_res,
+            geneSetID = id,
+            subplots = 1:3
+          ),
+          error = function(e) NULL
+        )
+      })
+
+      enrich_plots <- Filter(
+        function(x) inherits(x, "ggplot") || inherits(x, "gtable"),
+        enrich_plots
+      )
+
+      if (length(enrich_plots) > 0) {
+
+        p_enrich <- if (length(enrich_plots) == 1) {
+          enrich_plots[[1]]
+        } else {
+          wrap_plots(enrich_plots, ncol = 1)
+        }
+
+        ggsave(
+          plot = p_enrich,
+          filename = file.path(
+            species_out_dir,
+            paste0(element_name, "_", ont, "_gseGO_enrichment_plots.png")
+          ),
+          width = 8,
+          height = 4 * length(enrich_plots),
+          dpi = 800,
+          bg = "transparent"
+        )
+      }
+    }
+  }
+
+  GO_GSEA_Results[[element_name]] <- res_all
+}
+```
