@@ -4,13 +4,21 @@
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err
 #SBATCH --partition himem-gen
 
-module purge
 module load Anaconda3
 source activate pandoc_env
-module load R
 
-echo "Using Rscript: $(which Rscript)"
+# 🔥 THIS IS THE FIX
+export R_LIBS_USER=/home/ocdm0351/R/x86_64-conda-linux-gnu-library/4.5
 
-# Render the R Markdown directly (safer than running a purlled script)
-Rscript --vanilla -e 'rmarkdown::render("/home/ocdm0351/DPhil/scripts/Associating_MutationRate_with_TimeSeries_Expression.Rmd", output_dir = "/home/ocdm0351/DPhil/R_Data/htmls", quiet = FALSE)'
+# Optional debug (very useful)
+echo "R location:"
+which R
+echo "Rscript location:"
+which Rscript
+
+Rscript -e "print(.libPaths())"
+
+RMD_FILE="/home/ocdm0351/DPhil/scripts/Associating_MutationRate_with_TimeSeries_Expression.Rmd" 
+OUTPUT_DIR="/home/ocdm0351/DPhil/R_Data/htmls"
+Rscript -e "rmarkdown::render('$RMD_FILE', output_dir = '$OUTPUT_DIR')"
 

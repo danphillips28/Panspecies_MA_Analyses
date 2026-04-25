@@ -564,685 +564,243 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   }
 
   cluster_results[[species_name]] <- clustered_df
+  
+  # ============================================================
+# GO OVER-REPRESENTATION ENRICHMENT FOR K-MEANS CLUSTERS
+# (FIXED VERSION — INSIDE LOOP)
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(clusterProfiler)
+  library(AnnotationDbi)
+  library(org.Ce.eg.db)
+  library(org.Dm.eg.db)
+})
+
+if (species_name %in% c("Celegans", "Dmelanogaster")) {
+
+  if (species_name == "Celegans") {
+    orgdb <- org.Ce.eg.db
+    keytype_used <- "WORMBASE"
+    species_tag <- "Celegans"
+  } else {
+    orgdb <- org.Dm.eg.db
+    keytype_used <- "FLYBASE"
+    species_tag <- "Dmelanogaster"
+  }
+
+  message("==== Running enrichment for ", element_name, " ====")
+
+  species_out_dir <- file.path(
+    R_Data,
+    "Plots/7_Developmental_TimeSeries_Clustering/Cluster_GO_Enrichment",
+    species_tag
+  )
+  dir.create(species_out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  for (cl in sort(unique(na.omit(clustered_df$cluster)))) {
+
+    genes <- unique(clustered_df$GENE_ID[clustered_df$cluster == cl])
+
+    message("Cluster ", cl, " genes: ", length(genes))
+
+    if (length(genes) < 5) next
+
+    ego <- tryCatch(
+      enrichGO(
+        gene = genes,
+        OrgDb = orgdb,
+        keyType = keytype_used,
+        ont = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff = 1,
+        qvalueCutoff = 1,
+        readable = TRUE
+      ),
+      error = function(e) {
+        message("enrichGO failed for cluster ", cl)
+        return(NULL)
+      }
+    )
+
+    if (is.null(ego)) next
+
+    ego_df <- as.data.frame(ego)
+
+    message("Cluster ", cl, " GO terms: ", nrow(ego_df))
+
+    if (nrow(ego_df) == 0) next
+
+    # SAVE TABLE
+    write.table(
+      ego_df,
+      file = file.path(
+        species_out_dir,
+        paste0(element_name, "_Cluster_", cl, "_GO.tsv")
+      ),
+      sep = "\t",
+      row.names = FALSE,
+      quote = FALSE
+    )
+
+    # PLOT
+    plot_df <- ego_df %>%
+      arrange(p.adjust) %>%
+      slice_head(n = min(15, nrow(.))) %>%
+      mutate(Description = factor(Description, levels = rev(Description)))
+
+    p <- ggplot(plot_df,
+                aes(x = Description,
+                    y = -log10(p.adjust),
+                    fill = Count)) +
+      geom_col() +
+      coord_flip() +
+      scale_fill_gradient(low = "#003300", high = "orange") +
+      theme_bw() +
+      labs(
+        title = paste0(species_tag, " Cluster ", cl),
+        y = "-log10(adj p)",
+        x = NULL
+      )
+
+    ggsave(
+      file.path(
+        species_out_dir,
+        paste0(element_name, "_Cluster_", cl, "_GO.png")
+      ),
+      p,
+      width = 7,
+      height = 5,
+      dpi = 600
+    )
+  }
+}
 }
 ```
 
 ```{r}
-library(ComplexHeatmap)
-library(data.table)
-library(dplyr)
-library(ggplot2)
-library(forcats)
-library(tidyr)
-library(tibble)
-library(circlize)
-gc()
+# ============================================================
+# GO OVER-REPRESENTATION ENRICHMENT FOR K-MEANS CLUSTERS
+# (C. elegans + D. melanogaster only)
+# ============================================================
 
-# Manual k per species
-species_k <- c(
-  "Celegans" = 7,
-  "Ppacificus" = 6,
-  "Dmelanogaster" = 8
-)
+suppressPackageStartupMessages({
+  library(clusterProfiler)
+  library(AnnotationDbi)
+  library(org.Ce.eg.db)
+  library(org.Dm.eg.db)
+  library(ggplot2)
+})
 
-default_k <- 6L
+if (species_name %in% c("Celegans", "Dmelanogaster")) {
 
-# Shared cluster palette across species
-max_k <- max(c(default_k, unname(species_k)), na.rm = TRUE)
-cluster_palette_all <- setNames(
-  grDevices::hcl.colors(max_k, palette = "Purple-Green"),
-  as.character(seq_len(max_k))
-)
-
-out_dir <- file.path(R_Data, "Plots/7_Developmental_TimeSeries_Clustering")
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-cluster_results <- list()
-
-for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
-
-  # --- Species name ---
-  species_name <- strsplit(element_name, "_")[[1]][4]
-
-  # --- Load data ---
-  df <- as.data.frame(Annotated_VCFs_PC_Gene_Body_Variants[[element_name]])
-
-  # --- Keep only expression columns with numeric timepoints ---
-  expr_cols <- grep("^log2_Expression_Plus_One[0-9]+$", names(df), value = TRUE)
-  if (length(expr_cols) == 0) next
-
-  # --- Order timepoints numerically ---
-  timepoints <- as.numeric(sub("^log2_Expression_Plus_One", "", expr_cols))
-  ord <- order(timepoints)
-  expr_cols <- expr_cols[ord]
-  timepoints <- timepoints[ord]
-
-  # --- Try to find a numeric mutation-rate column ---
-  specific_mut_col <- paste0(species_name, "_UniqueVariantsPlusOnePerBP")
-  if (specific_mut_col %in% names(df)) {
-    mut_rate_col <- specific_mut_col
+  # ----------------------------
+  # Species setup (same as your working script)
+  # ----------------------------
+  if (species_name == "Celegans") {
+    orgdb <- org.Ce.eg.db
+    keytype_used <- "WORMBASE"
+    species_tag <- "Celegans"
   } else {
-    mut_rate_candidates <- grep("UniqueVariantsPlusOnePerBP$", names(df), value = TRUE)
-    if (length(mut_rate_candidates) == 0) {
-      mut_rate_candidates <- grep("UniqueVariantsPlusOnePerBP", names(df), value = TRUE)
-    }
-    mut_rate_col <- if (length(mut_rate_candidates) > 0) mut_rate_candidates[1] else NA_character_
+    orgdb <- org.Dm.eg.db
+    keytype_used <- "FLYBASE"
+    species_tag <- "Dmelanogaster"
   }
 
-  # --- Keep gene ID + expression columns (+ mutation rate if available) ---
-  keep_cols <- c("GENE_ID", expr_cols)
-  if (!is.na(mut_rate_col)) {
-    keep_cols <- c(keep_cols, mut_rate_col)
-  }
-  keep_cols <- intersect(keep_cols, names(df))
+  message("Running cluster enrichment for: ", element_name)
 
-  expression_and_meta <- df[, keep_cols, drop = FALSE] %>%
-    unique()
-
-  # --- Remove rows with missing values in expression columns ---
-  expression_and_meta <- expression_and_meta[
-    complete.cases(expression_and_meta[, expr_cols, drop = FALSE]),
-    ,
-    drop = FALSE
-  ]
-
-  if (nrow(expression_and_meta) < 3) next
-
-  # --- Build expression matrix ---
-  expr_mat <- as.matrix(expression_and_meta[, expr_cols, drop = FALSE])
-  storage.mode(expr_mat) <- "numeric"
-
-  # --- Make unique row IDs because GENE_ID can be duplicated ---
-  row_id <- make.unique(as.character(expression_and_meta$GENE_ID))
-
-  # --- Row-scale expression ---
-  row_scaled_expression <- t(scale(t(expr_mat)))
-  row_scaled_expression[row_scaled_expression > 4] <- 4
-  row_scaled_expression[row_scaled_expression < -4] <- -4
-
-  # --- Remove rows that became NA/NaN/Inf after scaling ---
-  keep <- apply(row_scaled_expression, 1, function(x) all(is.finite(x)))
-  row_scaled_expression <- row_scaled_expression[keep, , drop = FALSE]
-  expression_and_meta <- expression_and_meta[keep, , drop = FALSE]
-  row_id <- row_id[keep]
-  expr_mat <- expr_mat[keep, , drop = FALSE]
-
-  if (nrow(row_scaled_expression) < 3) next
-
-  # --- Attach row IDs and clean column names ---
-  colnames(row_scaled_expression) <- as.character(timepoints)
-  colnames(expr_mat) <- as.character(timepoints)
-  rownames(row_scaled_expression) <- row_id
-  rownames(expr_mat) <- row_id
-  expression_and_meta$row_id <- row_id
-
-  # --- Manual k per species ---
-  if (species_name %in% names(species_k)) {
-    k_use <- as.integer(species_k[[species_name]])
-  } else {
-    k_use <- default_k
-  }
-  k_use <- max(2L, min(k_use, nrow(row_scaled_expression) - 1L))
-
-  message("Species: ", species_name, " | using k = ", k_use)
-
-  # ------------------------------------------------------------
-  # Heatmap colour scale: fixed low -> mid -> high
-  # ------------------------------------------------------------
-  heatmap_col_fun <- circlize::colorRamp2(
-    c(-2, 0, 2),
-    c("#5A189A", "white", "#FF9100")
+  species_out_dir <- file.path(
+    R_Data,
+    "Plots/7_Developmental_TimeSeries_Clustering/Cluster_GO_Enrichment",
+    species_tag
   )
+  dir.create(species_out_dir, recursive = TRUE, showWarnings = FALSE)
 
-  set.seed(69)
+  # ----------------------------
+  # Loop over clusters
+  # ----------------------------
+  for (cl in sort(unique(na.omit(clustered_df$cluster)))) {
 
-  # --- Heatmap with k-means clustering ---
-  ht <- ComplexHeatmap::Heatmap(
-    row_scaled_expression,
-    name = "z",
-    col = heatmap_col_fun,
-    heatmap_legend_param = list(
-      at = c(-2, 0, 2),
-      labels = c("-2", "0", "2"),
-      title_gp = gpar(col = "white"),
-      labels_gp = gpar(col = "white")
-    ),
-    row_dend_gp = gpar(col = "white"),
-    column_dend_gp = gpar(col = "white"),
-    row_names_gp = gpar(col = "white"),
-    column_names_gp = gpar(col = "white"),
-    row_title_gp = gpar(col = "white"),
-    column_title_gp = gpar(col = "white"),
-    cluster_columns = FALSE,
-    #clustering_distance_rows = "pearson",
-    #clustering_method_rows = "average",
-    #row_split = k_use,
-    row_gap = unit(3, "mm"),
-    row_km = k_use,
-    cluster_row_slices = FALSE,
-    row_km_repeats = 1000,
-    show_row_names = FALSE,
-    column_labels = as.character(timepoints),
-    column_names_rot = 0,
-    row_title_rot = 0,
-    use_raster = TRUE,
-    column_title = paste0(species_name, " (k = ", k_use, ")")
-  )
+    df_cl <- clustered_df %>%
+      filter(cluster == cl) %>%
+      distinct(GENE_ID)
 
-  png(
-    file.path(out_dir, paste0("Developmental_TimeSeries_Heatmap_", species_name, "_HC", k_use, ".png")),
-    width = 3000,
-    height = 5000,
-    res = 900,
-    bg = "transparent",
-    type = "cairo-png"
-  )
-  ht_drawn <- ComplexHeatmap::draw(ht, background = "transparent")
-  dev.off()
+    genes <- df_cl$GENE_ID
 
-  # --- Extract clusters from the heatmap ---
-  cluster_list <- ComplexHeatmap::row_order(ht_drawn)
-  actual_k <- length(cluster_list)
+    if (length(genes) < 10) next
 
-  cluster_cols <- setNames(
-    cluster_palette_all[as.character(seq_len(actual_k))],
-    as.character(seq_len(actual_k))
-  )
+    message("Cluster ", cl, " genes: ", length(genes))
 
-  cluster_df <- do.call(rbind, lapply(seq_along(cluster_list), function(i) {
-    idx <- cluster_list[[i]]
-    data.frame(
-      row_id = rownames(row_scaled_expression)[idx],
-      GENE_ID = expression_and_meta$GENE_ID[idx],
-      cluster = factor(i, levels = seq_len(actual_k)),
-      stringsAsFactors = FALSE
-    )
-  }))
-
-  # --- Merge cluster labels back to metadata ---
-  clustered_df <- merge(
-    expression_and_meta,
-    cluster_df[, c("row_id", "cluster")],
-    by = "row_id",
-    all.x = TRUE,
-    sort = FALSE
-  )
-
-  # --- Long-form data for cluster mean trajectory plot ---
-  expr_long <- as.data.frame(row_scaled_expression) %>%
-    tibble::rownames_to_column("row_id") %>%
-    tidyr::pivot_longer(
-      cols = -row_id,
-      names_to = "timepoint",
-      values_to = "expression"
-    ) %>%
-    mutate(
-      timepoint = as.numeric(timepoint)
-    ) %>%
-    left_join(cluster_df[, c("row_id", "cluster")], by = "row_id")
-
-  cluster_summary <- expr_long %>%
-    group_by(cluster, timepoint) %>%
-    summarise(
-      mean_expression = mean(expression, na.rm = TRUE),
-      ci_halfwidth = if (dplyr::n() > 1) qt(0.975, df = dplyr::n() - 1) * (sd(expression, na.rm = TRUE) / sqrt(dplyr::n())) else NA_real_,
-      n = dplyr::n(),
-      .groups = "drop"
-    ) %>%
-    mutate(
-      ci_lower = mean_expression - ci_halfwidth,
-      ci_upper = mean_expression + ci_halfwidth
-    )
-
-  p_cluster_traj <-
-    ggplot(cluster_summary, aes(
-      x = timepoint,
-      y = mean_expression,
-      group = cluster,
-      colour = cluster,
-      fill = cluster
-    )) +
-    geom_ribbon(
-      aes(ymin = ci_lower, ymax = ci_upper),
-      alpha = 0.25,
-      colour = NA,
-      na.rm = TRUE
-    ) +
-    geom_line(linewidth = 1, alpha = .9) +
-    geom_point(size = 2.5) +
-    facet_wrap(~cluster, ncol = 1) +
-    scale_colour_manual(values = cluster_cols) +
-    scale_fill_manual(values = cluster_cols) +
-    scale_x_continuous(breaks = timepoints) +
-    theme_bw(base_size = 10) +
-    theme(
-      text = element_text(colour = "white"),
-      panel.background = element_rect(fill = "white", colour = NA),
-      plot.background = element_rect(fill = "transparent", colour = NA),
-      panel.grid.major.x = element_line(color = "transparent", linewidth = 0.2),
-      panel.grid.minor.x = element_line(color = "transparent", linewidth = 0.1),
-      panel.grid.major.y = element_line(color = "black", linewidth = 0.2),
-      panel.grid.minor.y = element_line(color = "black", linewidth = 0.1),
-      plot.title = element_text(size = 10, hjust = 0.5),
-      strip.text = element_text(size = 9, colour = "white"),
-      strip.background = element_blank(),
-      axis.text = element_text(size = 8, colour = "white")
-    ) +
-    guides(colour = "none", fill = "none") +
-    labs(
-      x = "Timepoint",
-      y = "Row-scaled expression",
-      title = paste0(species_name, " cluster mean trajectories (k = ", k_use, ")"),
-      subtitle = "Ribbon shows 95% confidence interval"
-    )
-
-  ggsave(
-    file.path(out_dir, paste0("Cluster_Mean_Trajectories_", species_name, "_k", k_use, ".png")),
-    plot = p_cluster_traj,
-    width = 2,
-    height = length(unique(cluster_summary$cluster)) + 2,
-    dpi = 1000,
-    bg = "transparent"
-  )
-
-  # --- Mutation-rate boxplot by cluster, ordered by median mutation rate ---
-  p_mut_box <- NULL
-  mut_stats <- NULL
-
-  if (!is.na(mut_rate_col) && mut_rate_col %in% names(clustered_df)) {
-    plot_df <- clustered_df[!is.na(clustered_df$cluster) & !is.na(clustered_df[[mut_rate_col]]), , drop = FALSE]
-
-    if (nrow(plot_df) > 0 && length(unique(plot_df$cluster)) > 1) {
-
-      plot_df$cluster <- factor(plot_df$cluster, levels = as.character(seq_len(actual_k)))
-      plot_df$cluster_order <- forcats::fct_reorder(
-        plot_df$cluster,
-        plot_df[[mut_rate_col]],
-        .fun = median
-      )
-
-      mut_formula <- as.formula(paste(mut_rate_col, "~ cluster"))
-      lm_mut <- lm(mut_formula, data = plot_df)
-      kw_mut <- kruskal.test(mut_formula, data = plot_df)
-
-      r2 <- summary(lm_mut)$r.squared
-      anova_p <- anova(lm_mut)[1, "Pr(>F)"]
-
-      p_mut_box <-
-        ggplot(plot_df, aes(
-          x = cluster_order,
-          y = .data[[mut_rate_col]],
-          fill = cluster_order
-        )) +
-        geom_boxplot(outliers = FALSE, width = 0.75, alpha = 0.75) +
-        scale_fill_manual(values = unname(cluster_palette_all[seq_len(actual_k)]), drop = FALSE) +
-        theme_bw(base_size = 10) +
-        theme(
-          # Text and axis formatting
-          plot.title = element_text(size = 10, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text.x = element_text(size = 20, color = "white", vjust = .6, angle = 0),
-          axis.text.y = element_text(size = 10, color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-
-          # Transparent backgrounds
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-
-          # Keep grid lines visible and black
-          panel.grid.major = element_line(color = "black", size = 0.2),
-          panel.grid.minor = element_line(color = "black", size = 0.1)
-        ) +
-        scale_y_continuous(n.breaks = 10) +
-        guides(fill = "none") +
-        labs(
-          x = "Cluster (ordered by median mutation rate)",
-          y = mut_rate_col,
-          title = paste0(species_name, " mutation rate by cluster"),
-          subtitle = paste0(
-            "R² = ", round(r2, 3),
-            "; ANOVA p = ", signif(anova_p, 3),
-            "; Kruskal-Wallis p = ", signif(kw_mut$p.value, 3)
-          )
-        )
-
-      ggsave(
-        file.path(out_dir, paste0("Mutation_Rate_by_Cluster_", species_name, "_k", k_use, ".png")),
-        plot = p_mut_box,
-        width = 3.5,
-        height = 5.5,
-        dpi = 1500,
-        bg = "transparent"
-      )
-
-      mut_stats <- list(
-        r2 = r2,
-        anova_p = anova_p,
-        kruskal_p = kw_mut$p.value,
-        lm = lm_mut,
-        kw = kw_mut
-      )
-    }
-  }
-
-  # ======================================================================
-  # EXTRA VERSION: same workflow using NON-row-scaled expression as input
-  # ======================================================================
-
-  raw_expression_matrix <- expr_mat
-
-  if (nrow(raw_expression_matrix) >= 3) {
-
-    # --- Raw heatmap colour scale ---
-    raw_heatmap_col_fun <- circlize::colorRamp2(
-      c(min(raw_expression_matrix, na.rm = TRUE),
-        stats::median(raw_expression_matrix, na.rm = TRUE),
-        max(raw_expression_matrix, na.rm = TRUE)),
-      c("#5A189A", "white", "#FF9100")
-    )
-
-    set.seed(69)
-
-    # --- Raw-expression heatmap with k-means clustering ---
-    ht_raw <- ComplexHeatmap::Heatmap(
-      raw_expression_matrix,
-      name = "expr",
-      col = raw_heatmap_col_fun,
-      heatmap_legend_param = list(
-        at = pretty(range(raw_expression_matrix, na.rm = TRUE), n = 3),
-        title_gp = gpar(col = "white"),
-        labels_gp = gpar(col = "white")
+    # ----------------------------
+    # Over-representation (NOT GSEA)
+    # ----------------------------
+    enrich_res <- tryCatch(
+      enrichGO(
+        gene = genes,
+        OrgDb = orgdb,
+        keyType = keytype_used,
+        ont = "BP",
+        pAdjustMethod = "BH",
+        pvalueCutoff = 1,
+        qvalueCutoff = 1,
+        readable = TRUE
       ),
-      row_dend_gp = gpar(col = "white"),
-      column_dend_gp = gpar(col = "white"),
-      row_names_gp = gpar(col = "white"),
-      column_names_gp = gpar(col = "white"),
-      row_title_gp = gpar(col = "white"),
-      column_title_gp = gpar(col = "white"),
-      cluster_columns = FALSE,
-      row_gap = unit(3, "mm"),
-      row_km = k_use,
-      cluster_row_slices = FALSE,
-      row_km_repeats = 1000,
-      show_row_names = FALSE,
-      column_labels = as.character(timepoints),
-      column_names_rot = 0,
-      row_title_rot = 0,
-      use_raster = TRUE,
-      column_title = paste0(species_name, " raw expression (k = ", k_use, ")")
+      error = function(e) {
+        message("enrichGO failed for cluster ", cl)
+        return(NULL)
+      }
     )
 
-    png(
-      file.path(out_dir, paste0("Developmental_TimeSeries_Heatmap_", species_name, "_RAW_HC", k_use, ".png")),
-      width = 3000,
-      height = 5000,
-      res = 900,
-      bg = "transparent",
-      type = "cairo-png"
-    )
-    ht_raw_drawn <- ComplexHeatmap::draw(ht_raw, background = "transparent")
-    dev.off()
+    if (is.null(enrich_res)) next
 
-    # --- Extract clusters from the raw heatmap ---
-    cluster_list_raw <- ComplexHeatmap::row_order(ht_raw_drawn)
-    actual_k_raw <- length(cluster_list_raw)
+    enrich_df <- as.data.frame(enrich_res)
+    if (nrow(enrich_df) == 0) next
 
-    cluster_cols_raw <- setNames(
-      cluster_palette_all[as.character(seq_len(actual_k_raw))],
-      as.character(seq_len(actual_k_raw))
+    # Save table
+    write.table(
+      enrich_df,
+      file = file.path(
+        species_out_dir,
+        paste0(element_name, "_Cluster_", cl, "_GO.tsv")
+      ),
+      sep = "\t",
+      row.names = FALSE,
+      quote = FALSE
     )
 
-    cluster_df_raw <- do.call(rbind, lapply(seq_along(cluster_list_raw), function(i) {
-      idx <- cluster_list_raw[[i]]
-      data.frame(
-        row_id = rownames(raw_expression_matrix)[idx],
-        GENE_ID = expression_and_meta$GENE_ID[idx],
-        cluster = factor(i, levels = seq_len(actual_k_raw)),
-        stringsAsFactors = FALSE
-      )
-    }))
+    # ----------------------------
+    # PLOT (same style as your script)
+    # ----------------------------
+    plot_df <- enrich_df %>%
+      arrange(p.adjust) %>%
+      slice_head(n = 15) %>%
+      mutate(Description = factor(Description, levels = rev(Description)))
 
-    # --- Merge raw cluster labels back to metadata ---
-    clustered_df_raw <- merge(
-      expression_and_meta,
-      cluster_df_raw[, c("row_id", "cluster")],
-      by = "row_id",
-      all.x = TRUE,
-      sort = FALSE
-    )
-
-    # --- Long-form data for raw cluster mean trajectory plot ---
-    expr_long_raw <- as.data.frame(raw_expression_matrix) %>%
-      tibble::rownames_to_column("row_id") %>%
-      tidyr::pivot_longer(
-        cols = -row_id,
-        names_to = "timepoint",
-        values_to = "expression"
-      ) %>%
-      mutate(
-        timepoint = as.numeric(timepoint)
-      ) %>%
-      left_join(cluster_df_raw[, c("row_id", "cluster")], by = "row_id")
-
-    cluster_summary_raw <- expr_long_raw %>%
-      group_by(cluster, timepoint) %>%
-      summarise(
-        mean_expression = mean(expression, na.rm = TRUE),
-        ci_halfwidth = if (dplyr::n() > 1) qt(0.975, df = dplyr::n() - 1) * (sd(expression, na.rm = TRUE) / sqrt(dplyr::n())) else NA_real_,
-        n = dplyr::n(),
-        .groups = "drop"
-      ) %>%
-      mutate(
-        ci_lower = mean_expression - ci_halfwidth,
-        ci_upper = mean_expression + ci_halfwidth
-      )
-
-    p_cluster_traj_raw <-
-      ggplot(cluster_summary_raw, aes(
-        x = timepoint,
-        y = mean_expression,
-        group = cluster,
-        colour = cluster,
-        fill = cluster
-      )) +
-      geom_ribbon(
-        aes(ymin = ci_lower, ymax = ci_upper),
-        alpha = 0.25,
-        colour = NA,
-        na.rm = TRUE
-      ) +
-      geom_line(linewidth = 1, alpha = .9) +
-      geom_point(size = 2.5) +
-      facet_wrap(~cluster, ncol = 1) +
-      scale_colour_manual(values = cluster_cols_raw) +
-      scale_fill_manual(values = cluster_cols_raw) +
-      scale_x_continuous(breaks = timepoints) +
-      theme_bw(base_size = 10) +
-      theme(
-        text = element_text(colour = "white"),
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major.x = element_line(color = "transparent", linewidth = 0.2),
-        panel.grid.minor.x = element_line(color = "transparent", linewidth = 0.1),
-        panel.grid.major.y = element_line(color = "black", linewidth = 0.2),
-        panel.grid.minor.y = element_line(color = "black", linewidth = 0.1),
-        plot.title = element_text(size = 10, hjust = 0.5),
-        strip.text = element_text(size = 9, colour = "white"),
-        strip.background = element_blank(),
-        axis.text = element_text(size = 8, colour = "white")
-      ) +
-      guides(colour = "none", fill = "none") +
+    p_bar <- ggplot(plot_df,
+                    aes(x = Description,
+                        y = -log10(p.adjust),
+                        fill = Count)) +
+      geom_col(width = 0.7) +
+      coord_flip() +
+      scale_fill_gradient(low = "#003300", high = "orange") +
       labs(
-        x = "Timepoint",
-        y = "Expression",
-        title = paste0(species_name, " raw cluster mean trajectories (k = ", k_use, ")"),
-        subtitle = "Ribbon shows 95% confidence interval"
-      )
+        title = paste0(species_tag, " Cluster ", cl, " GO enrichment"),
+        x = NULL,
+        y = "-log10(adj p-value)"
+      ) +
+      theme_bw()
 
     ggsave(
-      file.path(out_dir, paste0("Cluster_Mean_Trajectories_", species_name, "_RAW_k", k_use, ".png")),
-      plot = p_cluster_traj_raw,
-      width = 2,
-      height = length(unique(cluster_summary_raw$cluster)) + 2,
-      dpi = 1000,
+      plot = p_bar,
+      filename = file.path(
+        species_out_dir,
+        paste0(element_name, "_Cluster_", cl, "_GO_barplot.png")
+      ),
+      width = 7,
+      height = 5,
+      dpi = 800,
       bg = "transparent"
     )
-
-    # --- Mutation-rate boxplot by cluster using raw-expression clustering ---
-    p_mut_box_raw <- NULL
-    mut_stats_raw <- NULL
-
-    if (!is.na(mut_rate_col) && mut_rate_col %in% names(clustered_df_raw)) {
-      plot_df_raw <- clustered_df_raw[!is.na(clustered_df_raw$cluster) & !is.na(clustered_df_raw[[mut_rate_col]]), , drop = FALSE]
-
-      if (nrow(plot_df_raw) > 0 && length(unique(plot_df_raw$cluster)) > 1) {
-
-        plot_df_raw$cluster <- factor(plot_df_raw$cluster, levels = as.character(seq_len(actual_k_raw)))
-        plot_df_raw$cluster_order <- forcats::fct_reorder(
-          plot_df_raw$cluster,
-          plot_df_raw[[mut_rate_col]],
-          .fun = median
-        )
-
-        mut_formula_raw <- as.formula(paste(mut_rate_col, "~ cluster"))
-        lm_mut_raw <- lm(mut_formula_raw, data = plot_df_raw)
-        kw_mut_raw <- kruskal.test(mut_formula_raw, data = plot_df_raw)
-
-        r2_raw <- summary(lm_mut_raw)$r.squared
-        anova_p_raw <- anova(lm_mut_raw)[1, "Pr(>F)"]
-
-        p_mut_box_raw <-
-          ggplot(plot_df_raw, aes(
-            x = cluster_order,
-            y = .data[[mut_rate_col]],
-            fill = cluster_order
-          )) +
-          geom_boxplot(outliers = FALSE, width = 0.75, alpha = 0.75) +
-          scale_fill_manual(values = unname(cluster_palette_all[seq_len(actual_k_raw)]), drop = FALSE) +
-          theme_bw(base_size = 10) +
-          theme(
-            # Text and axis formatting
-            plot.title = element_text(size = 10, colour = "white", hjust = .5),
-            text = element_text(color = "white"),
-            axis.title = element_text(color = "white"),
-            axis.text.x = element_text(size = 20, color = "white", vjust = .6, angle = 0),
-            axis.text.y = element_text(size = 10, color = "white"),
-            legend.title = element_text(color = "white"),
-            legend.text = element_text(color = "white"),
-            plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-            plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-            strip.text = element_text(color = "white"),
-
-            # Transparent backgrounds
-            panel.background = element_rect(fill = "white", colour = NA),
-            plot.background = element_rect(fill = "transparent", colour = NA),
-            legend.background = element_rect(fill = "transparent", colour = NA),
-            legend.box.background = element_rect(fill = "transparent", colour = NA),
-
-            # Keep grid lines visible and black
-            panel.grid.major = element_line(color = "black", size = 0.2),
-            panel.grid.minor = element_line(color = "black", size = 0.1)
-          ) +
-          scale_y_continuous(n.breaks = 10) +
-          guides(fill = "none") +
-          labs(
-            x = "Cluster (ordered by median mutation rate)",
-            y = mut_rate_col,
-            title = paste0(species_name, " raw mutation rate by cluster"),
-            subtitle = paste0(
-              "R² = ", round(r2_raw, 3),
-              "; ANOVA p = ", signif(anova_p_raw, 3),
-              "; Kruskal-Wallis p = ", signif(kw_mut_raw$p.value, 3)
-            )
-          )
-
-        ggsave(
-          file.path(out_dir, paste0("Mutation_Rate_by_Cluster_", species_name, "_RAW_k", k_use, ".png")),
-          plot = p_mut_box_raw,
-          width = 3.5,
-          height = 5.5,
-          dpi = 1500,
-          bg = "transparent"
-        )
-
-        mut_stats_raw <- list(
-          r2 = r2_raw,
-          anova_p = anova_p_raw,
-          kruskal_p = kw_mut_raw$p.value,
-          lm = lm_mut_raw,
-          kw = kw_mut_raw
-        )
-      }
-    }
-
-    # --- Save raw outputs ---
-    fwrite(
-      as.data.table(cluster_df_raw),
-      file.path(out_dir, paste0("Cluster_Assignments_", species_name, "_RAW_k", k_use, ".csv"))
-    )
-
-    fwrite(
-      as.data.table(clustered_df_raw),
-      file.path(out_dir, paste0("Clustered_Metadata_", species_name, "_RAW_k", k_use, ".csv"))
-    )
-
-    fwrite(
-      as.data.table(cluster_summary_raw),
-      file.path(out_dir, paste0("Cluster_Trajectory_Summary_", species_name, "_RAW_k", k_use, ".csv"))
-    )
-
-    # --- Store raw results ---
-    cluster_results[[paste0(species_name, "_RAW")]] <- list(
-      k = k_use,
-      actual_k = actual_k_raw,
-      heatmap = ht_raw_drawn,
-      cluster_df = cluster_df_raw,
-      clustered_df = clustered_df_raw,
-      cluster_summary = cluster_summary_raw,
-      p_cluster_traj = p_cluster_traj_raw,
-      p_mut_box = p_mut_box_raw,
-      mut_stats = mut_stats_raw,
-      row_scaled_expression = raw_expression_matrix,
-      expr_mat = raw_expression_matrix
-    )
   }
-
-  # --- Save outputs ---
-  fwrite(
-    as.data.table(cluster_df),
-    file.path(out_dir, paste0("Cluster_Assignments_", species_name, "_k", k_use, ".csv"))
-  )
-
-  fwrite(
-    as.data.table(clustered_df),
-    file.path(out_dir, paste0("Clustered_Metadata_", species_name, "_k", k_use, ".csv"))
-  )
-
-  fwrite(
-    as.data.table(cluster_summary),
-    file.path(out_dir, paste0("Cluster_Trajectory_Summary_", species_name, "_k", k_use, ".csv"))
-  )
-
-  # --- Store results ---
-  cluster_results[[species_name]] <- list(
-    k = k_use,
-    actual_k = actual_k,
-    heatmap = ht_drawn,
-    cluster_df = cluster_df,
-    clustered_df = clustered_df,
-    cluster_summary = cluster_summary,
-    p_cluster_traj = p_cluster_traj,
-    p_mut_box = p_mut_box,
-    mut_stats = mut_stats,
-    row_scaled_expression = row_scaled_expression,
-    expr_mat = expr_mat
-  )
 }
 ```
