@@ -11,24 +11,21 @@ SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
 
 # List the scripts explicitly, in the order you want them submitted
 scripts=(
-	 # Some Formattng and Grooming
-	 "1_Cleaning_Variant_Files_Submitter.sh" # submits 1_Cleaning_Variant_Files.Rmd
-	 "1_Removing_Bad_Samples_from_Behringer.sh"
-	 "2_grooming_VCFs.sh"
-	 "3_renaming_Ncrassa_contigs.sh"
-	 # liftOver of Variants if Needed
-	 "4_liftingOver.sh"
-	 # Variant Annotation
-	 "5_building_snpEff_databases.sh"
-	 "6_snpEffSift.sh"
-	 "6_5_Downloading_Celegans_Essential_Genes.sh"  
-	 "6_5_Downloading_Celegans_HouseKeeping_Genes.sh"  
-	 "6_5_Downloading_Dmelanogaster_Essential_Genes.sh"
-	 "7_Cleaning_Annotated_Variant_Files_Submitter.sh"
-	 # Summary Statistics of Variants
-	 "8_Summarising_VCFs_Submitter.sh"
-	 # Testing Enrichment of Variants Around Gene Bodies
-	 "9_EnrichmentAroundFeatures_Submitter.sh") # Need to manually create Sister_Species file now before running script #10
+"0_running_scripts.sh"
+"1_Cleaning_Variant_Files.Rmd"
+"1_Cleaning_Variant_Files_Submitter.sh"
+"1_Removing_Bad_Samples_from_Behringer.sh"
+"2_grooming_VCFs.sh"
+"3_renaming_Ncrassa_contigs.sh"
+"4_liftingOver.sh"
+"5_building_snpEff_databases.sh"
+"6_snpEffSift.sh"
+"7_Downloading_Celegans_Essential_Genes.sh"
+"7_Downloading_Celegans_HouseKeeping_Genes.sh"
+"7_Downloading_Dmelanogaster_Essential_Genes.sh"
+"8_Cleaning_Annotated_Variant_Files_Submitter.sh"
+"9_Summarising_VCFs_Submitter.sh"
+"10_EnrichmentAroundFeatures_Submitter.sh") # Need to create sister species manually before running next section of pipeline
 
 prev_jobid=""
 
