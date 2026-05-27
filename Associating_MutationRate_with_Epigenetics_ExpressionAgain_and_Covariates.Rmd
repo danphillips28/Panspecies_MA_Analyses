@@ -40,7 +40,21 @@ Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # F
 ```
 
 ```{r Loading Data}
-load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+
+
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+    df <- as.data.frame(df)
+    keep <- !grepl("^mean", names(df))
+    df[, keep, drop = FALSE]
+  }
+)
+
 # Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Dmelanogaster" |
@@ -50,6 +64,16 @@ Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[nam
                                                                       "Celegans" |
                                                                        names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Ppacificus"]
+```
+
+```{r Extract Small Dataset for Peter}
+#Celegans_WS235_MutationRates <-
+#Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235[, c("GENE_ID","cDNA_length",
+#                                                                            "UniqueVariants","log2_Expression_Plus_One")]
+
+#colnames(Celegans_WS235_MutationRates) <- c("GENE_ID","gene_width","UniqueVariants","log2_Expression_Plus_One")
+
+#save(Celegans_WS235_MutationRates, file = paste0(R_Data, "Celegans_WS235_MutationRates"))
 ```
 
 ```{r Read and Save Epigenetics and Covariate Data}
@@ -105,62 +129,6 @@ Species_Epigenetics_and_Covariates <- lapply(Species_Epigenetics_and_Covariates,
     df
   })
 })
-```
-
-```{r Binning Genes into Mutation-Rate Quantiles}
-Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
-  Annotated_VCFs_PC_Gene_Body_Variants,
-  function(df) {
-    df <- df %>%
-      mutate(
-        Overall_Mutation_Rate_Group = ifelse(
-          UniqueVariantsPlusOnePerBP == 0, "0",
-          ifelse(
-            is.na(UniqueVariantsPlusOnePerBP), NA,
-            as.character(cut_number(UniqueVariantsPlusOnePerBP, n = 5))
-          )
-        ),
-        Overall_Mutation_Rate_Group_More = ifelse(
-          UniqueVariantsPlusOnePerBP == 0, "0",
-          ifelse(
-            is.na(UniqueVariantsPlusOnePerBP), NA,
-            as.character(cut_number(UniqueVariantsPlusOnePerBP, n = 12))
-          )
-        )
-      ) %>%
-      # Convert any scientific notation to decimal
-      mutate(
-        Overall_Mutation_Rate_Group = str_replace_all(
-          Overall_Mutation_Rate_Group,
-          "\\d+\\.?\\d*e[-+]?\\d+",
-          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
-        ),
-        Overall_Mutation_Rate_Group_More = str_replace_all(
-          Overall_Mutation_Rate_Group_More,
-          "\\d+\\.?\\d*e[-+]?\\d+",
-          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
-        )
-      ) %>%
-      # ✅ Order numerically by lower bound, treat as ordered factor
-      mutate(
-        Overall_Mutation_Rate_Group = forcats::fct_reorder(
-          factor(Overall_Mutation_Rate_Group, ordered = TRUE),
-          as.numeric(str_extract(Overall_Mutation_Rate_Group, "(?<=\\[|\\()[^,]+")),
-          .fun = min,
-          .desc = FALSE
-        ),
-        Overall_Mutation_Rate_Group_More = forcats::fct_reorder(
-          factor(Overall_Mutation_Rate_Group_More, ordered = TRUE),
-          as.numeric(str_extract(Overall_Mutation_Rate_Group_More, "(?<=\\[|\\()[^,]+")),
-          .fun = min,
-          .desc = FALSE
-        )
-      )
-
-    return(df)
-  }
-)
-
 ```
 
 ```{r Calculate Mean Epigenetic Values for Each Gene and Run Correlations}
@@ -268,23 +236,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       color = "Mutation \n Rate \n Quantile",
       fill = "Mutation \n Rate \n Quantile") +
       theme_bw() +
-    theme(# Transparent backgrounds
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          # Keep grid lines visible and black
-          panel.grid.major = element_line(color = "black", size = 0.2),
-          panel.grid.minor = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 6, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 
@@ -375,16 +327,7 @@ ggplot(
                        "Coefficient = ", 
                        Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$estimate %>% signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 
@@ -439,30 +382,7 @@ ggplot(plot_df, aes(x = Overall_Mark_Group,
       )$p.value %>% round(3)
     )
   ) +
-  theme_bw(base_size = 10) +
-  theme(
-    # Text and axis formatting
-    plot.title = element_text(size = 5, colour = "black", hjust = .5),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text.x = element_text(size = 5, color = "black", vjust = .6, angle = 20),
-    axis.text.y = element_text(size = 6, color = "black"),
-    legend.title = element_text(color = "black"),
-    legend.text = element_text(color = "black"),
-    plot.subtitle = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "black"),
-
-    # Transparent backgrounds
-    panel.background = element_rect(fill = "transparent", colour = NA),
-    plot.background = element_rect(fill = "transparent", colour = NA),
-    legend.background = element_rect(fill = "transparent", colour = NA),
-    legend.box.background = element_rect(fill = "transparent", colour = NA),
-
-    # Keep grid lines visible and black
-    panel.grid.major = element_line(color = "black", size = 0.2),
-    panel.grid.minor = element_line(color = "black", size = 0.1)
-  ) +
+  
   scale_y_continuous(n.breaks = 10) +
   scale_fill_manual(values = colorRampPalette(
     c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
@@ -491,7 +411,7 @@ ggplot(plot_df, aes(x = Overall_Mark_Group,
   # 8️⃣ Save updated dataframe back into list
   Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- vcf_df
   
-  # Add Some Manual Correlations of Data Already in vcf_df; GC_Percentage and Expression
+  # Add Some Manual Correlations of Data Already in vcf_df; GC_Percentage, gene width and Expression
   # Run Spearman Correlations
   expression_spearman_test <- 
     cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
@@ -499,6 +419,7 @@ ggplot(plot_df, aes(x = Overall_Mark_Group,
              method = "spearman")
   # Save results into object
   Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["log2_Expression_Plus_One"]] <- expression_spearman_test
+  
   # Run Spearman Correlations
   GC_spearman_test <- 
     cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
@@ -506,6 +427,14 @@ ggplot(plot_df, aes(x = Overall_Mark_Group,
              method = "spearman")
   # Save results into object
   Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["GC_Percentage"]] <- GC_spearman_test
+  
+  # Run Spearman Correlations
+  width_spearman_test <- 
+    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
+             log(vcf_df$cDNA_length),
+             method = "spearman")
+  # Save results into object
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["cDNA_length"]] <- width_spearman_test
   
   message("Processed: ", element_name, " (species: ", species_name, ")")
 }
@@ -532,13 +461,14 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                  "H3K9me2$","H3K9me3$",
                  "H3K9ac$","H4K5ac$",
                  "H3K4me1$","H3K4me3",
+                 "cDNA_length",
                  #"plus$",
                  #"minus$",
                  "mean_replication")))
   
   # Working with complete cases for now
   element_data_complete_cases <-
-  element_data[complete.cases(element_data) == TRUE,]
+  element_data[complete.cases(element_data) == TRUE,] %>% unique()
 
   # 1️⃣ Split into training and testing sets
   set.seed(69)
@@ -588,9 +518,8 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     x = "Predictor variable",
     y = "Standardized coefficient",
     fill = "Effect direction") +
-  theme_minimal(base_size = 13) +
+  
   theme(
-    plot.title = element_text(face = "bold"),
     legend.position = "top")
 
   # Collapse Simple Correlation Results into Dataframe
@@ -611,34 +540,34 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     # Set Test type as Factor to set ordering in plot
     combined_results$test <- factor(combined_results$test,
                                     levels = c("Spearman","LASSO"))
+    
+    # Rename cDNA_length to gene_width
+    combined_results$variable <- gsub("cDNA_length","gene_width", combined_results$variable)
+  
      
     # Plot Facetable Bar Plot
   LASSO_Spearman_Coefficients_Plot <-
   ggplot() +
-    
   # The Spearman Plot
   geom_col(data = subset(combined_results,
                          test == "Spearman" &
-                         variable %in% coef_df$variable),
+                         variable %in% c(coef_df$variable,"gene_width")),
   aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
   scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
     guides(fill = "none") +
-  
   # Reset Scales
   ggnewscale::new_scale_fill() +
-  
   # The LASSO Plot
   geom_col(data = subset(combined_results,
                          test == "LASSO" &
-                         variable %in% coef_df$variable),
+                         variable %in% c(coef_df$variable,"gene_width")),
   aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
   scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
     guides(fill = "none") +
-    
   # Theming
   facet_grid(~test, scales = "free") +
   labs(
@@ -647,24 +576,8 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     x = "Predictor variable",
     y = "Standardized coefficient"
   ) +
-  theme_minimal(base_size = 13) +
-  theme(
-    plot.title = element_text(size = 10, face = "bold", colour = "white", hjust = .5),
-    plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 5, color = "white"),  # smaller labels
-    axis.text.y = element_text(size = 8, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    strip.text = element_text(color = "white"),
-    legend.position = "top",
-    panel.background = element_rect(fill = "white", color = "black"),
-    plot.background = element_rect(fill = NA, color = NA),
-    legend.background = element_rect(fill = NA, color = NA),
-    panel.grid.major = element_line(colour = "black", size = .3)) +    
-    scale_y_continuous(n.breaks = 10) 
+    scale_y_continuous(n.breaks = 16) +
+    theme(axis.text.x = element_text(size = BASE_SIZE-4, angle = 90))
 
   # Save the plot — change width/height as needed
     ggsave(plot = LASSO_Spearman_Coefficients_Plot,

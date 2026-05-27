@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=13_5_MutationRate_Functional_Enrichment
+#SBATCH --job-name=15_MutationRate_Functional_Enrichment
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err
 

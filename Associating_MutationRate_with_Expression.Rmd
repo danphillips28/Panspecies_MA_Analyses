@@ -18,7 +18,6 @@ library(clinfun)
 `%ni%` <- Negate(`%in%`)
 ```
 
-
 ```{r Setting Paths}
 R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
 #R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
@@ -27,9 +26,8 @@ Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # F
 
 ```
 
-
 ```{r Loading Data}
-load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Dmelanogaster" |
@@ -39,6 +37,9 @@ Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[nam
                                                                       "Celegans" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Ppacificus"]
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
 ```
 
 ```{r Merge Expression to Annotated_VCFs}
@@ -116,16 +117,7 @@ Genewise_MutationRate_by_Expression_Plots <- Map(
                        "p Value = ", Species_Expression_MutationRate_Pearson_Tests[[name]]$p.value %>% signif(., digits = 5),", ",
                        "Coefficient = ", Species_Expression_MutationRate_Pearson_Tests[[name]]$estimate %>% signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 
@@ -180,16 +172,7 @@ Genewise_MutationRate_by_Expression_Plots <- Map(
       subtitle = "Red = GAM smooth; Blue dashed = segmented regression",
       caption = "Blue line represents fit of generalised linear model: gam(UniqueVariantsPlusOnePerBP ~ s(Expression_value, k = 6), data = df). \n
                 Orange line represents fit of segmented linear regression: seg_fit <- segmented(lm_fit, seg.Z = ~ Expression_value, npsi = 2)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 
@@ -260,16 +243,7 @@ MutatedOnly_Genewise_MutationRate_by_Expression_Plots <- Map(
                        "Coefficient = ", Species_Expression_MutationRate_Pearson_TestsMutatedOnly[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+     
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -335,7 +309,7 @@ Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
         Overall_Expression_Group_More = ifelse(
           Expression_value == 0, "0",
           ifelse(is.na(Expression_value), NA,
-                 as.character(cut_number(Expression_value + runif(n(), -1e-6, 1e-6), n = 30)))))
+                 as.character(cut_number(Expression_value + runif(n(), -1e-6, 1e-6), n = 28)))))
 
     # If there are no non-NA groups, just return
     if (all(is.na(df$Overall_Expression_Group_More))) return(df)
@@ -404,21 +378,7 @@ ggplot(data = subset(df,
                 df$UniqueVariantsPlusOne, 
                 df$Overall_Expression_Group, 
                 alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
-     theme_bw() +
-  theme(
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group)))) +
   guides(fill = "none")
@@ -460,21 +420,7 @@ ggplot(data = subset(df,
                 df$UniqueVariantsPlusOne, 
                 df$Overall_Expression_Group_More, 
                 alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
-     theme_bw() +
-  theme(
-    plot.title = element_text(size = 6.5, colour = "black", hjust = .5),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text.x = element_text(size = 4, color = "black", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "black"),
-    legend.title = element_text(color = "black"),
-    legend.text = element_text(color = "black"),
-    plot.subtitle = element_text(size = 7, color = "black", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "black"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+   
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More)))) +
   guides(fill = "none")
@@ -535,21 +481,7 @@ ggplot(data = subset(df,
                 df$UniqueVariantsPlusOne, 
                 df$Overall_Expression_Group, 
                 alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
-     theme_bw() +
-  theme(
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+   
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group)))) +
   guides(fill = "none")
@@ -591,21 +523,7 @@ ggplot(data = subset(df,
                 df$UniqueVariantsPlusOne, 
                 df$Overall_Expression_Group_More, 
                 alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
-     theme_bw() +
-  theme(
-    plot.title = element_text(size = 6.5, colour = "black", hjust = .5),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text.x = element_text(size = 4, color = "black", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "black"),
-    legend.title = element_text(color = "black"),
-    legend.text = element_text(color = "black"),
-    plot.subtitle = element_text(size = 7, color = "black", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "black"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+   
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More)))) +
   guides(fill = "none")
@@ -751,17 +669,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
                        "Coefficient = ", Species_Expression_TtoA_or_AtoT_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -799,17 +707,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
                        "Coefficient = ", Species_Expression_CtoG_or_GtoC_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -847,17 +745,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
                        "Coefficient = ", Species_Expression_CtoT_or_GtoA_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -895,17 +783,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
                        "Coefficient = ", Species_Expression_CtoA_or_GtoT_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -943,17 +821,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
                        "Coefficient = ", Species_Expression_TtoG_or_AtoC_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -991,17 +859,7 @@ Genewise_MutationRate_by_Expression_by_Category_Plots <- Map(
                        "Coefficient = ", Species_Expression_TtoC_or_AtoG_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
@@ -1092,31 +950,7 @@ ggplot(dfF, aes(x = Species, y = Rho, fill = MutationType)) +
   ) +
   geom_hline(yintercept = 0, color = "black")  +
    theme_bw() +
-  theme(
-    # Subtle grid
-        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
-        panel.grid.major.x     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.x     = element_line(colour = "grey80", linewidth = 0.2),
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.title.y = element_text(colour = "white", size = 30, margin = margin(r = 2)),
-    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
-    legend.title = element_text(size = 70, color = "white", vjust = 0),
-    legend.text = element_text(size = 60, color = "white"),
-    legend.position = "bottom",
-    legend.direction = "horizontal",
-    legend.background = element_blank(),
-    legend.key.width = unit(2.5, "cm"),
-    legend.key.spacing = unit(1.5, "cm"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = c("black",
                                "grey",
@@ -1191,32 +1025,7 @@ ggplot(dfG, aes(x = Species, y = Rho, fill = MutationType)) +
     x = "Species"
   ) +
   geom_hline(yintercept = 0, color = "black")  +
-   theme_bw() +
-  theme(
-    # Subtle grid
-        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
-        panel.grid.major.x     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.x     = element_line(colour = "grey80", linewidth = 0.2),
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.title.y = element_text(colour = "white", size = 30, margin = margin(r = 2)),
-    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
-    legend.title = element_text(size = 70, color = "white", vjust = 0),
-    legend.text = element_text(size = 60, color = "white"),
-    legend.position = "bottom",
-    legend.direction = "horizontal",
-    legend.background = element_blank(),
-    legend.key.width = unit(2.5, "cm"),
-    legend.key.spacing = unit(1.5, "cm"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = c("black",
                                "grey",
@@ -1292,32 +1101,7 @@ ggplot(dfD, aes(x = Species, y = Rho, fill = MutationType)) +
     x = "Species"
   ) +
   geom_hline(yintercept = 0, color = "black")  +
-   theme_bw() +
-  theme(
-    # Subtle grid
-        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
-        panel.grid.major.x     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.x     = element_line(colour = "grey80", linewidth = 0.2),
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.title.y = element_text(colour = "white", size = 30, margin = margin(r = 2)),
-    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
-    legend.title = element_text(size = 70, color = "white", vjust = 0),
-    legend.text = element_text(size = 60, color = "white"),
-    legend.position = "bottom",
-    legend.direction = "horizontal",
-    legend.background = element_blank(),
-    legend.key.width = unit(2.5, "cm"),
-    legend.key.spacing = unit(1.5, "cm"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  
   scale_y_continuous(n.breaks = 20) +
   scale_fill_manual(values = c("black",
                                "grey",
@@ -1399,16 +1183,7 @@ Genewise_dNdS_by_Expression_Plots <- Map(
                        "p Value = ", Species_Expression_dNdS_Pearson_Tests[[name]]$p.value %>% signif(., digits = 5),", ",
                        "Coefficient = ", Species_Expression_dNdS_Pearson_Tests[[name]]$estimate %>% signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = MASS::rlm)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 
@@ -1457,16 +1232,7 @@ Genewise_dNdS_by_Expression_Plots <- Map(
       subtitle = "Red = GAM smooth; Blue dashed = segmented regression",
       caption = "Blue line represents fit of generalised linear model: gam(dNdS ~ s(Expression_value, k = 6), data = df). \n
                 Orange line represents fit of segmented linear regression: seg_fit <- segmented(lm_fit, seg.Z = ~ Expression_value, npsi = 2)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
 

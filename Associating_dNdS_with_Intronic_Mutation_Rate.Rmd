@@ -1,7 +1,7 @@
 ---
-title: "Associating_dNdS_with_Synonymous_Mutation_Rate"
+title: "Associating_dNdS_with_Intronic_Mutation_Rate"
 output: html_document
-date: "2025-12-24"
+date: "2026-05-07"
 ---
 
 ```{r setup, include=FALSE}
@@ -34,7 +34,6 @@ Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # F
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
 ```
-
 
 ```{r Loading VCFs GTF dNdS and snpEff Canonical Transcripts to Filter All By}
 load(file = paste0(R_Data,"Annotated_VCFs_Raw"))
@@ -76,20 +75,20 @@ Annotated_VCFs_Raw <- lapply(Annotated_VCFs_Raw, function(df) {
 ```
 
 ```{r Subsetting to Only Gene Body Variants}
-Annotated_VCFs_Gene_Body_Synonymous_Variants <- lapply(
-Annotated_VCFs_Raw,
+Annotated_VCFs_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_Raw,
   function(df) df %>% 
       # keep only rows where the token 'Intronic_variant' appears as a whole token
-      filter(grepl("synonymous", EFFECT))
+      filter(grepl("intron", EFFECT))
 )
 ```
 
 ```{r Annotating VCFs with Gene Lengths}
-for (element_name in unique(names(Annotated_VCFs_Gene_Body_Synonymous_Variants))) {
+for (element_name in unique(names(Annotated_VCFs_Gene_Body_Intronic_Variants))) {
 
   # Step One: Merge VCF Element with Correct GTF Columns
   # Isolate the element
-  element <- Annotated_VCFs_Gene_Body_Synonymous_Variants[[element_name]] %>% as.data.frame()
+  element <- Annotated_VCFs_Gene_Body_Intronic_Variants[[element_name]] %>% as.data.frame()
   # Format the gtf - Calculate Sequence Length
   element_gtf <- Species_Canonical_Transcripts_gtf[[element_name]] 
   element_gtf$cDNA_length <- width(element_gtf)
@@ -179,142 +178,152 @@ if (file.exists(housekeeping_file)) {
   element_info$HouseKeeping <- "Non-HouseKeeping"
 }
   # Step Four: Replace elements in Annotated_VCFs_Raw with the updated one
-  Annotated_VCFs_Gene_Body_Synonymous_Variants[[element_name]] <- subset(element_info, is.na(transcript_id) == FALSE)
+  Annotated_VCFs_Gene_Body_Intronic_Variants[[element_name]] <- subset(element_info, is.na(transcript_id) == FALSE)
   
   }
 
 ```
 
 ```{r Annotate Genes with Nucleotide Composition}
-for (element_name in names(Annotated_VCFs_Gene_Body_Synonymous_Variants)) {
+library(rtracklayer)
+library(dplyr)
+library(stringr)
+library(Biostrings)
 
-  # Step One: Isolate Components of Path to Load Reference Build(s)
-  element <- Annotated_VCFs_Gene_Body_Synonymous_Variants[[element_name]] # Get the element data
-  # Add Empty Columns to be filled with nucleotide compositions
-  element$GC_Length <- ""
-  element$AT_Length <- ""
-  build <- str_split(element_name, "_", simplify = TRUE)[,5] # Isolate just the build (is a sub-directory in species folder)
-  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>% str_replace(., "^(.)(.*)$", "\\1_\\2")
-  speciesANDbuild <- paste(species, build, sep = "_") 
-  # Step Two: Calculate Nucleotide Composition per Transcript
-  DNA_fasta <-
-  Biostrings::readDNAStringSet(paste0(Species_Data, species, "/", build, "/", "sequences.fa"),
-                             format = "fasta") 
-  # Get Chromosome Names
+clean_tx <- function(x) {
+  x <- as.character(x)
+  x <- trimws(x)
+  sub("\\.\\d+$", "", x)
+}
+
+# Helper: compute intron stats for one transcript using exon data.frame
+get_intron_stats <- function(tx_id, exon_df, chr_seqs) {
+
+  tx_id <- clean_tx(tx_id)
+  tx_exons <- exon_df[exon_df$transcript_id == tx_id, ]
+
+  if (nrow(tx_exons) == 0) {
+    return(data.frame(
+      transcript_id = tx_id,
+      Intron_Length = NA_integer_,
+      Intron_GC_Length = NA_integer_,
+      Intron_AT_Length = NA_integer_
+    ))
+  }
+
+  tx_exons <- tx_exons[order(tx_exons$start, tx_exons$end), ]
+
+  if (nrow(tx_exons) < 2) {
+    return(data.frame(
+      transcript_id = tx_id,
+      Intron_Length = 0L,
+      Intron_GC_Length = 0L,
+      Intron_AT_Length = 0L
+    ))
+  }
+
+  chr <- as.character(tx_exons$seqnames[1])
+  if (!chr %in% names(chr_seqs)) {
+    stop(paste("Chromosome", chr, "not found in reference fasta"))
+  }
+
+  exon_starts <- tx_exons$start
+  exon_ends   <- tx_exons$end
+
+  intron_starts <- exon_ends[-length(exon_ends)] + 1L
+  intron_ends   <- exon_starts[-1] - 1L
+
+  keep <- intron_ends >= intron_starts
+  intron_starts <- intron_starts[keep]
+  intron_ends   <- intron_ends[keep]
+
+  if (length(intron_starts) == 0) {
+    return(data.frame(
+      transcript_id = tx_id,
+      Intron_Length = 0L,
+      Intron_GC_Length = 0L,
+      Intron_AT_Length = 0L
+    ))
+  }
+
+  intron_seqs <- mapply(
+    function(s, e) substr(chr_seqs[chr], s, e),
+    intron_starts,
+    intron_ends,
+    USE.NAMES = FALSE
+  )
+
+  data.frame(
+    transcript_id = tx_id,
+    Intron_Length = as.integer(sum(intron_ends - intron_starts + 1L)),
+    Intron_GC_Length = as.integer(sum(stringr::str_count(intron_seqs, "[GC]"))),
+    Intron_AT_Length = as.integer(sum(stringr::str_count(intron_seqs, "[AT]")))
+  )
+}
+
+for (element_name in names(Annotated_VCFs_Gene_Body_Intronic_Variants)) {
+
+  element <- Annotated_VCFs_Gene_Body_Intronic_Variants[[element_name]]
+
+  build <- str_split(element_name, "_", simplify = TRUE)[,5]
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
+    str_replace(., "^(.)(.*)$", "\\1_\\2")
+
+  DNA_fasta <- Biostrings::readDNAStringSet(
+    paste0(Species_Data, species, "/", build, "/", "sequences.fa"),
+    format = "fasta"
+  )
   names(DNA_fasta) <- str_split(names(DNA_fasta), pattern = " ", simplify = TRUE)[,1]
-  
-      for (row in 1:nrow(element)) {
-      #print(paste("Current Transcript is", i)) # This is i going forward
-      # Retrieving Sequence Ranges
-      iChrom <- element[row,"CHROM"]
-      iStart <- element[row,"start"]
-      iEnd <- element[row, "end"]
-      # Next Thing
-      element[row, "GC_Length"] <- 
-      subseq(DNA_fasta[names(DNA_fasta) == iChrom, ], 
-                start = as.integer(iStart), end = as.integer(iEnd)) %>% letterFrequency("GC", as.prob = FALSE) %>% as.numeric()
-      element[row, "AT_Length"] <- 
-      subseq(DNA_fasta[names(DNA_fasta) == iChrom, ], 
-                start = as.integer(iStart), end = as.integer(iEnd)) %>% letterFrequency("AT", as.prob = FALSE) %>% as.numeric()
-      }
-  
- 
-# safe helper: check internal stops (standard code)
-has_internal_stop <- function(dna) {
-  aa <- translate(s2c(dna))
-  # ignore terminal stop if present: check any "*" except possibly last AA
-  if (length(aa) == 0) return(TRUE)
-  if (length(aa) == 1) return(aa[1] == "*")
-  any(aa[-length(aa)] == "*")
-}
 
-# corrected get_S: use character vector for seq
-get_S <- function(dna, name = "gene") {
-  # clean dna string
-  dna <- gsub("\\s+", "", dna)      # remove whitespace/newlines
-  dna <- gsub("-", "", dna)         # drop gaps if any
-  dna <- toupper(dna)
+  chr_seqs <- as.character(DNA_fasta)
+  names(chr_seqs) <- names(DNA_fasta)
 
-  # basic sanity checks
-  if (nchar(dna) == 0) stop("empty sequence")
-  if (nchar(dna) %% 3 != 0) stop("length not multiple of 3")
-  if (has_internal_stop(dna)) stop("internal stop codon(s) present")
-
-  aln <- list(
-    nb  = 2,
-    nam = c(name, paste0(name, "_copy")),
-    seq = c(dna, dna)   # <-- IMPORTANT: a character vector, not a list
+  gtf <- rtracklayer::import(
+    paste0(Species_Data, species, "/", build, "/", "genes.gtf")
   )
-  class(aln) <- "alignment"
 
-  res <- kaks(aln, verbose = TRUE)
+  exon_df <- as.data.frame(gtf[gtf$type == "exon"])
+  exon_df$transcript_id <- clean_tx(exon_df$transcript_id)
+  exon_df$seqnames <- as.character(exon_df$seqnames)
 
-  if (is.null(res$l2) || is.null(res$l4)) stop("kaks() did not return l2/l4")
-  res$l2 / 3 + res$l4
-}
+  tx_ids <- unique(na.omit(clean_tx(element$transcript_id)))
+  intron_lookup <- bind_rows(lapply(tx_ids, get_intron_stats, exon_df = exon_df, chr_seqs = chr_seqs))
 
-# Read fasta (your path)
-cds_fasta <- seqinr::read.fasta(
-  paste0(Species_Data, species, "/", build, "/", "canonical_cds_", build, ".fa"),
-  as.string = TRUE, seqtype = "DNA"
-)
+  element <- left_join(element, intron_lookup, by = "transcript_id")
 
-# Apply to all CDS with error handling
-S <- sapply(seq_along(cds_fasta), function(i) {
-  name <- names(cds_fasta)[i]
-  dna  <- getSequence(cds_fasta[[i]], as.string = TRUE)[[1]]
-  dna  <- gsub("\\s+", "", dna)          # remove whitespace/newlines
-  dna  <- gsub("-", "", dna)             # drop gaps if any
-  dna  <- toupper(dna)
+  element$GC_Length <- NA_integer_
+  element$AT_Length <- NA_integer_
 
-  # quick pre-checks to avoid calling kaks unnecessarily
-  if (nchar(dna) == 0) {
-    warning(name, ": empty sequence -> returning NA")
-    return(NA_real_)
-  }
-  if (nchar(dna) %% 3 != 0) {
-    warning(name, ": length not multiple of 3 -> returning NA")
-    return(NA_real_)
-  }
+  for (row in 1:nrow(element)) {
+    iChrom <- as.character(element[row, "CHROM"])
+    iStart <- as.integer(element[row, "start"])
+    iEnd   <- as.integer(element[row, "end"])
 
-  # try getting S, return NA on error
-  tryCatch(
-    get_S(dna, name),
-    error = function(e) {
-      warning(name, ": failed to compute S -> ", e$message)
-      NA_real_
+    if (!iChrom %in% names(chr_seqs)) {
+      element[row, "GC_Length"] <- NA_integer_
+      element[row, "AT_Length"] <- NA_integer_
+      next
     }
-  )
-})
 
-# name the vector
-names(S) <- names(cds_fasta)
-# column the vector
-S.df <- as.data.frame(S)
-S.df$transcript_id <- sub("\\.[^.]+$", "", rownames(S.df))
+    seqi <- substr(chr_seqs[iChrom], iStart, iEnd)
 
+    element[row, "GC_Length"] <- as.integer(stringr::str_count(seqi, "[GC]"))
+    element[row, "AT_Length"] <- as.integer(stringr::str_count(seqi, "[AT]"))
+  }
 
-# Merge the S column into the element 
-element.S <- merge(element,
-                 S.df,
-                 by = c("transcript_id"),
-                 all.x = TRUE)
-
-  # Replace Element in Annotated_VCFs_Gene_Body_Synonymous_Variants with the updated one
-  Annotated_VCFs_Gene_Body_Synonymous_Variants[[element_name]] <- element.S
-  
+  Annotated_VCFs_Gene_Body_Intronic_Variants[[element_name]] <- element
 }
 ```
 
 ```{r Calculating Gene-Wise Mutation Rates}
-Annotated_VCFs_Gene_Body_Synonymous_Variants <- lapply(
-  Annotated_VCFs_Gene_Body_Synonymous_Variants,
+Annotated_VCFs_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_Gene_Body_Intronic_Variants,
   function(df) {
     df %>%
       group_by(GENE_ID) %>%
       mutate(UniqueVariants = n_distinct(Variant_ID[!is.na(Variant_ID)])) %>%
       mutate(UniqueVariantsPlusOne = UniqueVariants+.5) %>%      
-      mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/S) %>%
+      mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/Intron_Length) %>%
       ungroup()
   }
 )
@@ -322,33 +331,37 @@ Annotated_VCFs_Gene_Body_Synonymous_Variants <- lapply(
 ```
 
 ```{r Calculating Gene-Wise Mutation-Type Specific Mutation Rates}
-Annotated_VCFs_Gene_Body_Synonymous_Variants <- lapply(
-  Annotated_VCFs_Gene_Body_Synonymous_Variants,
+Annotated_VCFs_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_Gene_Body_Intronic_Variants,
   function(df) {
 df %>%
   group_by(GENE_ID) %>%
   mutate(
     TtoA_or_AtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>A | A>T"]) %>% as.numeric,
-        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+.5)/as.numeric(AT_Length),
+        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+.5)/as.numeric(Intron_AT_Length),
     CtoG_or_GtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>G | G>C"]) %>% as.numeric,
-        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+.5)/as.numeric(GC_Length),
+        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+.5)/as.numeric(Intron_GC_Length),
     CtoT_or_GtoA_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>T | G>A"]) %>% as.numeric,
-        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+.5)/as.numeric(GC_Length),
+        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+.5)/as.numeric(Intron_GC_Length),
     CtoA_or_GtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>A | G>T"]) %>% as.numeric,
-        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+.5)/as.numeric(GC_Length),
+        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+.5)/as.numeric(Intron_GC_Length),
     TtoG_or_AtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>G | A>C"]) %>% as.numeric,
-        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+.5)/as.numeric(AT_Length),
+        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+.5)/as.numeric(Intron_AT_Length),
     TtoC_or_AtoG_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>C | A>G"]) %>% as.numeric,
-        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+.5)/as.numeric(AT_Length)) %>%
+        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+.5)/as.numeric(Intron_AT_Length)) %>%
   ungroup()
   })
 
 ```
 
+```{r Saving and Loading for Debugging}
+#save(Annotated_VCFs_Gene_Body_Intronic_Variants, file = paste0(R_Data, "Annotated_VCFs_Gene_Body_Intronic_Variants"))
+#load(file = paste0(R_Data, "Annotated_VCFs_Gene_Body_Intronic_Variants"))
+```
 
 ```{r Plotting Mutation Rates and dNdS Associations}
 # 1 Mutation Count Distribution 
-Genewise_Body_Synonymous_Mutation_Counts_Plots <- Map(
+Genewise_Body_Intronic_Mutation_Counts_Plots <- Map(
   function(df, name) {
     p1 <- ggplot(df, 
                  aes(x = reorder(GENE_ID, UniqueVariants), 
@@ -358,7 +371,7 @@ Genewise_Body_Synonymous_Mutation_Counts_Plots <- Map(
       labs(
         title = name, 
         x = paste(length(unique(df$GENE_ID)), "Unique Canonical Genes"), 
-        y = "Gene Body Synonymous Mutation Count",
+        y = "Gene Body Intronic Mutation Count",
         colour = NULL
       ) +
       
@@ -376,7 +389,7 @@ Genewise_Body_Synonymous_Mutation_Counts_Plots <- Map(
       plot = p1,
       filename = paste0(
         R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-        name, "_Synonymous_Mutation_Count_Distribution_Plot.png"
+        name, "_Intronic_Mutation_Count_Distribution_Plot.png"
       ),
       units = "cm",
       height = 10,
@@ -389,14 +402,14 @@ Genewise_Body_Synonymous_Mutation_Counts_Plots <- Map(
     # --- Return plot for patchwork ---
     p1
   },
-  Annotated_VCFs_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_Gene_Body_Intronic_Variants)
 )
 
 
 
 # 2 Mutation Rate Distribution 
-Genewise_Body_Synonymous_Mutation_Rate_Plots <- Map(
+Genewise_Body_Intronic_Mutation_Rate_Plots <- Map(
   function(df, name) {
   p1 <-
   ggplot(df,
@@ -406,7 +419,7 @@ Genewise_Body_Synonymous_Mutation_Rate_Plots <- Map(
   labs(title = name,
        x = paste(length(unique(df$GENE_ID)),
                  "Unique Canonical Genes"), 
-       y = "Gene Body Synonymous Mutations (+1) per BP",
+       y = "Gene Body Intronic Mutations (+1) per BP",
        colour = NULL) +
   
         scale_x_discrete(expand = c(0.05, 0.01)) 
@@ -414,7 +427,7 @@ Genewise_Body_Synonymous_Mutation_Rate_Plots <- Map(
     # Save the plot — change width/height as needed
     ggsave(plot = p1,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_Synonymous_Mutation_Rate_Distribution_Plot.png"),
+                       name, "_Intronic_Mutation_Rate_Distribution_Plot.png"),
       create.dir = TRUE,
       units = "cm",
              height = 10,
@@ -422,13 +435,13 @@ Genewise_Body_Synonymous_Mutation_Rate_Plots <- Map(
       dpi = 300
     )
   },
-  Annotated_VCFs_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_Gene_Body_Intronic_Variants)
 )
 
 
 # 3 Protein Coding Mutation Rate Distribution 
-Genewise_Protein_Body_Synonymous_Mutation_Rate_Plots <- Map(
+Genewise_Protein_Body_Intronic_Mutation_Rate_Plots <- Map(
   function(df, name) {
     p1 <- ggplot(subset(df, gene_biotype == "protein_coding"), 
                  aes(
@@ -441,7 +454,7 @@ Genewise_Protein_Body_Synonymous_Mutation_Rate_Plots <- Map(
       labs(
         title = name,
         x = paste(length(unique(df$GENE_ID)), "Unique Canonical Protein Coding Genes"), 
-        y = "Gene Body Synonymous Mutations (+1) per BP") +
+        y = "Gene Body Intronic Mutations (+1) per BP") +
       theme(axis.text.x = element_blank()) +
       scale_x_discrete(expand = c(0.05, 0.01)) +
       scale_colour_gradient(low = "orange", high = "red") 
@@ -451,7 +464,7 @@ Genewise_Protein_Body_Synonymous_Mutation_Rate_Plots <- Map(
       plot = p1,
       filename = paste0(
         R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-        name, "_Protein_Synonymous_Mutation_Rate_Distribution_Plot.png"
+        name, "_Protein_Intronic_Mutation_Rate_Distribution_Plot.png"
       ),
       create.dir = TRUE,
       units = "cm",
@@ -463,8 +476,8 @@ Genewise_Protein_Body_Synonymous_Mutation_Rate_Plots <- Map(
 
     return(p1)
   },
-  Annotated_VCFs_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_Gene_Body_Intronic_Variants)
 )
 
 
@@ -472,11 +485,11 @@ Genewise_Protein_Body_Synonymous_Mutation_Rate_Plots <- Map(
 ```
 
 ```{r Associating dNdS with Mutation Rates}
-Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
-  Annotated_VCFs_Gene_Body_Synonymous_Variants,
+Annotated_VCFs_PC_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_Gene_Body_Intronic_Variants,
   function(df) {
     df <- df %>%
-      subset(gene_biotype == "protein_coding")
+      subset(gene_biotype == "protein_coding" & Intron_Length > 0)
 })
 
 
@@ -488,16 +501,18 @@ library(quantreg)
 library(mgcv)
 
 # 5 Mutation Rate vs dNdS Associations: 
-Species_dNdS_Synonymous_MutationRate_Spearman_Tests <- list()
-Species_dNdS_Synonymous_MutationRate_Pearson_Tests <- list()
-Species_dNdS_Synonymous_MutationRate_Quantile_Fits <- list()
-Species_dNdS_Synonymous_MutationRate_Quantile_Summaries <- list()
-Species_dNdS_Synonymous_MutationRate_GAM_Fits <- list()
-Species_dNdS_Synonymous_MutationRate_GAM_Summaries <- list()
+Species_dNdS_Intronic_MutationRate_Spearman_Tests <- list()
+Species_dNdS_Intronic_MutationRate_Pearson_Tests <- list()
+Species_dNdS_Intronic_MutationRate_Quantile_Fits <- list()
+Species_dNdS_Intronic_MutationRate_Quantile_Summaries <- list()
+Species_dNdS_Intronic_MutationRate_GAM_Fits <- list()
+Species_dNdS_Intronic_MutationRate_GAM_Summaries <- list()
 
-Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
+Genewise_Intronic_MutationRate_by_dNdS_Plots <- Map(
   function(df, name) {
     
+  df <- subset(df, Intron_Length > 0)
+  
   # Run Spearman Correlations
   spearman_test <- 
     cor.test(log(df$dNdS+.5),
@@ -510,8 +525,8 @@ Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
              method = "pearson")
   
   # Save results into object
-  Species_dNdS_Synonymous_MutationRate_Spearman_Tests[[name]] <<- spearman_test
-  Species_dNdS_Synonymous_MutationRate_Pearson_Tests[[name]] <<- pearson_test
+  Species_dNdS_Intronic_MutationRate_Spearman_Tests[[name]] <<- spearman_test
+  Species_dNdS_Intronic_MutationRate_Pearson_Tests[[name]] <<- pearson_test
   
   # Create a Scatter Plot
   p1 <- 
@@ -533,16 +548,16 @@ Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
       subset(df, !is.na(dNdS) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
         unique() %>%
         length(),
-      "Unique Protein Coding Genes with dNdS Estimate"
+      "Unique Intron-Containing Coding Genes with dNdS Estimate"
     ),
     subtitle = paste0(
       "Spearman Correlation: ",
-      "p Value = ", signif(Species_dNdS_Synonymous_MutationRate_Spearman_Tests[[name]]$p.value, 5), ", ",
-      "Coefficient = ", signif(Species_dNdS_Synonymous_MutationRate_Spearman_Tests[[name]]$estimate, 5),
+      "p Value = ", signif(Species_dNdS_Intronic_MutationRate_Spearman_Tests[[name]]$p.value, 5), ", ",
+      "Coefficient = ", signif(Species_dNdS_Intronic_MutationRate_Spearman_Tests[[name]]$estimate, 5),
       "\n",
       "Pearson Correlation: ",
-      "p Value = ", signif(Species_dNdS_Synonymous_MutationRate_Pearson_Tests[[name]]$p.value, 5), ", ",
-      "Coefficient = ", signif(Species_dNdS_Synonymous_MutationRate_Pearson_Tests[[name]]$estimate, 5)
+      "p Value = ", signif(Species_dNdS_Intronic_MutationRate_Pearson_Tests[[name]]$p.value, 5), ", ",
+      "Coefficient = ", signif(Species_dNdS_Intronic_MutationRate_Pearson_Tests[[name]]$estimate, 5)
     ),
     caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
   ) +
@@ -555,7 +570,7 @@ ggsave(
   plot = p1,
   filename = paste0(
     R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-    name, "_dNdS_vs_Synonymous_Mutation_Rate_Plot.png"
+    name, "_dNdS_vs_Intronic_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensures background transparency in PNG
   width = 4,
@@ -584,7 +599,7 @@ ggsave(
     paste0("tau_", sprintf("%.2f", taus))
   )
   
-  Species_dNdS_Synonymous_MutationRate_Quantile_Fits[[name]] <<- rq_fits
+  Species_dNdS_Intronic_MutationRate_Quantile_Fits[[name]] <<- rq_fits
   
   # Extract coefficient + p value for the slope from each quantile model
   rq_stats <- bind_rows(lapply(taus, function(tau) {
@@ -608,7 +623,7 @@ ggsave(
     )
   }))
   
-  Species_dNdS_Synonymous_MutationRate_Quantile_Summaries[[name]] <<- rq_stats
+  Species_dNdS_Intronic_MutationRate_Quantile_Summaries[[name]] <<- rq_stats
   
   # Prediction grid
   x_grid <- data.frame(
@@ -656,7 +671,7 @@ ggsave(
     plot = p2,
     filename = paste0(
       R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-      name, "_dNdS_vs_Synonymous_Mutation_Rate_Quantile_Regression_Plot.png"
+      name, "_dNdS_vs_Intronic_Mutation_Rate_Quantile_Regression_Plot.png"
     ),
     bg = "transparent",
     width = 5.5,
@@ -670,8 +685,8 @@ ggsave(
   gam_fit <- gam(y ~ s(x, k = 5), data = plot_df, method = "REML")
   gam_sum <- summary(gam_fit)
   
-  Species_dNdS_Synonymous_MutationRate_GAM_Fits[[name]] <<- gam_fit
-  Species_dNdS_Synonymous_MutationRate_GAM_Summaries[[name]] <<- gam_sum
+  Species_dNdS_Intronic_MutationRate_GAM_Fits[[name]] <<- gam_fit
+  Species_dNdS_Intronic_MutationRate_GAM_Summaries[[name]] <<- gam_sum
   
   smooth_p <- if (!is.null(gam_sum$s.table) && nrow(gam_sum$s.table) >= 1) gam_sum$s.table[1, "p-value"] else NA_real_
   smooth_edf <- if (!is.null(gam_sum$s.table) && nrow(gam_sum$s.table) >= 1) gam_sum$s.table[1, "edf"] else NA_real_
@@ -712,7 +727,7 @@ ggsave(
     plot = p3,
     filename = paste0(
       R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-      name, "_dNdS_vs_Synonymous_Mutation_Rate_GAM_Plot.png"
+      name, "_dNdS_vs_Intronic_Mutation_Rate_GAM_Plot.png"
     ),
     bg = "transparent",
     width = 4,
@@ -723,20 +738,25 @@ ggsave(
   list(p1 = p1, p2 = p2, p3 = p3)
     
   },
-  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)
 )
 
 
 
 
 # 5 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
-Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly <- list()
-Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly <- list()
+Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly <- list()
+Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly <- list()
 
-MutatedOnly_Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
+MutatedOnly_Genewise_Intronic_MutationRate_by_dNdS_Plots <- Map(
   function(df, name) {
   # Run Spearman Correlations
+  
+  df <- subset(df, Intron_Length > 0)
+  df2 <- subset(df, UniqueVariants > 0)
+  if (length(unique(df2$GENE_ID)) < 20) return(NULL)
+  
   spearman_test <- 
     cor.test(log(subset(df, UniqueVariants > 0)$dNdS+.5),
              subset(df, UniqueVariants > 0)$UniqueVariantsPlusOnePerBP,
@@ -748,8 +768,8 @@ MutatedOnly_Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
              method = "pearson")
   
   # Save results into object
-  Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly[[name]] <<- spearman_test
-  Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly[[name]] <<- pearson_test
+  Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly[[name]] <<- spearman_test
+  Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly[[name]] <<- pearson_test
   
   # Create a Scatter Plot
   p1 <- 
@@ -768,17 +788,17 @@ MutatedOnly_Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
     labs(title = paste(name, "\n",
                        subset(df, is.na(dNdS) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE &
                               UniqueVariants > 0)$GENE_ID %>% 
-                       unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate and >0 Variants"),
+                       unique() %>% length(), "Unique Intron-Containing Coding Genes with dNdS Estimate and >0 Variants"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -788,24 +808,26 @@ MutatedOnly_Genewise_Synonymous_MutationRate_by_dNdS_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p1,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_Synonymous_Mutation_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_Intronic_Mutation_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 4,
       height = 4,
       dpi = 2500)
 
   },
-  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)
 )
 
 ```
 
 ```{r Essential_vs_NonEssential_Mutation_Rate_Boxplots}
-for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)) {
 
-  df <- Annotated_VCFs_PC_Gene_Body_Synonymous_Variants[[element_name]]
+  df <- Annotated_VCFs_PC_Gene_Body_Intronic_Variants[[element_name]]
 
+  df <- subset(df, Intron_Length > 0)
+  
   species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
     str_replace(., "^(.)(.*)$", "\\1_\\2")
 
@@ -863,7 +885,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
       ggsave(
         plot = p1,
         filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       element_name, "Synonymous__Essential_Boxplot.png"),
+                       element_name, "Intronic__Essential_Boxplot.png"),
         width = 2.5, height = 5,
         background = "transparent"
       )
@@ -922,7 +944,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
       ggsave(
         plot = p2,
         filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       element_name, "Synonymous_HouseKeeping_Boxplot.png"),
+                       element_name, "Intronic_HouseKeeping_Boxplot.png"),
         width = 2.5, height = 4,
         background = "transparent"
       )
@@ -933,19 +955,19 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
 ```
 
 ```{r Binning Genes into Mutation-Rate Quantiles}
-Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
-  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
+Annotated_VCFs_PC_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
   function(df) {
     df <- df %>%
       mutate(
-        Overall_Synonymous_Mutation_Rate_Group = ifelse(
+        Overall_Intronic_Mutation_Rate_Group = ifelse(
           UniqueVariantsPlusOnePerBP == 0, "0",
           ifelse(
             is.na(UniqueVariantsPlusOnePerBP), NA,
             as.character(cut_number(log(UniqueVariantsPlusOnePerBP), n = 5, labels = FALSE))
           )
         ),
-        Overall_Synonymous_Mutation_Rate_Group_More = ifelse(
+        Overall_Intronic_Mutation_Rate_Group_More = ifelse(
           UniqueVariantsPlusOnePerBP == 0, "0",
           ifelse(
             is.na(UniqueVariantsPlusOnePerBP), NA,
@@ -991,8 +1013,8 @@ Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
 
 ```{r Blocked dNdS Versus Mutation Rate Associations}
 # Block Loci into Equal Size Bins by dNdS
-Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
-  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
+Annotated_VCFs_PC_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
   function(df) {
     df %>%
       mutate(Overall_dNdS_Group = cut_number(dNdS + runif(length(dNdS), -1e-6, 1e-6), n = 5)) %>%
@@ -1005,7 +1027,7 @@ Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
 
 
 # 1 Mutation Rate vs dNdS Association 
-Genewise_Binned_Synonymous_MutationRate_by_dNdS_Plots <- Map(
+Genewise_Binned_Intronic_MutationRate_by_dNdS_Plots <- Map(
   function(df, name) {
 
 # Subset to only loci with dNdS 
@@ -1023,7 +1045,7 @@ p1 <-
   ) +
   geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
   labs(
-    y = "Gene Body Synonymous Mutation Rate",
+    y = "Gene Body Intronic Mutation Rate",
     title = paste(
       name, "\n",
       subset(df, !is.na(Overall_dNdS_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
@@ -1071,7 +1093,7 @@ ggsave(
   plot = p1,
   filename = paste0(
     R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-    name, "_Binned_dNdS_vs_Synonymous_Mutation_Rate_Plot.png"
+    name, "_Binned_dNdS_vs_Intronic_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensure transparent PNG background
   width = 2,
@@ -1092,7 +1114,7 @@ p2 <-
   ) +
   geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
   labs(
-    y = "Gene Body Synonymous Mutation Rate",
+    y = "Gene Body Intronic Mutation Rate",
     title = paste(
       name, "\n",
       subset(df, !is.na(Overall_dNdS_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
@@ -1140,7 +1162,7 @@ ggsave(
   plot = p2,
   filename = paste0(
     R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-    name, "_More_Binned_dNdS_vs_Synonymous_Mutation_Rate_Plot.png"
+    name, "_More_Binned_dNdS_vs_Intronic_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensure transparent PNG background
   width = 2,
@@ -1149,35 +1171,35 @@ ggsave(
 )
       
   },
-  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)
 )
 ``` 
 
 ```{r Plotting Mutation Rate vs dNdS Facetted by Mutation Category}
 # 6 Mutation Rate vs dNdS Associations Facetted by SNP Category
 # "T>A | A>T"
-Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Spearman_Tests <- list()
-Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Pearson_Tests <- list()
+Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Spearman_Tests <- list()
+Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Pearson_Tests <- list()
 # "C>G | G>C"
-Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Spearman_Tests <- list()
-Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Pearson_Tests <- list()
+Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Spearman_Tests <- list()
+Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Pearson_Tests <- list()
 # "C>T | G>A"
-Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Spearman_Tests <- list()
-Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Pearson_Tests <- list()
+Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Spearman_Tests <- list()
+Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Pearson_Tests <- list()
 # "C>A | G>T"
-Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Spearman_Tests <- list()
-Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Pearson_Tests <- list()
+Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Spearman_Tests <- list()
+Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Pearson_Tests <- list()
 # "T>G | A>C"
-Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Spearman_Tests <- list()
-Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Pearson_Tests <- list()
+Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Spearman_Tests <- list()
+Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Pearson_Tests <- list()
 # "T>C | A>G"
-Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Spearman_Tests <- list()
-Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Pearson_Tests <- list()
+Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Spearman_Tests <- list()
+Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Pearson_Tests <- list()
 
 
 
-Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
+Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
 
   function(df, name) {
   # Run Spearman Correlations
@@ -1233,19 +1255,19 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
              method = "pearson")
   
   # Save results into object
-  Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoA_or_AtoT
-  Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoG_or_GtoC
-  Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoT_or_GtoA
-  Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoA_or_GtoT
-  Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoG_or_AtoC
-  Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoC_or_AtoG
+  Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoA_or_AtoT
+  Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoG_or_GtoC
+  Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoT_or_GtoA
+  Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Spearman_Tests[[name]] <<- spearman_test_CtoA_or_GtoT
+  Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoG_or_AtoC
+  Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Spearman_Tests[[name]] <<- spearman_test_TtoC_or_AtoG
   #
-  Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoA_or_AtoT
-  Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoG_or_GtoC
-  Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoT_or_GtoA
-  Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoA_or_GtoT
-  Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoG_or_AtoC
-  Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoC_or_AtoG
+  Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoA_or_AtoT
+  Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoG_or_GtoC
+  Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoT_or_GtoA
+  Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Pearson_Tests[[name]] <<- pearson_test_CtoA_or_GtoT
+  Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoG_or_AtoC
+  Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Pearson_Tests[[name]] <<- pearson_test_TtoC_or_AtoG
   
   # Create a TtoA_or_AtoT Scatter Plot
   p_TtoA_or_AtoT <- 
@@ -1258,15 +1280,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        subset(df, is.na(dNdS) == FALSE & is.na(TtoA_or_AtoT_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
                        unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Spearman_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Spearman_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Spearman_Tests[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Spearman_Tests[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Pearson_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Pearson_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_TtoA_or_AtoT_Synonymous_Rate_Pearson_Tests[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_TtoA_or_AtoT_Intronic_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -1276,7 +1298,7 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoA_or_AtoT,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_TtoA_or_AtoT_Synonymous_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_TtoA_or_AtoT_Intronic_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
@@ -1295,15 +1317,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        subset(df, is.na(dNdS) == FALSE & is.na(CtoG_or_GtoC_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
                        unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Spearman_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Spearman_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Spearman_Tests[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Spearman_Tests[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Pearson_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Pearson_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_CtoG_or_GtoC_Synonymous_Rate_Pearson_Tests[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_CtoG_or_GtoC_Intronic_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -1313,7 +1335,7 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoG_or_GtoC,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_CtoG_or_GtoC_Synonymous_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_CtoG_or_GtoC_Intronic_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
@@ -1332,15 +1354,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        subset(df, is.na(dNdS) == FALSE & is.na(CtoT_or_GtoA_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
                        unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Spearman_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Spearman_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Spearman_Tests[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Spearman_Tests[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Pearson_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Pearson_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_CtoT_or_GtoA_Synonymous_Rate_Pearson_Tests[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_CtoT_or_GtoA_Intronic_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -1350,7 +1372,7 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoT_or_GtoA,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_CtoT_or_GtoA_Synonymous_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_CtoT_or_GtoA_Intronic_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
@@ -1369,15 +1391,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        subset(df, is.na(dNdS) == FALSE & is.na(CtoA_or_GtoT_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
                        unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Spearman_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Spearman_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Spearman_Tests[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Spearman_Tests[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Pearson_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Pearson_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_CtoA_or_GtoT_Synonymous_Rate_Pearson_Tests[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_CtoA_or_GtoT_Intronic_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -1387,7 +1409,7 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoA_or_GtoT,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_CtoA_or_GtoT_Synonymous_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_CtoA_or_GtoT_Intronic_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
@@ -1406,15 +1428,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        subset(df, is.na(dNdS) == FALSE & is.na(TtoG_or_AtoC_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
                        unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Spearman_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Spearman_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Spearman_Tests[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Spearman_Tests[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Pearson_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Pearson_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_TtoG_or_AtoC_Synonymous_Rate_Pearson_Tests[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_TtoG_or_AtoC_Intronic_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -1424,7 +1446,7 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoG_or_AtoC,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_TtoG_or_AtoC_Synonymous_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_TtoG_or_AtoC_Intronic_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
@@ -1443,15 +1465,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        subset(df, is.na(dNdS) == FALSE & is.na(TtoC_or_AtoG_UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
                        unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
       subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Spearman_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Spearman_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Spearman_Tests[[name]]$estimate %>%
+                       "Coefficient = ", Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Spearman_Tests[[name]]$estimate %>%
                          signif(., digits = 5),
                        "\n",
                        "Pearson Correlation: ", 
-                       "p Value = ", Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Pearson_Tests[[name]]$p.value %>% 
+                       "p Value = ", Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Pearson_Tests[[name]]$p.value %>% 
                          signif(., digits = 5),", ",
-                       "Coefficient = ", Species_dNdS_TtoC_or_AtoG_Synonymous_Rate_Pearson_Tests[[name]]$estimate %>% 
+                       "Coefficient = ", Species_dNdS_TtoC_or_AtoG_Intronic_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
@@ -1461,15 +1483,15 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoC_or_AtoG,
       filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_dNdS_vs_TtoC_or_AtoG_Synonymous_Rate_MutatedOnly_Plot.png"),
+                       name, "_dNdS_vs_TtoC_or_AtoG_Intronic_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
       width = 5,
       height = 4,
       dpi = 300)
 
   },
-  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
-  names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
+  names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)
 )
 
 
@@ -1477,19 +1499,19 @@ Genewise_Synonymous_MutationRate_by_dNdS_by_Category_Plots <- Map(
 
 ```{r Saving Annotated_VCFs}
 # Saving Annotated Gene Body Variants
-save(Annotated_VCFs_Gene_Body_Synonymous_Variants, 
-     file = paste0(R_Data,"Annotated_VCFs_Gene_Body_Synonymous_Variants"))
-save(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants, 
-     file = paste0(R_Data,"Annotated_VCFs_PC_Gene_Body_Synonymous_Variants"))
+save(Annotated_VCFs_Gene_Body_Intronic_Variants, 
+     file = paste0(R_Data,"Annotated_VCFs_Gene_Body_Intronic_Variants"))
+save(Annotated_VCFs_PC_Gene_Body_Intronic_Variants, 
+     file = paste0(R_Data,"Annotated_VCFs_PC_Gene_Body_Intronic_Variants"))
 
 # Saving dNdS Mutation Rate Testing Statistics
-save(Species_dNdS_Synonymous_MutationRate_Spearman_Tests, 
-     file = paste0(R_Data,"Species_dNdS_Synonymous_MutationRate_Spearman_Tests"))
-save(Species_dNdS_Synonymous_MutationRate_Pearson_Tests, 
-     file = paste0(R_Data,"Species_dNdS_Synonymous_MutationRate_Pearson_Tests"))
-save(Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly, 
-     file = paste0(R_Data,"Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly"))
-save(Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly, 
-     file = paste0(R_Data,"Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly"))
+save(Species_dNdS_Intronic_MutationRate_Spearman_Tests, 
+     file = paste0(R_Data,"Species_dNdS_Intronic_MutationRate_Spearman_Tests"))
+save(Species_dNdS_Intronic_MutationRate_Pearson_Tests, 
+     file = paste0(R_Data,"Species_dNdS_Intronic_MutationRate_Pearson_Tests"))
+save(Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly, 
+     file = paste0(R_Data,"Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly"))
+save(Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly, 
+     file = paste0(R_Data,"Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly"))
 
 ```

@@ -1,5 +1,9 @@
 #!/bin/bash
 
+#SBATCH --job-name=17_Downloading_D_melanogaster_TimeSeries_Expression
+#SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
+#SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
+
 # Download the entire dataset
 wget -q -O - "https://s3ftp.flybase.org/releases/current/precomputed_files/genes/gene_rpkm_report_fb_2025_04.tsv.gz" | gunzip -c > "/home/ocdm0351/DPhil/scripts/misc/Drosophila_melanogaster_modENCODE_RPKM_REPORT.tsv"
 

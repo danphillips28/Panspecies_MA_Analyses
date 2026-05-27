@@ -15,17 +15,21 @@ library(data.table)
 `%ni%` <- Negate(`%in%`)
 ```
 
-
 ```{r Setting Paths}
 R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
 #R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
 ```
 
-
 ```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+# Subset to just Drosophila for testing
 load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
@@ -35,7 +39,10 @@ Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[nam
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Celegans" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Ppacificus"]
+                                                                      "WellerWang"]
+
+
+
 ```
 
 ```{r Read and Merge TimeSeries Expression Data}
@@ -128,7 +135,6 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     by.y = "gene_id",
     all.x = TRUE
   )
-
   # Save the updated element back into the list
   Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- element_expression
 
@@ -138,275 +144,828 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 ```
 
 ```{r Expression Versus Mutation Rate Associations}
-# 1 Mutation Rate vs Expression Associations: Linear and Non-Linear
+# ============================================================
+# 1 Mutation Rate vs Expression Associations (ALL + MUTATED ONLY)
+# Keep the raw mutation column name as the storage key.
+# Use a separate display label only for plotting/text.
+# ============================================================
 
-# Initialize master lists
+mutation_display_label <- function(x) {
+  dplyr::recode(
+    x,
+    "UniqueVariantsPlusOnePerBP" = "All variants",
+    "TtoA_or_AtoT_UniqueVariantsPlusOnePerBP" = "T>A / A>T",
+    "CtoT_or_GtoA_UniqueVariantsPlusOnePerBP" = "C>T / G>A",
+    "TtoG_or_AtoC_UniqueVariantsPlusOnePerBP" = "T>G / A>C",
+    "CtoG_or_GtoC_UniqueVariantsPlusOnePerBP" = "C>G / G>C",
+    "CtoA_or_GtoT_UniqueVariantsPlusOnePerBP" = "C>A / G>T",
+    "TtoC_or_AtoG_UniqueVariantsPlusOnePerBP" = "T>C / A>G",
+    "UniqueSynonymousVariantsPlusOnePerBP" = "Synonymous",
+    "UniqueIntronicVariantsPlusOnePerBP" = "Intronic",
+    .default = x
+  )
+}
+
+# Mutation columns to iterate over
+mutation_cols <- c(
+  "UniqueVariantsPlusOnePerBP",
+  "TtoA_or_AtoT_UniqueVariantsPlusOnePerBP",
+  "CtoT_or_GtoA_UniqueVariantsPlusOnePerBP",
+  "TtoG_or_AtoC_UniqueVariantsPlusOnePerBP",
+  "CtoG_or_GtoC_UniqueVariantsPlusOnePerBP",
+  "CtoA_or_GtoT_UniqueVariantsPlusOnePerBP",
+  "TtoC_or_AtoG_UniqueVariantsPlusOnePerBP",
+  "UniqueSynonymousVariantsPlusOnePerBP",
+  "UniqueIntronicVariantsPlusOnePerBP"
+)
+
+# Initialise master lists ONCE
 Species_TimeSeries_Expression_MutationRate_Spearman_Tests <- list()
 Species_TimeSeries_Expression_MutationRate_Pearson_Tests  <- list()
 
-# Loop through each element in Annotated_VCFs_PC_Gene_Body_Variants
-for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
-  
-  # Extract dataframe for this species
-  df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
-  
-  # --- Extract species name from element_name ---
-  species_name <- strsplit(element_name, "_")[[1]][4]
-  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
-  
-  # Ensure sublists exist for this species
-  Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]] <- list()
-  Species_TimeSeries_Expression_MutationRate_Pearson_Tests[[species_name]]  <- list()
-  
-  # Identify all timepoint expression columns
-  expr_cols <- grep("^log2_Expression_Plus_One", colnames(df), value = TRUE)
-  
-  # Loop through each timepoint expression column
-  for (expr_col in expr_cols) {
-    
-    # Extract timepoint label from column name
-    time_label <- sub("log2_Expression_Plus_One", "", expr_col)
-    plot_tag   <- paste0(species_name, "_Time_", time_label)
-    
-    # --- Correlations ---
-    spearman_test <- cor.test(df[[expr_col]], df[["UniqueVariantsPlusOnePerBP"]], method = "spearman")
-    pearson_test  <- cor.test(df[[expr_col]], df[["UniqueVariantsPlusOnePerBP"]], method = "pearson")
-    
-    # Save results into species-specific sublists
-    Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]][[time_label]] <- spearman_test
-    Species_TimeSeries_Expression_MutationRate_Pearson_Tests[[species_name]][[time_label]]  <- pearson_test
-    
-    # --- Plot 1: linear regression scatter ---
-    plotting_data <- df[is.na(df[[expr_col]]) == FALSE]
-    p1 <- ggplot2::ggplot(data = plotting_data,
-          aes(x = plotting_data[[expr_col]], 
-              y = plotting_data[["UniqueVariantsPlusOnePerBP"]])) +
-      geom_point() +
-      geom_smooth(method = "lm", se = TRUE) +
-      labs(
-        title = paste(species_name, "\n", time_label, "min"),
-        subtitle = paste0(
-          "Spearman: p=", signif(spearman_test$p.value, 4),
-          " (ρ=", signif(spearman_test$estimate, 3), "); ",
-          "Pearson: p=", signif(pearson_test$p.value, 4),
-          " (r=", signif(pearson_test$estimate, 3), ")"
-        ),
-        caption = "Linear regression overlay"
-      ) +
-      theme_bw(base_size = 10)
-    
-    # --- Save the plot ---
-    ggsave(
-      p1,
-      filename = paste0(
-        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
-        species_prefix, "/",
-        plot_tag, "_Linear_Association_Plot.png"
-      ),
-      width = 5,
-      height = 4,
-      dpi = 300,
-      create.dir = TRUE
-    )
-    
-  } # end for expr_col
-  
-} # end for element_name
-
-
-
-# 5 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
 Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly <- list()
-Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly <- list()
+Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly  <- list()
 
-
-# Loop through each element in Annotated_VCFs_PC_Gene_Body_Variants
+# ============================================================
+# MAIN LOOP
+# ============================================================
 for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
-  
-  # Extract dataframe for this species
-  df <- subset(Annotated_VCFs_PC_Gene_Body_Variants[[element_name]],
-               UniqueVariants > 0)
-  
-  # --- Extract species name from element_name ---
+
+  df_full <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
+
+  # Extract species
   species_name <- strsplit(element_name, "_")[[1]][4]
   species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
-  
-  # Ensure sublists exist for this species
-  Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly[[species_name]] <- list()
-  Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly[[species_name]]  <- list()
-  
-  # Identify all timepoint expression columns
-  expr_cols <- grep("^log2_Expression_Plus_One", colnames(df), value = TRUE)
-  
-  # Loop through each timepoint expression column
-  for (expr_col in expr_cols) {
-    
-    # Extract timepoint label from column name
-    time_label <- sub("log2_Expression_Plus_One", "", expr_col)
-    plot_tag   <- paste0(species_name, "_Time_", time_label)
-    
-    # --- Correlations ---
-    spearman_test <- cor.test(df[[expr_col]], df[["UniqueVariantsPlusOnePerBP"]], method = "spearman")
-    pearson_test  <- cor.test(df[[expr_col]], df[["UniqueVariantsPlusOnePerBP"]], method = "pearson")
-    
-    # Save results into species-specific sublists
-    Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly[[species_name]][[time_label]] <- spearman_test
-    Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly[[species_name]][[time_label]]  <- pearson_test
-    
-    # --- Plot 1: linear regression scatter ---
-    plotting_data <- df[is.na(df[[expr_col]]) == FALSE]
-    p1 <- ggplot2::ggplot(data = plotting_data,
-                          aes(x = plotting_data[[expr_col]], 
-                              y = plotting_data[["UniqueVariantsPlusOnePerBP"]])) +
-      geom_point() +
-      geom_smooth(method = "lm", se = TRUE) +
-      labs(
-        title = paste(species_name, "MutatedOnly", "\n", time_label, "min"),
-        subtitle = paste0(
-          "Spearman: p=", signif(spearman_test$p.value, 4),
-          " (ρ=", signif(spearman_test$estimate, 3), "); ",
-          "Pearson: p=", signif(pearson_test$p.value, 4),
-          " (r=", signif(pearson_test$estimate, 3), ")"
-        ),
-        caption = "Linear regression overlay"
+
+  # Expression columns
+  expr_cols <- grep("^log2_Expression_Plus_One", colnames(df_full), value = TRUE)
+
+  # Create species-level lists only if they do not already exist
+  if (is.null(Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]])) {
+    Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]] <- list()
+    Species_TimeSeries_Expression_MutationRate_Pearson_Tests[[species_name]]  <- list()
+
+    Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly[[species_name]] <- list()
+    Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly[[species_name]]  <- list()
+  }
+
+  # ============================================================
+  # LOOP OVER MUTATION TYPES
+  # ============================================================
+  for (mutation_col in mutation_cols) {
+
+    if (!(mutation_col %in% colnames(df_full))) next
+
+    # raw key used for storage
+    mutation_key <- mutation_col
+
+    # human-readable label used only for plots/text
+    mutation_label <- mutation_display_label(mutation_key)
+
+    # Create nested lists only if they do not already exist
+    if (is.null(Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]][[mutation_key]])) {
+      Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]][[mutation_key]] <- list()
+      Species_TimeSeries_Expression_MutationRate_Pearson_Tests[[species_name]][[mutation_key]]  <- list()
+
+      Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly[[species_name]][[mutation_key]] <- list()
+      Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly[[species_name]][[mutation_key]]  <- list()
+    }
+
+    # ============================================================
+    # 1) ALL GENES
+    # ============================================================
+    for (expr_col in expr_cols) {
+
+      time_label <- sub("log2_Expression_Plus_One", "", expr_col)
+      plot_tag   <- paste0(species_name, "_Time_", time_label, "_", mutation_key)
+
+      spearman_test <- cor.test(df_full[[expr_col]], log1p(df_full[[mutation_col]]), method = "spearman")
+      pearson_test  <- cor.test(df_full[[expr_col]], log1p(df_full[[mutation_col]]), method = "pearson")
+
+      Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species_name]][[mutation_key]][[time_label]] <- spearman_test
+      Species_TimeSeries_Expression_MutationRate_Pearson_Tests[[species_name]][[mutation_key]][[time_label]]  <- pearson_test
+
+      plotting_data <- df_full[!is.na(df_full[[expr_col]]), ]
+
+      p1 <- ggplot(
+        plotting_data,
+        aes(x = .data[[expr_col]], y = log1p(.data[[mutation_col]]))
       ) +
-      theme_bw(base_size = 10)
-    
-    # --- Save the plot ---
-    ggsave(
-      p1,
-      filename = paste0(
-        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
-        species_prefix, "/",
-        plot_tag, "_MutatedOnly_Linear_Association_Plot.png"
-      ),
-      width = 5,
-      height = 4,
-      dpi = 300,
-      create.dir = TRUE
-    )
-    
-  } # end for expr_col
-  
-} # end for element_name
+        geom_point() +
+        geom_smooth(method = "lm", se = TRUE) +
+        labs(
+          title = paste(species_name, "\n", time_label, "min"),
+          subtitle = paste0(
+            mutation_label, " | ",
+            "Spearman: p=", signif(spearman_test$p.value, 4),
+            " (ρ=", signif(spearman_test$estimate, 3), "); ",
+            "Pearson: p=", signif(pearson_test$p.value, 4),
+            " (r=", signif(pearson_test$estimate, 3), ")"
+          ),
+          caption = "Linear regression overlay"
+        )
 
+      ggsave(
+        p1,
+        filename = paste0(
+          R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+          species_prefix, "/",
+          plot_tag, "_Linear_Association_Plot.png"
+        ),
+        width = 5, height = 4, dpi = 300, create.dir = TRUE
+      )
+    }
 
+    # ============================================================
+    # 2) MUTATED ONLY
+    # ============================================================
+    df_mut <- df_full[df_full[["UniqueVariants"]] > 0, ]
+
+    for (expr_col in expr_cols) {
+
+      time_label <- sub("log2_Expression_Plus_One", "", expr_col)
+      plot_tag   <- paste0(species_name, "_Time_", time_label, "_", mutation_key)
+
+      spearman_test <- cor.test(df_mut[[expr_col]], log1p(df_mut[[mutation_col]]), method = "spearman")
+      pearson_test  <- cor.test(df_mut[[expr_col]], log1p(df_mut[[mutation_col]]), method = "pearson")
+
+      Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly[[species_name]][[mutation_key]][[time_label]] <- spearman_test
+      Species_TimeSeries_Expression_MutationRate_Pearson_Tests_MutatedOnly[[species_name]][[mutation_key]][[time_label]]  <- pearson_test
+
+      plotting_data <- df_mut[!is.na(df_mut[[expr_col]]), ]
+
+      p1 <- ggplot(
+        plotting_data,
+        aes(x = .data[[expr_col]], y = log1p(.data[[mutation_col]]))
+      ) +
+        geom_point() +
+        geom_smooth(method = "lm", se = TRUE) +
+        labs(
+          title = paste(species_name, "MutatedOnly", "\n", time_label, "min"),
+          subtitle = paste0(
+            mutation_label, " | ",
+            "Spearman: p=", signif(spearman_test$p.value, 4),
+            " (ρ=", signif(spearman_test$estimate, 3), "); ",
+            "Pearson: p=", signif(pearson_test$p.value, 4),
+            " (r=", signif(pearson_test$estimate, 3), ")"
+          ),
+          caption = "Linear regression overlay"
+        )
+
+      ggsave(
+        p1,
+        filename = paste0(
+          R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+          species_prefix, "/",
+          plot_tag, "_MutatedOnly_Linear_Association_Plot.png"
+        ),
+        width = 5, height = 4, dpi = 300, create.dir = TRUE
+      )
+    }
+  }
+}
 ```
 
 ```{r TimeSeries Summary Plots}
-# Collapse nested list of correlation test objects into one dataframe
 library(dplyr)
-
-Spearman_summary <- lapply(names(Species_TimeSeries_Expression_MutationRate_Spearman_Tests), function(species) {
-  species_list <- Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species]]
-  
-  # Extract timepoint, estimate, and p.value from each correlation test
-  data.frame(
-    species    = species,
-    timepoint  = names(species_list),
-    coefficient = sapply(species_list, function(x) unname(x$estimate)),
-    p_value     = sapply(species_list, function(x) x$p.value),
-    stringsAsFactors = FALSE
-  )
-}) %>%
-  bind_rows()
-
-# Sort by species and timepoint if desired
-Spearman_summary <- Spearman_summary %>%
-  mutate(timepoint = as.numeric(timepoint)) %>%
-  arrange(species, timepoint)
-
-# Set minimum p Value for Plotting Purposes
-Spearman_summary <- Spearman_summary %>%
-  mutate(
-    p_value = ifelse(p_value < 1e-300, 1e-300, p_value),  # set floor
-    neglog10p = -log10(p_value)
-  )
-
-Spearman_summary$species <- factor(Spearman_summary$species,
-                                   levels = c("Dmelanogaster","Celegans","Ppacificus"))
-
-
-# Plot it
-test <- 
-  ggplot(data = Spearman_summary,
-         aes(x = timepoint, y = coefficient)) + 
-  geom_point() +
-  facet_grid(~species, scales = "free")
-
-
 library(ggplot2)
 library(scales)
 
-testgpt <-
-ggplot(subset(Spearman_summary, species %ni% "Ppacificus"), aes(x = timepoint, y = coefficient)) +
+# ============================================================
+# FLATTEN STRUCTURE (species → mutation → time)
+# ============================================================
+Spearman_summary <- lapply(names(Species_TimeSeries_Expression_MutationRate_Spearman_Tests), function(species) {
+
+  species_list <- Species_TimeSeries_Expression_MutationRate_Spearman_Tests[[species]]
+
+  do.call(rbind, lapply(names(species_list), function(mutation_key) {
+
+    mutation_list <- species_list[[mutation_key]]
+
+    data.frame(
+      species     = species,
+      mutation    = mutation_key,
+      timepoint   = as.numeric(names(mutation_list)),
+      coefficient = sapply(mutation_list, function(x) unname(x$estimate)),
+      p_value     = sapply(mutation_list, function(x) x$p.value),
+      stringsAsFactors = FALSE
+    )
+
+  }))
+
+}) %>% bind_rows()
+
+# ============================================================
+# BASIC CLEAN + TRANSFORM
+# ============================================================
+Spearman_summary <- Spearman_summary %>%
+  mutate(
+    p_value = ifelse(p_value < 1e-300, 1e-300, p_value),
+    neglog10p = -log10(p_value)
+  )
+
+Spearman_summary$species <- factor(
+  Spearman_summary$species,
+  levels = c("Dmelanogaster", "Celegans", "Ppacificus")
+)
+
+Spearman_summary$mutation[Spearman_summary$mutation == "UniqueVariantsPlusOnePerBP"] <- "All Variants"
+Spearman_summary$mutation[Spearman_summary$mutation == "TtoA_or_AtoT_UniqueVariantsPlusOnePerBP"] <- "T>A / A>T"
+Spearman_summary$mutation[Spearman_summary$mutation == "CtoT_or_GtoA_UniqueVariantsPlusOnePerBP"] <- "C>T / G>A"
+Spearman_summary$mutation[Spearman_summary$mutation == "TtoG_or_AtoC_UniqueVariantsPlusOnePerBP"] <- "T>G / A>C"
+Spearman_summary$mutation[Spearman_summary$mutation == "CtoG_or_GtoC_UniqueVariantsPlusOnePerBP"] <- "C>G / G>C"
+Spearman_summary$mutation[Spearman_summary$mutation == "CtoA_or_GtoT_UniqueVariantsPlusOnePerBP"] <- "C>A / G>T"
+Spearman_summary$mutation[Spearman_summary$mutation == "TtoC_or_AtoG_UniqueVariantsPlusOnePerBP"] <- "T>C / A>G"
+Spearman_summary$mutation[Spearman_summary$mutation == "UniqueSynonymousVariantsPlusOnePerBP"] <- "Synonymous"
+Spearman_summary$mutation[Spearman_summary$mutation == "UniqueIntronicVariantsPlusOnePerBP"] <- "Intronic"
+
+Spearman_summary$mutation <- factor(
+  Spearman_summary$mutation,
+  levels = c(
+    "All Variants",
+    "Synonymous",
+    "Intronic",
+    "C>T / G>A",
+    "C>G / G>C",
+    "C>A / G>T",
+    "T>G / A>C",
+    "T>A / A>T",
+    "T>C / A>G"))
+
+pal <- setNames(
+  scales::hue_pal()(length(levels(Spearman_summary$mutation))),
+  levels(Spearman_summary$mutation)
+)
+
+# ============================================================
+# PLOT: ONE FIGURE PER SPECIES, MULTIPLE MUTATION LINES
+# ============================================================
+for (species_name in unique(Spearman_summary$species)) {
+
+  df_plot <- subset(Spearman_summary, species == species_name)
+
+  p <- ggplot(
+    df_plot,
+    aes(
+      x = timepoint,
+      y = coefficient,
+      colour = mutation,
+      group = mutation
+    )
+  ) +
+   # geom_line(linewidth = 0.8, alpha = 0.15) +
+    geom_point(aes(size = neglog10p), alpha = 0.15) +
+    geom_smooth(
+      aes(group = mutation, colour = mutation),
+      method = "loess",
+      se = FALSE,
+      linewidth = 0.6,
+      linetype = "dashed"
+    ) +
+    scale_colour_manual(values = pal) +
+    scale_size(range = c(0.1, 2)) +
+    labs(
+      title = paste0(species_name, " Mutation Rate vs Expression Across Development"),
+      subtitle = "Each line = mutation type",
+      x = "Embryonic Timepoint",
+      y = "Spearman Correlation Coefficient (ρ)",
+      colour = "Mutation Type",
+      size = expression(-log[10](p))
+    ) +
+    theme(
+    plot.title = element_text(size = BASE_SIZE-3),
+    legend.key.height = unit(0.4, "cm"),
+    legend.spacing.y = unit(0.1, "cm")) +
+    scale_x_continuous(n.breaks = 12) +
+    scale_y_continuous(n.breaks = 14) +
+    scale_colour_manual(values = c("#ff5a1f",
+                                 "#ff9f68",
+                                 "#ffd983",
+                                 "#e599ff",
+                                 "#d966ff",
+                                 "#cc33ff",
+                                 "#bf00ff",
+                                 "#730099",
+                                 "#35063e"))
+
+  ggsave(
+    filename = paste0(
+      R_Data,
+      "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+      species_name,
+      "_MutationType_Correlation_Trajectories.png"
+    ),
+    plot = p,
+    width = 4,
+    height = 3.25,
+    dpi = 2500,
+    create.dir = TRUE
+  )
+}
+
+
+
+# # # MutatedOnly
+# ============================================================
+# ============================================================
+# FLATTEN STRUCTURE (species → mutation → time)
+# ============================================================
+Spearman_summary_MutatedOnly <- lapply(names(Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly), function(species) {
+
+  species_list_MutatedOnly <- Species_TimeSeries_Expression_MutationRate_Spearman_Tests_MutatedOnly[[species]]
+
+  do.call(rbind, lapply(names(species_list_MutatedOnly), function(mutation_key) {
+
+    mutation_list_MutatedOnly <- species_list_MutatedOnly[[mutation_key]]
+
+    data.frame(
+      species     = species,
+      mutation    = mutation_key,
+      timepoint   = as.numeric(names(mutation_list_MutatedOnly)),
+      coefficient = sapply(mutation_list_MutatedOnly, function(x) unname(x$estimate)),
+      p_value     = sapply(mutation_list_MutatedOnly, function(x) x$p.value),
+      stringsAsFactors = FALSE
+    )
+
+  }))
+
+}) %>% bind_rows()
+
+# ============================================================
+# BASIC CLEAN + TRANSFORM
+# ============================================================
+Spearman_summary_MutatedOnly <- Spearman_summary_MutatedOnly %>%
+  mutate(
+    p_value = ifelse(p_value < 1e-300, 1e-300, p_value),
+    neglog10p = -log10(p_value)
+  )
+
+Spearman_summary_MutatedOnly$species <- factor(
+  Spearman_summary_MutatedOnly$species,
+  levels = c("Dmelanogaster", "Celegans", "Ppacificus")
+)
+
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "UniqueVariantsPlusOnePerBP"] <- "All Variants"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "TtoA_or_AtoT_UniqueVariantsPlusOnePerBP"] <- "T>A / A>T"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "CtoT_or_GtoA_UniqueVariantsPlusOnePerBP"] <- "C>T / G>A"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "TtoG_or_AtoC_UniqueVariantsPlusOnePerBP"] <- "T>G / A>C"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "CtoG_or_GtoC_UniqueVariantsPlusOnePerBP"] <- "C>G / G>C"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "CtoA_or_GtoT_UniqueVariantsPlusOnePerBP"] <- "C>A / G>T"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "TtoC_or_AtoG_UniqueVariantsPlusOnePerBP"] <- "T>C / A>G"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "UniqueSynonymousVariantsPlusOnePerBP"] <- "Synonymous"
+Spearman_summary_MutatedOnly$mutation[Spearman_summary_MutatedOnly$mutation == "UniqueIntronicVariantsPlusOnePerBP"] <- "Intronic"
+
+Spearman_summary_MutatedOnly$mutation <- factor(
+  Spearman_summary_MutatedOnly$mutation,
+  levels = c(
+    "All Variants",
+    "Synonymous",
+    "Intronic",
+    "C>T / G>A",
+    "C>G / G>C",
+    "C>A / G>T",
+    "T>G / A>C",
+    "T>A / A>T",
+    "T>C / A>G"))
+
+pal <- setNames(
+  scales::hue_pal()(length(levels(Spearman_summary_MutatedOnly$mutation))),
+  levels(Spearman_summary_MutatedOnly$mutation)
+)
+
+# ============================================================
+# PLOT: ONE FIGURE PER SPECIES, MULTIPLE MUTATION LINES
+# ============================================================
+for (species_name in unique(Spearman_summary_MutatedOnly$species)) {
+
+  df_plot <- subset(Spearman_summary_MutatedOnly, species == species_name)
+
+  p <- ggplot(
+    df_plot,
+    aes(
+      x = timepoint,
+      y = coefficient,
+      colour = mutation,
+      group = mutation
+    )
+  ) +
+   # geom_line(linewidth = 0.8, alpha = 0.15) +
+    geom_point(aes(size = neglog10p), alpha = 0.15) +
+    geom_smooth(
+      aes(group = mutation, colour = mutation),
+      method = "loess",
+      se = FALSE,
+      linewidth = 0.6,
+      linetype = "dashed"
+    ) +
+    scale_colour_manual(values = pal) +
+    scale_size(range = c(0.1, 2)) +
+    labs(
+      title = paste0(species_name, " Mutation Rate vs Expression Across Development"),
+      subtitle = "Each line = mutation type",
+      x = "Embryonic Timepoint",
+      y = "Spearman Correlation Coefficient (ρ)",
+      colour = "Mutation Type",
+      size = expression(-log[10](p))
+    ) +
+    theme(
+    plot.title = element_text(size = BASE_SIZE-3),
+    legend.key.height = unit(0.4, "cm"),
+    legend.spacing.y = unit(0.1, "cm")) +
+    scale_x_continuous(n.breaks = 12) +
+    scale_y_continuous(n.breaks = 14) +
+    scale_colour_manual(values = c("#ff5a1f",
+                                 "#ff9f68",
+                                 "#ffd983",
+                                 "#e599ff",
+                                 "#d966ff",
+                                 "#cc33ff",
+                                 "#bf00ff",
+                                 "#730099",
+                                 "#35063e"))
+
+  ggsave(
+    filename = paste0(
+      R_Data,
+      "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+      species_name,
+      "_MutationType_Correlation_Trajectories_MutatedOnly.png"
+    ),
+    plot = p,
+    width = 4,
+    height = 3.25,
+    dpi = 2500,
+    create.dir = TRUE
+  )
+}
+```
+
+```{r Profiling Overall and Mutation-Group Expression Across Development}
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(dplyr)
+library(ggpubr)
+
+cluster_results <- list()
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  # --- Species name ---
+  species_name <- strsplit(element_name, "_")[[1]][4]
+
+  # --- Load data ---
+  df <- as.data.frame(Annotated_VCFs_PC_Gene_Body_Variants[[element_name]])
+
+  # --- Keep ONLY expression columns that end in a numeric timepoint ---
+  expr_cols <- grep("^log2_Expression_Plus_One[0-9]+$", names(df), value = TRUE)
+
+  if (length(expr_cols) == 0) next
+
+  # --- Order expression columns numerically ---
+  timepoints <- as.numeric(sub("^log2_Expression_Plus_One", "", expr_cols))
+  ord <- order(timepoints)
+  expr_cols <- expr_cols[ord]
+  timepoints <- timepoints[ord]
+
+  # --- Keep gene IDs + expression columns ---
+  expression_and_meta <- df[, c("GENE_ID","UniqueVariantsPlusOnePerBP", "Overall_Mutation_Rate_Group", expr_cols), drop = FALSE] %>% unique()
+
+  # --- Remove rows with missing values in expression columns only ---
+  expression_and_meta <- expression_and_meta[
+    complete.cases(expression_and_meta[, expr_cols, drop = FALSE]),
+    ,
+    drop = FALSE
+  ]
+
+  # --- Build expression matrix ---
+  expression <- expression_and_meta[, expr_cols, drop = FALSE]
+  expr_mat <- as.matrix(expression)
+  colnames(expr_mat) <- timepoints
   
-  # faint background line showing trend
-  geom_line(aes(group = species), color = "grey70", linewidth = 0.6) +
+  # Make Long Format Expression Table to Plot Expression of Groups Across Timepoints
+  long_expression_and_meta <- expression_and_meta %>%
+  # 1. Rename expression columns (keep GENE_ID + metadata untouched)
+  rename_with(
+    ~ sub("log2_Expression_Plus_One", "", .x),
+    starts_with("log2_Expression_Plus_One")
+  ) %>%
   
+  # 2. Pivot to long format
+  pivot_longer(
+    cols = matches("^[0-9]+$"),   # only numeric column names
+    names_to = "timepoint",
+    values_to = "expression"
+  ) %>%
+  
+  # 3. Make timepoint numeric
+  mutate(timepoint = as.numeric(timepoint))
+  
+  
+  # Summarise to Group Means and Medians
+  summary_df <- long_expression_and_meta %>%
+  group_by(Overall_Mutation_Rate_Group, timepoint) %>%
+  summarise(
+    mean_expression   = mean(expression, na.rm = TRUE),
+    median_expression = median(expression, na.rm = TRUE),
+    sd_expression     = sd(expression, na.rm = TRUE),
+    n                 = n(),
+    se_expression     = sd_expression / sqrt(n),
+    Q1 = quantile(expression, 0.25, na.rm = TRUE),
+    Q3 = quantile(expression, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+  
+  # Plot Mean Expression of Each Mutation Group Across Development
+  Mean_Expression_per_Mutation_Group_Plot <- 
+  ggplot(summary_df,
+       aes(x = timepoint,
+           y = mean_expression,
+           colour = Overall_Mutation_Rate_Group,
+           fill = Overall_Mutation_Rate_Group)) +
+    geom_line(linewidth = 1.1) +
+    geom_point(size = 2) +
+    geom_ribbon(aes(ymin = mean_expression - se_expression,
+                    ymax = mean_expression + se_expression,
+                    fill = Overall_Mutation_Rate_Group),
+                alpha = 0.15, color = NA) +
+    scale_fill_manual(values = 
+    colorRampPalette(c("green", "orange", "purple"))(length(unique(summary_df$Overall_Mutation_Rate_Group)))) +
+    scale_colour_manual(values = 
+    colorRampPalette(c("green", "orange", "purple"))(length(unique(summary_df$Overall_Mutation_Rate_Group)))) +
+    labs(
+      title = paste0(species_name, "\n", "Mean Gene Expression by Mutation-Rate Quantile"),
+      subtitle = paste0("Expression Trajectories Across Embryonic Time (n = ", "5", " Quantiles)"),
+      x = "Embryonic Timepoint",
+      y = "Mean log2(Expression + 1)",
+      color = "Mutation-Rate Quantile",
+      fill = "Mutation-Rate Quantile"
+    ) +
+   geom_line(linewidth = 1, colour = "black") +
   # main points, scaled by significance, colored by correlation, with black borders
   geom_point(
-    aes(size = -log10(p_value), fill = coefficient),
+    size = 3.5,
+    colour = "black",
+    shape = 21,              # allows fill + border
+    stroke = 0.4,            # border thickness
+    alpha = 0.9
+  ) +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10) 
+    
+    
+  ggsave(Mean_Expression_per_Mutation_Group_Plot,
+         filename = 
+   paste0(
+      R_Data,
+      "Plots/7_Developmental_TimeSeries_Clustering/",
+      "Developmental_TimeSeries_Mean_Expression_per_Mutation_Group_Plot_",
+      species_name,
+      ".png"),
+     width = 7,
+    height = 5,
+    create.dir = TRUE,
+    dpi = 900)
+
+  # Plot Median Expression of Each Mutation Group Across Development
+  Median_Expression_per_Mutation_Group_Plot <- 
+  ggplot(summary_df,
+       aes(x = timepoint,
+           y = median_expression,
+           colour = Overall_Mutation_Rate_Group,
+           fill = Overall_Mutation_Rate_Group)) +
+    geom_line(linewidth = 1.1) +
+    geom_point(size = 2) +
+    geom_ribbon(
+    aes(ymin = Q1, ymax = Q3, fill = Overall_Mutation_Rate_Group),
+    alpha = 0.15, color = NA) +
+    scale_fill_manual(values = 
+    colorRampPalette(c("red", "orange", "yellow"))(length(unique(summary_df$Overall_Mutation_Rate_Group)))) +
+    scale_colour_manual(values = 
+    colorRampPalette(c("red", "orange", "yellow"))(length(unique(summary_df$Overall_Mutation_Rate_Group)))) +
+    labs(
+      title = paste0(species_name, "\n", "Median Gene Expression by Mutation-Rate Quantile"),
+      subtitle = paste0("Expression Trajectories Across Embryonic Time (n = ", "5", " Quantiles)"),
+      x = "Embryonic Timepoint",
+      y = "Mean log2(Expression + 1)",
+      color = "Mutation-Rate Quantile",
+      fill = "Mutation-Rate Quantile"
+    ) 
+    
+
+  ggsave(Median_Expression_per_Mutation_Group_Plot,
+         filename = 
+   paste0(
+      R_Data,
+      "Plots/7_Developmental_TimeSeries_Clustering/",
+      "Developmental_TimeSeries_Median_Expression_per_Mutation_Group_Plot_",
+      species_name,
+      ".png"),
+    width = 6,
+    create.dir = TRUE,
+    height = 5,
+    dpi = 900)
+  
+  
+  
+  # Summarise to OVERALL Mean and Median
+  overall_summary_df <- long_expression_and_meta %>%
+  group_by(timepoint) %>%
+  summarise(
+    mean_expression   = mean(expression, na.rm = TRUE),
+    median_expression = median(expression, na.rm = TRUE),
+    sd_expression     = sd(expression, na.rm = TRUE),
+    n                 = n(),
+    se_expression     = sd_expression / sqrt(n),
+    Q1 = quantile(expression, 0.25, na.rm = TRUE),
+    Q3 = quantile(expression, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+  
+  overall_summary_df$species <- species_name
+  
+  # Plot Mean Expression Across Development
+  Mean_Expression_Plot <- 
+  ggplot(overall_summary_df,
+       aes(x = timepoint,
+           y = mean_expression,
+           colour = mean_expression,
+           fill = mean_expression)) +
+  geom_line(linewidth = 1, colour = "black") +
+  geom_ribbon(
+    aes(ymin = mean_expression - se_expression,
+        ymax = mean_expression + se_expression),
+    alpha = 0.2,
+    fill = "purple",
+    colour = NA
+  ) +
+  # main points, scaled by significance, colored by correlation, with black borders
+  geom_point(
+    size = 5,
+    colour = "black",
+    shape = 21,              # allows fill + border
+    stroke = 0.4,            # border thickness
+    alpha = 0.9
+  ) +
+  scale_fill_gradient(low = "green", high = "orange") +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10) +
+  # labels
+  labs(
+    x = "Developmental Timepoint",
+    y = "Mean Embryonic Expression",
+    fill  = "Correlation (ρ)",
+    title = "Mean Embryonic Gene Expression vs Expression-Mutation-Rate Associations",
+    subtitle = "Each Point Represents a Spearman Correlation per Timepoint per Species",
+    caption = "Dashed Line = LOESS Smooth; Point Size ∝ Significance (p-value)"
+  )
+  
+  ggsave(Mean_Expression_Plot,
+         filename = 
+   paste0(
+      R_Data,
+      "Plots/7_Developmental_TimeSeries_Clustering/",
+      "Developmental_TimeSeries_Mean_Expression_Plot_",
+      species_name,
+      ".png"),
+    width = 6,
+    create.dir = TRUE,
+    height = 5,
+    dpi = 900)
+
+  # Plot Median Expression of Each Mutation Group Across Development
+  Median_Expression_Plot <- 
+  ggplot(overall_summary_df,
+       aes(x = timepoint,
+           y = median_expression,
+           colour = median_expression,
+           fill = median_expression)) +
+  geom_line(linewidth = 1, colour = "black") +
+  geom_ribbon(
+    aes(ymin = Q1,
+        ymax = Q3),
+    alpha = 0.2,
+    fill = "purple",
+    colour = NA
+  ) +
+  # main points, scaled by significance, colored by correlation, with black borders
+  geom_point(
+    size = 5,
+    colour = "black",
+    shape = 21,              # allows fill + border
+    stroke = 0.4,            # border thickness
+    alpha = 0.9
+  ) +
+  scale_fill_gradient(low = "green", high = "orange") +
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10) +
+  # labels
+  labs(
+    x = "Developmental Timepoint",
+    y = "Median Embryonic Expression",
+    fill  = "Correlation (ρ)",
+    title = "Median Embryonic Gene Expression vs Expression-Mutation-Rate Associations",
+    subtitle = "Each Point Represents a Spearman Correlation per Timepoint per Species",
+    caption = "Dashed Line = LOESS Smooth; Point Size ∝ Significance (p-value)"
+  ) 
+  
+  ggsave(Median_Expression_Plot,
+         filename = 
+   paste0(
+      R_Data,
+      "Plots/7_Developmental_TimeSeries_Clustering/",
+      "Developmental_TimeSeries_Median_Expression_Plot_",
+      species_name,
+      ".png"),
+    width = 6,
+    create.dir = TRUE,
+    height = 5,
+    dpi = 900)
+  
+  # Merge overall expression trends with overall expression-mutation rate association scores for plotting
+  overall_summary_with_associations_df <- 
+    merge(overall_summary_df,
+          Spearman_summary,
+          by = c("timepoint","species"))
+  
+  label_y <- switch(
+  species_name,
+  "Dmelanogaster" = 0.05,
+  "Celegans" = 0.1,
+  "Ppacificus" = -0.27
+)
+  
+  
+  
+  mean_expression_vs_association_plot <- 
+  ggplot(data = overall_summary_with_associations_df,
+         aes(x = mean_expression, y = coefficient, group = mutation, colour = mutation, fill = mutation)) +
+   # smooth curve
+  geom_smooth(
+    method = "lm", se = TRUE,
+    linewidth = 0.7, linetype = "dashed", alpha = .05,
+    show.legend = FALSE) +
+  # main points, scaled by significance, colored by correlation, with black borders
+  geom_point(
+    aes(size = -log10(p_value), fill = mutation),
     shape = 21,              # allows fill + border
     color = "black",         # border color
     stroke = 0.4,            # border thickness
     alpha = 0.9
   ) +
-  
-  # smooth curve
-  geom_smooth(
-    method = "loess", se = FALSE, color = "black",
-    linewidth = 0.7, linetype = "dashed"
-  ) +
-  
-  # facet by species (keep names, remove grey box)
-  facet_wrap(~ species, scales = "free_x") +
-  
-  scale_fill_gradient(low = "green", high = "red") +
-    theme_bw() +
-  theme(# Transparent backgrounds
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          # Keep grid lines visible and black
-          panel.grid.major = element_line(color = "black", size = 0.2),
-          panel.grid.minor = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 6, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white")) +
+  stat_cor(
+  method = "spearman",
+  label.x.npc = 1,
+  label.y = label_y,
+  hjust = 1,
+  vjust = c(1,2,3,4,5,6,7,8,9),
+  size = 3) +
+ # scale_fill_gradient(low = "green", high = "purple") +
+    scale_fill_manual(values = c("#ff5a1f",
+                                 "#ff9f68",
+                                 "#ffd983",
+                                 "#e599ff",
+                                 "#d966ff",
+                                 "#cc33ff",
+                                 "#bf00ff",
+                                 "#730099",
+                                 "#35063e")) +
+    scale_colour_manual(values = c("#ff5a1f",
+                                 "#ff9f68",
+                                 "#ffd983",
+                                 "#e599ff",
+                                 "#d966ff",
+                                 "#cc33ff",
+                                 "#bf00ff",
+                                 "#730099",
+                                 "#35063e")) +
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10) +
   # labels
   labs(
-    x = "Embryonic Timepoint (Minutes [Right] and Hours [Left])",
+    x = "Mean Embryonic Expression",
     y = "Spearman Correlation Coefficient (ρ)",
     fill  = "Correlation (ρ)",
     size  = expression(-log[10](p)),
-    title = "Gene Mutation Rate vs. Expression Correlation Across Development",
+    title = "Mean Embryonic Gene Expression vs Expression-Mutation-Rate Associations",
     subtitle = "Each Point Represents a Spearman Correlation per Timepoint per Species",
     caption = "Dashed Line = LOESS Smooth; Point Size ∝ Significance (p-value)"
-  ) + theme(panel.spacing = unit(3, "lines"))
+  ) + guides(colour = "none", line = "none") +
+    theme(legend.key.height = unit(0.4, "cm"),
+          legend.spacing.y = unit(0.1, "cm"))
 
 ggsave(
-      testgpt,
+      mean_expression_vs_association_plot,
       filename = paste0(
-        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
-        "Pan_Species_MutationRate_vs_Expression_Coefficients_Across_Development.png"
+        R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/", species_name,
+        "_Mean_Expression_vs_MutationRate-Expression_Coefficients_Across_Development.png"
       ),
-      width = 8,
+      width = 5,
       height = 4,
       dpi = 2000,
-      create.dir = TRUE
-    )
+      create.dir = TRUE)
 
-
+}
 
 ```
 
@@ -421,12 +980,13 @@ library(ggplot2)
 library(forcats)
 library(tidyr)
 library(tibble)
+
 gc()
 
 species_k <- c(
   "Celegans" = 7,
   "Ppacificus" = 6,
-  "Dmelanogaster" = 8
+  "Dmelanogaster" = 9
 )
 
 default_k <- 6L
@@ -442,6 +1002,192 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 cluster_results <- list()
 
+# ============================================================
+# HELPER FUNCTION
+# ============================================================
+process_clustering <- function(mat, meta_df, species_name, label, k_use) {
+
+  if (nrow(mat) < 3) return(NULL)
+
+  # ----------------------------
+  # Colour scale
+  # ----------------------------
+  if (label == "scaled") {
+    heatmap_col_fun <- circlize::colorRamp2(
+      c(-4, 0, 4),
+      c("#5A189A", "white", "#FF9100")
+    )
+  } else {
+    q <- quantile(mat, probs = c(0.01, 0.5, 0.99), na.rm = TRUE)
+    heatmap_col_fun <- circlize::colorRamp2(
+      c(q[1], q[2], q[3]),
+      c("#5A189A", "white", "#FF9100")
+    )
+  }
+
+  set.seed(69)
+
+  ht <- Heatmap(
+    mat,
+    col = heatmap_col_fun,
+    cluster_columns = FALSE,
+    row_km = k_use,
+    row_km_repeats = 20,
+    show_row_names = FALSE,
+    border = TRUE
+  )
+
+  png(file.path(out_dir, paste0("Heatmap_", species_name, "_", label, ".png")),
+      width = 3000, height = 5000, res = 900, type = "cairo-png")
+  ht_drawn <- draw(ht)
+  dev.off()
+
+  cluster_list <- row_order(ht_drawn)
+
+  cluster_vec <- rep(NA, nrow(mat))
+  for (i in seq_along(cluster_list)) {
+    cluster_vec[cluster_list[[i]]] <- i
+  }
+
+  cluster_df <- data.frame(
+    row_id = rownames(mat),
+    cluster = factor(cluster_vec)
+  )
+
+  clustered_df <- merge(meta_df, cluster_df, by = "row_id")
+
+  # ============================================================
+  # EXPRESSION TRAJECTORIES (MEAN + MEDIAN + CI)
+  # ============================================================
+
+  expr_df <- as.data.frame(mat)
+  expr_df$row_id <- rownames(mat)
+  expr_df$cluster <- factor(cluster_vec)
+
+  long_df <- expr_df %>%
+    pivot_longer(
+      cols = -c(row_id, cluster),
+      names_to = "time",
+      values_to = "expression"
+    ) %>%
+    mutate(time = as.numeric(time))
+
+  summary_df <- long_df %>%
+    group_by(cluster, time) %>%
+    summarise(
+      mean_expr = mean(expression, na.rm = TRUE),
+      sd_expr   = sd(expression, na.rm = TRUE),
+      n         = sum(!is.na(expression)),
+      se_expr   = sd_expr / sqrt(n),
+
+      median_expr = median(expression, na.rm = TRUE),
+      q1          = quantile(expression, 0.25, na.rm = TRUE),
+      q3          = quantile(expression, 0.75, na.rm = TRUE),
+
+      .groups = "drop"
+    )
+
+  # ---- Mean plot ----
+  p_mean <- ggplot(summary_df,
+                   aes(x = time,
+                       y = mean_expr,
+                       group = cluster)) +
+    geom_ribbon(aes(ymin = mean_expr - 1.96 * se_expr,
+                    ymax = mean_expr + 1.96 * se_expr),
+                fill = "grey70", alpha = 0.3) +
+    geom_line(colour = "black", linewidth = 1) +
+    geom_point(size = 1.5, colour = "black") +
+    facet_grid(cluster ~ ., scales = "free_y") +
+    labs(
+      title = paste0(species_name, " Cluster Mean Expression (", label, ")"),
+      x = "Time",
+      y = "Mean Expression"
+    )
+
+  ggsave(file.path(out_dir,
+                   paste0("ClusterMeanExpression_", species_name, "_", label, ".png")),
+         p_mean, width = 4, height = 10, dpi = 2000)
+
+  # ---- Median plot ----
+  p_median <- ggplot(summary_df,
+                     aes(x = time,
+                         y = median_expr,
+                         group = cluster)) +
+    geom_ribbon(aes(ymin = q1, ymax = q3),
+                fill = "grey70", alpha = 0.3) +
+    geom_line(colour = "black", linewidth = 1) +
+    geom_point(size = 1.5, colour = "black") +
+    facet_grid(cluster ~ ., scales = "free_y") +
+    labs(
+      title = paste0(species_name, " Cluster Median Expression (", label, ")"),
+      x = "Time",
+      y = "Median Expression"
+    )
+
+  ggsave(file.path(out_dir,
+                   paste0("ClusterMedianExpression_", species_name, "_", label, ".png")),
+         p_median, width = 4, height = 10, dpi = 2000)
+
+  # ============================================================
+  # MUTATION RATE BOXPLOT (defines cluster order)
+  # ============================================================
+
+  if ("UniqueVariantsPlusOnePerBP" %in% names(clustered_df)) {
+
+    cluster_order <- clustered_df %>%
+      group_by(cluster) %>%
+      summarise(med = median(UniqueVariantsPlusOnePerBP, na.rm = TRUE)) %>%
+      arrange(med) %>%
+      pull(cluster)
+
+    clustered_df$cluster <- factor(clustered_df$cluster, levels = cluster_order)
+
+    p_mut <- ggplot(clustered_df,
+                    aes(x = cluster,
+                        y = UniqueVariantsPlusOnePerBP,
+                        fill = cluster)) +
+      geom_boxplot(outliers = FALSE) +
+      scale_fill_manual(values = cluster_palette_all) +
+      theme(legend.position = "none") +
+      labs(title = paste0(species_name, " Mutation Rate (", label, ")"))
+
+    ggsave(file.path(out_dir,
+                     paste0("MutationRate_", species_name, "_", label, ".png")),
+           p_mut, width = 2.5, height = 4, dpi = 1500)
+  }
+
+  # ============================================================
+  # dNdS BOXPLOT (aligned to same order)
+  # ============================================================
+
+  if ("dNdS" %in% names(clustered_df)) {
+
+    dnds_df <- clustered_df[!is.na(clustered_df$dNdS), ]
+
+    if (nrow(dnds_df) > 0 && length(unique(dnds_df$cluster)) > 1) {
+
+      p_dnds <- ggplot(dnds_df,
+                       aes(x = cluster,
+                           y = dNdS,
+                           fill = cluster)) +
+        geom_boxplot(outliers = FALSE) +
+        scale_fill_manual(values = cluster_palette_all) +
+        theme(legend.position = "none") +
+        labs(title = paste0(species_name, " dNdS (", label, ")"))
+
+      ggsave(file.path(out_dir,
+                       paste0("dNdS_", species_name, "_", label, ".png")),
+             p_dnds, width = 2.5, height = 4, dpi = 1500)
+    }
+  }
+
+  return(clustered_df)
+}
+
+# ============================================================
+# MAIN LOOP
+# ============================================================
+
 for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   species_name <- strsplit(element_name, "_")[[1]][4]
@@ -452,6 +1198,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   timepoints <- as.numeric(sub("^log2_Expression_Plus_One", "", expr_cols))
   ord <- order(timepoints)
+
   expr_cols <- expr_cols[ord]
   timepoints <- timepoints[ord]
 
@@ -459,6 +1206,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   keep_cols <- intersect(keep_cols, names(df))
 
   expression_and_meta <- df[, keep_cols, drop = FALSE] %>% unique()
+
   expression_and_meta <- expression_and_meta[
     complete.cases(expression_and_meta[, expr_cols, drop = FALSE]),
     , drop = FALSE
@@ -476,15 +1224,20 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   row_scaled_expression[row_scaled_expression < -4] <- -4
 
   keep <- apply(row_scaled_expression, 1, function(x) all(is.finite(x)))
+
   row_scaled_expression <- row_scaled_expression[keep, , drop = FALSE]
+  expr_mat <- expr_mat[keep, , drop = FALSE]
   expression_and_meta <- expression_and_meta[keep, , drop = FALSE]
   row_id <- row_id[keep]
-  expr_mat <- expr_mat[keep, , drop = FALSE]
 
   if (nrow(row_scaled_expression) < 3) next
 
-  colnames(row_scaled_expression) <- as.character(timepoints)
   rownames(row_scaled_expression) <- row_id
+  rownames(expr_mat) <- row_id
+
+  colnames(row_scaled_expression) <- as.character(timepoints)
+  colnames(expr_mat) <- as.character(timepoints)
+
   expression_and_meta$row_id <- row_id
 
   if (species_name %in% names(species_k)) {
@@ -495,193 +1248,33 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   k_use <- max(2, min(k_use, nrow(row_scaled_expression) - 1))
 
-  heatmap_col_fun <- circlize::colorRamp2(c(-2,0,2), c("#5A189A","white","#FF9100"))
-
-  set.seed(69)
-
-  ht <- Heatmap(
+  clustered_scaled <- process_clustering(
     row_scaled_expression,
-    col = heatmap_col_fun,
-    cluster_columns = FALSE,
-    row_km = k_use,
-    row_km_repeats = 500,
-    show_row_names = FALSE
+    expression_and_meta,
+    species_name,
+    "scaled",
+    k_use
   )
 
-  png(file.path(out_dir, paste0("Heatmap_", species_name, ".png")),
-      width = 3000, height = 5000, res = 900, type = "cairo-png")
-  ht_drawn <- draw(ht)
-  dev.off()
-
-  cluster_list <- row_order(ht_drawn)
-
-  cluster_df <- do.call(rbind, lapply(seq_along(cluster_list), function(i) {
-    data.frame(
-      row_id = rownames(row_scaled_expression)[cluster_list[[i]]],
-      cluster = factor(i)
-    )
-  }))
-
-  clustered_df <- merge(expression_and_meta, cluster_df, by = "row_id")
-
-  # =========================
-  # MUTATION RATE BOXPLOT
-  # =========================
-  if ("UniqueVariantsPlusOnePerBP" %in% names(clustered_df)) {
-
-    p_mut <- ggplot(clustered_df,
-                    aes(x = fct_reorder(cluster, UniqueVariantsPlusOnePerBP, median),
-                        y = UniqueVariantsPlusOnePerBP,
-                        fill = cluster)) +
-      geom_boxplot(outliers = FALSE) +
-      theme_bw() +
-      labs(title = paste0(species_name, " Mutation Rate by Cluster"))
-
-    ggsave(file.path(out_dir, paste0("MutationRate_", species_name, ".png")),
-           p_mut, width = 4, height = 5, dpi = 900)
-  }
-
-  # =========================
-  # dNdS BOXPLOT (NEW)
-  # =========================
-  if ("dNdS" %in% names(clustered_df)) {
-
-    dnds_df <- clustered_df[!is.na(clustered_df$dNdS), ]
-
-    if (nrow(dnds_df) > 0 && length(unique(dnds_df$cluster)) > 1) {
-
-      p_dnds <- ggplot(dnds_df,
-                       aes(x = fct_reorder(cluster, dNdS, median),
-                           y = dNdS,
-                           fill = cluster)) +
-        geom_boxplot(outliers = FALSE) +
-        theme_bw() +
-        labs(title = paste0(species_name, " dNdS by Cluster"))
-
-      ggsave(file.path(out_dir, paste0("dNdS_", species_name, ".png")),
-             p_dnds, width = 4, height = 5, dpi = 900)
-    }
-  }
-
-  cluster_results[[species_name]] <- clustered_df
-  
-  # ============================================================
-# GO OVER-REPRESENTATION ENRICHMENT FOR K-MEANS CLUSTERS
-# (FIXED VERSION — INSIDE LOOP)
-# ============================================================
-
-suppressPackageStartupMessages({
-  library(clusterProfiler)
-  library(AnnotationDbi)
-  library(org.Ce.eg.db)
-  library(org.Dm.eg.db)
-})
-
-if (species_name %in% c("Celegans", "Dmelanogaster")) {
-
-  if (species_name == "Celegans") {
-    orgdb <- org.Ce.eg.db
-    keytype_used <- "WORMBASE"
-    species_tag <- "Celegans"
-  } else {
-    orgdb <- org.Dm.eg.db
-    keytype_used <- "FLYBASE"
-    species_tag <- "Dmelanogaster"
-  }
-
-  message("==== Running enrichment for ", element_name, " ====")
-
-  species_out_dir <- file.path(
-    R_Data,
-    "Plots/7_Developmental_TimeSeries_Clustering/Cluster_GO_Enrichment",
-    species_tag
+  clustered_unscaled <- process_clustering(
+    expr_mat,
+    expression_and_meta,
+    species_name,
+    "unscaled",
+    k_use
   )
-  dir.create(species_out_dir, recursive = TRUE, showWarnings = FALSE)
 
-  for (cl in sort(unique(na.omit(clustered_df$cluster)))) {
-
-    genes <- unique(clustered_df$GENE_ID[clustered_df$cluster == cl])
-
-    message("Cluster ", cl, " genes: ", length(genes))
-
-    if (length(genes) < 5) next
-
-    ego <- tryCatch(
-      enrichGO(
-        gene = genes,
-        OrgDb = orgdb,
-        keyType = keytype_used,
-        ont = "BP",
-        pAdjustMethod = "BH",
-        pvalueCutoff = 1,
-        qvalueCutoff = 1,
-        readable = TRUE
-      ),
-      error = function(e) {
-        message("enrichGO failed for cluster ", cl)
-        return(NULL)
-      }
-    )
-
-    if (is.null(ego)) next
-
-    ego_df <- as.data.frame(ego)
-
-    message("Cluster ", cl, " GO terms: ", nrow(ego_df))
-
-    if (nrow(ego_df) == 0) next
-
-    # SAVE TABLE
-    write.table(
-      ego_df,
-      file = file.path(
-        species_out_dir,
-        paste0(element_name, "_Cluster_", cl, "_GO.tsv")
-      ),
-      sep = "\t",
-      row.names = FALSE,
-      quote = FALSE
-    )
-
-    # PLOT
-    plot_df <- ego_df %>%
-      arrange(p.adjust) %>%
-      slice_head(n = min(15, nrow(.))) %>%
-      mutate(Description = factor(Description, levels = rev(Description)))
-
-    p <- ggplot(plot_df,
-                aes(x = Description,
-                    y = -log10(p.adjust),
-                    fill = Count)) +
-      geom_col() +
-      coord_flip() +
-      scale_fill_gradient(low = "#003300", high = "orange") +
-      theme_bw() +
-      labs(
-        title = paste0(species_tag, " Cluster ", cl),
-        y = "-log10(adj p)",
-        x = NULL
-      )
-
-    ggsave(
-      file.path(
-        species_out_dir,
-        paste0(element_name, "_Cluster_", cl, "_GO.png")
-      ),
-      p,
-      width = 7,
-      height = 5,
-      dpi = 600
-    )
-  }
-}
+  cluster_results[[species_name]] <- list(
+    scaled = clustered_scaled,
+    unscaled = clustered_unscaled
+  )
 }
 ```
 
-```{r}
+```{r ORA}
 # ============================================================
 # GO OVER-REPRESENTATION ENRICHMENT FOR K-MEANS CLUSTERS
-# (C. elegans + D. melanogaster only)
+# (BP + CC + MF)
 # ============================================================
 
 suppressPackageStartupMessages({
@@ -690,12 +1283,18 @@ suppressPackageStartupMessages({
   library(org.Ce.eg.db)
   library(org.Dm.eg.db)
   library(ggplot2)
+  library(dplyr)
 })
 
-if (species_name %in% c("Celegans", "Dmelanogaster")) {
+for (species_name in names(cluster_results)) {
+
+  if (!(species_name %in% c("Celegans", "Dmelanogaster"))) next
+
+  clustered_df <- cluster_results[[species_name]]$unscaled
+  if (is.null(clustered_df)) next
 
   # ----------------------------
-  # Species setup (same as your working script)
+  # Species setup
   # ----------------------------
   if (species_name == "Celegans") {
     orgdb <- org.Ce.eg.db
@@ -707,7 +1306,7 @@ if (species_name %in% c("Celegans", "Dmelanogaster")) {
     species_tag <- "Dmelanogaster"
   }
 
-  message("Running cluster enrichment for: ", element_name)
+  message("Running cluster enrichment for: ", species_name)
 
   species_out_dir <- file.path(
     R_Data,
@@ -727,80 +1326,96 @@ if (species_name %in% c("Celegans", "Dmelanogaster")) {
 
     genes <- df_cl$GENE_ID
 
-    if (length(genes) < 10) next
+    if (length(genes) < 10) {
+      message("Skipping cluster ", cl, " (too few genes: ", length(genes), ")")
+      next
+    }
 
     message("Cluster ", cl, " genes: ", length(genes))
 
     # ----------------------------
-    # Over-representation (NOT GSEA)
+    # LOOP OVER ONTOLOGIES
     # ----------------------------
-    enrich_res <- tryCatch(
-      enrichGO(
-        gene = genes,
-        OrgDb = orgdb,
-        keyType = keytype_used,
-        ont = "BP",
-        pAdjustMethod = "BH",
-        pvalueCutoff = 1,
-        qvalueCutoff = 1,
-        readable = TRUE
-      ),
-      error = function(e) {
-        message("enrichGO failed for cluster ", cl)
-        return(NULL)
+    for (ont_type in c("BP", "CC", "MF")) {
+
+      message("  Running ", ont_type, "...")
+
+      enrich_res <- tryCatch(
+        enrichGO(
+          gene = genes,
+          OrgDb = orgdb,
+          keyType = keytype_used,
+          ont = ont_type,
+          pAdjustMethod = "BH",
+          pvalueCutoff = 1,
+          qvalueCutoff = 1,
+          readable = TRUE
+        ),
+        error = function(e) {
+          message("  enrichGO failed for cluster ", cl, " (", ont_type, "): ", e$message)
+          return(NULL)
+        }
+      )
+
+      if (is.null(enrich_res)) next
+
+      enrich_df <- as.data.frame(enrich_res)
+      if (nrow(enrich_df) == 0) {
+        message("  No GO terms for ", ont_type)
+        next
       }
-    )
 
-    if (is.null(enrich_res)) next
+      # ----------------------------
+      # Save table
+      # ----------------------------
+      write.table(
+        enrich_df,
+        file = file.path(
+          species_out_dir,
+          paste0(species_name, "_Cluster_", cl, "_", ont_type, "_GO_Unscaled.tsv")
+        ),
+        sep = "\t",
+        row.names = FALSE,
+        quote = FALSE
+      )
 
-    enrich_df <- as.data.frame(enrich_res)
-    if (nrow(enrich_df) == 0) next
+      # ----------------------------
+      # Plot
+      # ----------------------------
+      plot_df <- enrich_df %>%
+        arrange(p.adjust) %>%
+        slice_head(n = 15) %>%
+        mutate(Description = factor(Description, levels = rev(Description)))
 
-    # Save table
-    write.table(
-      enrich_df,
-      file = file.path(
-        species_out_dir,
-        paste0(element_name, "_Cluster_", cl, "_GO.tsv")
-      ),
-      sep = "\t",
-      row.names = FALSE,
-      quote = FALSE
-    )
+      p_bar <- ggplot(plot_df,
+                      aes(x = Description,
+                          y = -log10(p.adjust),
+                          fill = Count)) +
+        geom_col(width = 0.7) +
+        coord_flip() +
+        scale_fill_gradient(low = "purple", high = "orange") +
+        labs(
+          title = paste0(species_tag, " Cluster ", cl, " ", ont_type, " GO enrichment"),
+          x = NULL,
+          y = "-log10(adj p-value)"
+        )
 
-    # ----------------------------
-    # PLOT (same style as your script)
-    # ----------------------------
-    plot_df <- enrich_df %>%
-      arrange(p.adjust) %>%
-      slice_head(n = 15) %>%
-      mutate(Description = factor(Description, levels = rev(Description)))
-
-    p_bar <- ggplot(plot_df,
-                    aes(x = Description,
-                        y = -log10(p.adjust),
-                        fill = Count)) +
-      geom_col(width = 0.7) +
-      coord_flip() +
-      scale_fill_gradient(low = "#003300", high = "orange") +
-      labs(
-        title = paste0(species_tag, " Cluster ", cl, " GO enrichment"),
-        x = NULL,
-        y = "-log10(adj p-value)"
-      ) +
-      theme_bw()
-
-    ggsave(
-      plot = p_bar,
-      filename = file.path(
-        species_out_dir,
-        paste0(element_name, "_Cluster_", cl, "_GO_barplot.png")
-      ),
-      width = 7,
-      height = 5,
-      dpi = 800,
-      bg = "transparent"
-    )
+      ggsave(
+        plot = p_bar,
+        filename = file.path(
+          species_out_dir,
+          paste0(species_name, "_Cluster_", cl, "_", ont_type, "_GO_barplot_Unscaled.png")
+        ),
+        width = 7,
+        height = 5,
+        dpi = 800,
+        bg = "white"
+      )
+    }
   }
 }
+```
+
+```{r Saving}
+save(Annotated_VCFs_PC_Gene_Body_Variants, file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 ```

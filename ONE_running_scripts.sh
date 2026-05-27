@@ -6,6 +6,8 @@
 # Optional cleanup step
 rm -rf /home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/
 rm -rf /home/ocdm0351/DPhil/logs/
+rm -rf /home/ocdm0351/DPhil/R_Data/
+cp /home/ocdm0351/DPhil/scripts/misc/plotting.themes.R /home/ocdm0351/DPhil/R_Data/plotting.themes.R
 
 SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
 
@@ -25,7 +27,7 @@ scripts=(
 "7_Downloading_Dmelanogaster_Essential_Genes.sh"
 "8_Cleaning_Annotated_Variant_Files_Submitter.sh"
 "9_Summarising_VCFs_Submitter.sh"
-"10_EnrichmentAroundFeatures_Submitter.sh") # Need to create sister species manually before running next section of pipeline
+"10_EnrichmentAroundFeatures_Submitter.sh") # Need to create sister species manually before running next section of pipeline # Currently automated at end of this script
 
 prev_jobid=""
 
@@ -48,3 +50,5 @@ for script in "${scripts[@]}"; do
 
     sleep 1
 done
+
+cp /home/ocdm0351/DPhil/scripts/misc/Sister_Species_Table.txt /home/ocdm0351/DPhil/R_Data/Sister_Species_Table.txt

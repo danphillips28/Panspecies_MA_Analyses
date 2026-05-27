@@ -1,0 +1,634 @@
+---
+title: "3_EnrichmentAroundAllFeatures"
+output: html_document
+date: "2025-08-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(dplyr)
+library(stringr)
+library(patchwork)
+library(EnrichedHeatmap)
+library(ggplot2)
+library(readr)
+library(rtracklayer)
+library(GenomicRanges)
+library(IRanges)
+library(scales)
+library(tidyverse)
+library(ComplexHeatmap)
+```
+
+```{r Loading Annotated VCF List}
+load(file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Raw")
+
+source("/home/ocdm0351/DPhil/R_Data/plotting.themes.R")
+
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r Reduced to Unique Variants}
+Reduced_Variants <- lapply(
+  Annotated_VCFs_Raw,
+  function(df) df[, 1:4] %>% unique() %>% select(-c("REF", "ALT"))
+)
+```
+
+```{r Enriched Heatmap}
+
+# -----------------------------
+# Feature specification table
+# -----------------------------
+feature_specs <- list(
+
+  cds = list(
+    label = "Canonical CDS",
+    types = c("CDS"),
+    transcript_linked = TRUE,
+    derive_introns = FALSE,
+    extend_value = 1000,
+    window = 50,
+    target_ratio_value = 0.6
+  ),
+
+  exon = list(
+    label = "Canonical Exons",
+    types = c("exon"),
+    transcript_linked = TRUE,
+    derive_introns = FALSE,
+    extend_value = 1000,
+    window = 50,
+    target_ratio_value = 0.6
+  ),
+
+  gene = list(
+    label = "Canonical Transcripts",
+    types = c("gene"),
+    transcript_linked = TRUE,
+    derive_introns = TRUE,
+    extend_value = 1000,
+    window = 50,
+    target_ratio_value = 0.6
+  ),
+
+  five_prime_utr = list(
+    label = "5' UTR",
+    types = c("five_prime_utr"),
+    transcript_linked = TRUE,
+    derive_introns = FALSE,
+    extend_value = 500,
+    window = 25,
+    target_ratio_value = 0.4
+  ),
+
+  three_prime_utr = list(
+    label = "3' UTR",
+    types = c("three_prime_utr"),
+    transcript_linked = TRUE,
+    derive_introns = FALSE,
+    extend_value = 500,
+    window = 25,
+    target_ratio_value = 0.4
+  ),
+
+  start_codon = list(
+    label = "Start Codon",
+    types = c("start_codon"),
+    transcript_linked = TRUE,
+    derive_introns = FALSE,
+    extend_value = 100,
+    window = 3,
+    target_ratio_value = 0.2
+  ),
+
+  stop_codon = list(
+    label = "Stop Codon",
+    types = c("stop_codon"),
+    transcript_linked = TRUE,
+    derive_introns = FALSE,
+    extend_value = 100,
+    window = 3,
+    target_ratio_value = 0.2
+  ),
+
+  transposable_element = list(
+    label = "Transposable Element",
+    types = c("transposable_element", "transposable_element_gene"),
+    transcript_linked = FALSE,
+    derive_introns = FALSE,
+    extend_value = 1000,
+    window = 50,
+    target_ratio_value = 0.6
+  ),
+
+  repeat_region = list(
+    label = "Repeat Region",
+    types = c("repeat_region"),
+    transcript_linked = FALSE,
+    derive_introns = FALSE,
+    extend_value = 1000,
+    window = 50,
+    target_ratio_value = 0.6
+  ),
+
+  enhancer = list(
+    label = "Enhancer",
+    types = c("enhancer"),
+    transcript_linked = FALSE,
+    derive_introns = FALSE,
+    extend_value = 2000,
+    window = 50,
+    target_ratio_value = 0.3
+  ),
+
+  promoter = list(
+    label = "Promoter",
+    types = c("promoter", "promoter_region"),
+    transcript_linked = FALSE,
+    derive_introns = FALSE,
+    extend_value = 2000,
+    window = 50,
+    target_ratio_value = 0.3
+  ),
+
+  tf_binding_site = list(
+    label = "TF Binding Site",
+    types = c("TF_binding_site", "tf_binding_site"),
+    transcript_linked = FALSE,
+    derive_introns = FALSE,
+    extend_value = 500,
+    window = 25,
+    target_ratio_value = 0.3
+  )
+)
+
+feature_modes <- names(feature_specs)
+
+Species_Metadata <- list()
+Species_Features_gtf <- list()
+Species_Canonical_Mappings <- list()
+AllFeatureResults <- list()
+
+# -----------------------------
+# Helper: derive introns from exons
+# -----------------------------
+get_introns_from_exons <- function(full.gtf, canonical_map) {
+
+  canonical_col <- intersect(
+    c("transcriptId", "transcript_id"),
+    names(canonical_map)
+  )[1]
+
+  if (is.na(canonical_col)) {
+    stop("Could not find canonical transcript column in canonical_map.")
+  }
+
+  canonical_ids <- unique(as.character(canonical_map[[canonical_col]]))
+
+  exons <- full.gtf[
+    full.gtf$type == "exon" &
+      as.character(full.gtf$transcript_id) %in% canonical_ids
+  ]
+
+  if (length(exons) == 0) {
+    return(GRanges())
+  }
+
+  exons_by_tx <- split(exons, exons$transcript_id)
+
+  intron_df_list <- lapply(exons_by_tx, function(tx_exons) {
+
+    tx_exons <- sort(tx_exons)
+
+    if (length(tx_exons) < 2) {
+      return(NULL)
+    }
+
+    intron_starts <- end(tx_exons)[-length(tx_exons)] + 1
+    intron_ends <- start(tx_exons)[-1] - 1
+
+    keep <- intron_starts <= intron_ends
+
+    if (!any(keep)) {
+      return(NULL)
+    }
+
+    data.frame(
+      seqnames = as.character(seqnames(tx_exons)[1]),
+      start = as.integer(intron_starts[keep]),
+      end = as.integer(intron_ends[keep]),
+      strand = as.character(strand(tx_exons)[1]),
+      transcript_id = as.character(unique(tx_exons$transcript_id)[1]),
+      stringsAsFactors = FALSE
+    )
+  })
+
+  intron_df_list <- Filter(Negate(is.null), intron_df_list)
+
+  if (length(intron_df_list) == 0) {
+    return(GRanges())
+  }
+
+  intron_df <- bind_rows(intron_df_list)
+
+  introns <- makeGRangesFromDataFrame(
+    intron_df,
+    keep.extra.columns = TRUE,
+    seqnames.field = "seqnames",
+    start.field = "start",
+    end.field = "end",
+    strand.field = "strand",
+    ignore.strand = FALSE
+  )
+
+  GenomicRanges::reduce(introns, ignore.strand = FALSE)
+}
+
+# -----------------------------
+# Helper function
+# -----------------------------
+get_feature_ranges <- function(
+  full.gtf,
+  canonical_map = NULL,
+  feature_mode,
+  feature_spec
+) {
+
+  if (isTRUE(feature_spec$derive_introns)) {
+    return(get_introns_from_exons(full.gtf, canonical_map))
+  }
+
+  gtf_types <- tolower(as.character(full.gtf$type))
+  wanted_types <- tolower(feature_spec$types)
+
+  feat <- full.gtf[gtf_types %in% wanted_types]
+
+  if (isTRUE(feature_spec$transcript_linked)) {
+
+    canonical_col <- intersect(
+      c("transcriptId", "transcript_id"),
+      names(canonical_map)
+    )[1]
+
+    if (!is.na(canonical_col) &&
+        "transcript_id" %in% names(mcols(feat))) {
+
+      canonical_ids <- unique(
+        as.character(canonical_map[[canonical_col]])
+      )
+
+      feat <- feat[
+        as.character(feat$transcript_id) %in% canonical_ids
+      ]
+    }
+  }
+
+  if (length(feat) == 0) {
+    return(GRanges())
+  }
+
+  GenomicRanges::reduce(feat, ignore.strand = TRUE)
+}
+
+# -----------------------------
+# Cache species metadata
+# -----------------------------
+for (element_name in names(Reduced_Variants)) {
+
+  build <- str_split(
+    element_name,
+    "_",
+    simplify = TRUE
+  )[, 5]
+
+  species <- str_split(
+    element_name,
+    "_",
+    simplify = TRUE
+  )[, 4] %>%
+    str_replace("^(.)(.*)$", "\\1_\\2")
+
+  gtf_path <- paste0(
+    "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+    species,
+    "/",
+    build,
+    "/genes.gtf"
+  )
+
+  canonical_path <- paste0(
+    "/home/ocdm0351/DPhil/R_Data/Canonical_Transcripts_",
+    species,
+    "_",
+    build,
+    "_snpEffSift.tsv"
+  )
+
+  full.gtf <- rtracklayer::import(gtf_path)
+
+  canonical_map <- read_tsv(
+    canonical_path,
+    show_col_types = FALSE
+  )
+
+  Species_Metadata[[element_name]] <- list(
+    element = Reduced_Variants[[element_name]],
+    build = build,
+    species = species,
+    full.gtf = full.gtf,
+    canonical_map = canonical_map
+  )
+}
+
+# -----------------------------
+# Main feature loop
+# -----------------------------
+for (feature_mode in feature_modes) {
+
+  message("Running feature mode: ", feature_mode)
+
+  feature_spec <- feature_specs[[feature_mode]]
+
+  feature_label <- feature_spec$label
+
+  extend_value <- feature_spec$extend_value
+  window <- feature_spec$window
+  target_ratio_value <- feature_spec$target_ratio_value
+
+  MutationDensityData <- list()
+
+  for (element_name in names(Species_Metadata)) {
+
+    meta <- Species_Metadata[[element_name]]
+
+    element <- meta$element
+    species <- meta$species
+
+    feature_ranges <- get_feature_ranges(
+      full.gtf = meta$full.gtf,
+      canonical_map = meta$canonical_map,
+      feature_mode = feature_mode,
+      feature_spec = feature_spec
+    )
+
+    if (length(feature_ranges) == 0) {
+      next
+    }
+
+    variant_ranges <- makeGRangesFromDataFrame(
+      element,
+      keep.extra.columns = TRUE,
+      ignore.strand = TRUE,
+      seqnames.field = "CHROM",
+      start.field = "POS",
+      end.field = "POS"
+    )
+
+    variant_ranges <- coverage(variant_ranges)
+    variant_ranges <- as(variant_ranges, "GRanges")
+    variant_ranges <- variant_ranges[variant_ranges$score > 0]
+
+    body_variants <- normalizeToMatrix(
+      variant_ranges,
+      feature_ranges,
+      extend = extend_value,
+      mean_mode = "absolute",
+      w = window,
+      target_ratio = target_ratio_value,
+      smooth = TRUE,
+      background = 0
+    )
+
+    avg <- colMeans(body_variants)
+
+    se <- apply(
+      body_variants,
+      2,
+      function(x) sd(x) / sqrt(length(x))
+    )
+
+    MutationDensities <- data.frame(
+      position = seq_along(avg),
+      mean_score = avg,
+      se = se,
+      species = species,
+      element_name = element_name,
+      feature_mode = feature_mode
+    )
+
+    MutationDensityData[[element_name]] <- MutationDensities
+  }
+
+  if (length(MutationDensityData) == 0) {
+    next
+  }
+
+  MutationDensityData <- MutationDensityData[
+    !grepl("Hsapiens", names(MutationDensityData))
+  ]
+
+  Combined_MutationDensityData <- bind_rows(MutationDensityData)
+
+  Combined_MutationDensityData <-
+    Combined_MutationDensityData %>%
+    group_by(species) %>%
+    mutate(
+      norm_factor = mean(mean_score, na.rm = TRUE),
+      mean_score = mean_score / norm_factor,
+      se = se / norm_factor
+    ) %>%
+    ungroup() %>%
+    select(-norm_factor)
+
+  n_bins <- max(Combined_MutationDensityData$position)
+
+  regionLength <- target_ratio_value * n_bins
+  lengthEachSide <- (n_bins - regionLength) / 2
+
+  start_bin <- lengthEachSide
+  end_bin <- n_bins - lengthEachSide
+
+  # -----------------------------
+  # Combined plot
+  # -----------------------------
+  MultiSpeciesPlot <-
+    ggplot(
+      Combined_MutationDensityData,
+      aes(
+        x = position,
+        y = mean_score,
+        color = species,
+        fill = species
+      )
+    ) +
+    geom_line(linewidth = 1.2) +
+    geom_ribbon(
+      aes(
+        ymin = mean_score - se,
+        ymax = mean_score + se
+      ),
+      alpha = 0.2,
+      colour = NA
+    ) +
+    annotate(
+      "rect",
+      xmin = start_bin,
+      xmax = end_bin,
+      ymin = -Inf,
+      ymax = Inf,
+      alpha = 0.05,
+      fill = "grey"
+    ) +
+    geom_vline(xintercept = start_bin, linetype = "dashed") +
+    geom_vline(xintercept = end_bin, linetype = "dashed") +
+    scale_x_continuous(
+      breaks = c(1, start_bin, end_bin, n_bins),
+      labels = c(
+        paste0("-", extend_value),
+        "Start",
+        "End",
+        paste0("+", extend_value)
+      )
+    ) +
+    labs(
+      x = paste0("Position relative to ", feature_label),
+      y = "Relative Mutation Enrichment",
+      title = paste0(
+        "Mutation Enrichment Around ",
+        feature_label,
+        " (Non-human species)"
+      )
+    ) +
+    theme_minimal()
+
+  out_dir <- file.path(
+    "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots",
+    feature_mode
+  )
+
+  dir.create(
+    out_dir,
+    recursive = TRUE,
+    showWarnings = FALSE
+  )
+
+  ggsave(
+    filename = file.path(
+      out_dir,
+      paste0(
+        "MultiSpecies_",
+        feature_mode,
+        "_Enrichment.png"
+      )
+    ),
+    plot = MultiSpeciesPlot,
+    width = 25,
+    height = 15,
+    units = "cm",
+    dpi = 1000,
+    bg = "transparent"
+  )
+
+  # -----------------------------
+  # Individual species plots
+  # -----------------------------
+  SpeciesPlots <- list()
+
+  for (sp in unique(Combined_MutationDensityData$species)) {
+
+    sp_data <- Combined_MutationDensityData %>%
+      filter(species == sp)
+
+    sp_plot <-
+      ggplot(
+        sp_data,
+        aes(
+          x = position,
+          y = mean_score
+        )
+      ) +
+      geom_line(
+        linewidth = 1.2,
+        color = "#66ff00"
+      ) +
+      geom_ribbon(
+        aes(
+          ymin = mean_score - se,
+          ymax = mean_score + se
+        ),
+        fill = "orange",
+        alpha = 0.7
+      ) +
+      annotate(
+        "rect",
+        xmin = start_bin,
+        xmax = end_bin,
+        ymin = -Inf,
+        ymax = Inf,
+        alpha = 0.05,
+        fill = "grey"
+      ) +
+      geom_vline(
+        xintercept = start_bin,
+        linetype = "dashed"
+      ) +
+      geom_vline(
+        xintercept = end_bin,
+        linetype = "dashed"
+      ) +
+      scale_x_continuous(
+        breaks = c(1, start_bin, end_bin, n_bins),
+        labels = c(
+          paste0("-", extend_value),
+          "Start",
+          "End",
+          paste0("+", extend_value)
+        )
+      ) +
+      labs(
+        x = paste0("Position relative to ", feature_label),
+        y = "Relative Mutation Enrichment",
+        title = paste0(
+          sp,
+          "\nMutation Enrichment Around ",
+          feature_label
+        )
+      ) +
+      theme_minimal() +
+      theme(
+        aspect.ratio = 1
+      )
+
+    SpeciesPlots[[sp]] <- sp_plot
+
+    ggsave(
+      filename = file.path(
+        out_dir,
+        paste0(
+          sp,
+          "_",
+          feature_mode,
+          "_Enrichment.png"
+        )
+      ),
+      plot = sp_plot,
+      width = 15,
+      height = 15,
+      units = "cm",
+      dpi = 1000,
+      bg = "transparent"
+    )
+  }
+
+  AllFeatureResults[[feature_mode]] <- list(
+    combined_data = Combined_MutationDensityData,
+    plot = MultiSpeciesPlot,
+    species_plots = SpeciesPlots
+  )
+}
+```

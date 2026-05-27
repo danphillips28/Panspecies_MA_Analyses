@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=15_Downloading_Celegans_Epigenetics_Covariates_Data
+#SBATCH --job-name=17_Downloading_Dmelanogaster_Epigenetics_Covariates_Data
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
 
@@ -8,7 +8,7 @@
 module load Anaconda3
 source activate UCSC_liftOver
 
-input_file="/home/ocdm0351/DPhil/scripts/Celegans_Epigenetic_Data_Source_File.tsv"
+input_file="/home/ocdm0351/DPhil/scripts/Dmelanogaster_Epigenetic_Data_Source_File.tsv"
 species=$(head -1 "$input_file" | cut -f2 | sed 's/_URL//')
 
 DATA_DIR="/home/ocdm0351/DPhil/R_Data"
@@ -21,23 +21,8 @@ tail -n +2 "$input_file" | while IFS=$'\t' read -r modification url start_build 
     outfile="$DATA_DIR/${species}_${modification}.bedgraph"
     lifted_file="${outfile%.bedgraph}_lifted.bedgraph"
 
-if [[ "$url" == *.bedgraph || "$url" == *.bedGraph ]]; then
-    echo "Downloading plain bedGraph..."
-    wget -q -O "$outfile" "$url"
-
-elif [[ "$url" == *.bedgraph.gz || "$url" == *.bedGraph.gz ]]; then
-    echo "Downloading and decompressing gzipped bedGraph..."
-    tmpfile="${outfile}.gz"
-    wget -q -O "$tmpfile" "$url"
-    gunzip -c "$tmpfile" > "$outfile"
-    rm -f "$tmpfile"
-
-else
-    echo "Downloading bigWig and converting to bedGraph..."
-    wget -q -O "${outfile%.bedgraph}.bigwig" "$url" && \
-    bigWigToBedGraph "${outfile%.bedgraph}.bigwig" "$outfile" && \
-    rm -f "${outfile%.bedgraph}.bigwig"
-fi
+    echo "Downloading and decompressing $outfile..."
+    wget -q -O - "$url" | gunzip -c > "$outfile"
 
     # --- Simple cleanup: remove first line and replace spaces with tabs ---
     echo "Cleaning $outfile (remove header, convert spaces to tabs)..."

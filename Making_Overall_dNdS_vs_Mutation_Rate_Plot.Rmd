@@ -25,24 +25,25 @@ library(seqinr)
 `%ni%` <- Negate(`%in%`)
 ```
 
-
 ```{r Setting Paths}
 R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/"
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
 ```
 
 
 ```{r Loading Data}
-
-# Saving dNdS Mutation Rate Testing Statistics
 load(file = paste0(R_Data,"Species_dNdS_MutationRate_Spearman_Tests"))
 load(file = paste0(R_Data, "Species_dNdS_MutationRate_Pearson_Tests"))
 load(file = paste0(R_Data, "Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly"))
 load(file = paste0(R_Data, "Species_dNdS_MutationRate_Pearson_TestsMutatedOnly"))
 
-# Saving dNdS Mutation Category Association Testing Statistics
 # "T>A | A>T"
 load(file = paste0(R_Data, "Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests")) 
 load(file = paste0(R_Data, "Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests"))
@@ -63,12 +64,21 @@ load(file = paste0(R_Data, "Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests"))
 load(file = paste0(R_Data, "Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests")) 
 
 
-# Saving dNdS Mutation Rate Testing Statistics
+# Loading dNdS Synonymous Mutation Rate Testing Statistics
 load(file = paste0(R_Data, "Species_dNdS_Synonymous_MutationRate_Spearman_Tests"))
 load(file = paste0(R_Data, "Species_dNdS_Synonymous_MutationRate_Pearson_Tests"))
 load(file = paste0(R_Data, "Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly"))
 load(file = paste0(R_Data, "Species_dNdS_Synonymous_MutationRate_Pearson_TestsMutatedOnly"))
 
+# Loading dNdS Intronic Mutation Rate Testing Statistics
+load(file = paste0(R_Data, "Species_dNdS_Intronic_MutationRate_Spearman_Tests"))
+load(file = paste0(R_Data, "Species_dNdS_Intronic_MutationRate_Pearson_Tests"))
+load(file = paste0(R_Data, "Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly"))
+load(file = paste0(R_Data, "Species_dNdS_Intronic_MutationRate_Pearson_TestsMutatedOnly"))
+
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Synonymous_Variants"))
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Intronic_Variants"))
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 ```
 
 ```{r Combined Plot}
@@ -78,6 +88,8 @@ all_tests <- list(
   Mutated = Species_dNdS_MutationRate_Spearman_Tests_MutatedOnly,
   All_Synonymous = Species_dNdS_Synonymous_MutationRate_Spearman_Tests,
   Mutated_Synonymous = Species_dNdS_Synonymous_MutationRate_Spearman_Tests_MutatedOnly,
+  All_Intronic = Species_dNdS_Intronic_MutationRate_Spearman_Tests,
+  Mutated_Intronic = Species_dNdS_Intronic_MutationRate_Spearman_Tests_MutatedOnly,
   TtoA_AtoT = Species_dNdS_TtoA_or_AtoT_Rate_Spearman_Tests,
   CtoG_GtoC = Species_dNdS_CtoG_or_GtoC_Rate_Spearman_Tests,
   CtoT_GtoA = Species_dNdS_CtoT_or_GtoA_Rate_Spearman_Tests,
@@ -103,8 +115,11 @@ df <- map_df(names(all_tests), function(mutation_type) {
 })
 
 
-#df <- subset(df, Species %ni% c("denovoDB_XXXX_Trio_Hsapiens_hg38",
-#                                "Franciolo_2015_Trio_Hsapiens_hg38"))
+df <- subset(df, Species %in% c("Assaf_2017_MA_Dmelanogaster_BDGP6",
+                                "SaxenaKonrad_2019_MA_Celegans_WS235",
+                                "WellerWang_20142026_MA_Ppacificus_Elpaco",
+                                "Behringer_2016_MA_Spombe_ASM294v2",
+                                "Villalbadelapena_2023_MA_Ncrassa_NC12"))
 
 #df$Species <- factor(df$Species, 
 #                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
@@ -120,7 +135,9 @@ df$MutationType <- factor(df$MutationType,
                           levels = c("All",
                                      "Mutated",
                                      "All_Synonymous",
-                                     "Mutated_Synonymous",
+                                   #  "Mutated_Synonymous",
+                                     "All_Intronic",
+                                   #  "Mutated_Intronic",
                                      "TtoA_AtoT",
                                      "TtoG_AtoC",
                                      "TtoC_AtoG",
@@ -128,91 +145,173 @@ df$MutationType <- factor(df$MutationType,
                                      "CtoT_GtoA",
                                      "CtoA_GtoT"))
 
-df$Signif <- df$Pvalue < 0.01
+# Calculate adjusted p Value
+df$adj.p <- p.adjust(df$Pvalue, method = "BH", n = length(df$Pvalue))
+# Determine if test is significant or not
+df <- df %>% mutate(signif = ifelse(adj.p < .05, "Adj. p Value < 0.5", "Adj. p Value > 0.5"))
 
 test <-
-ggplot(df, aes(x = Species, y = Rho, fill = MutationType, group = MutationType)) +
-  geom_col(
-  linewidth = 3,
-  aes(colour = as.character(Pvalue > 0.01),    # TRUE -> white outline, FALSE -> black outline
-      alpha  = Pvalue < 0.01),                  # keep your alpha mapping
-  position = position_dodge2(width = 0.5, preserve = "single"),
-  width = 0.2
-) +
-scale_colour_manual(values = c("TRUE" = "white", "FALSE" = "black"), guide = "none") +
+ggplot(subset(df, MutationType != "Mutated_Synonymous"),
+              aes(y = MutationType, x = Rho, fill = signif, group = MutationType, size = -log10(adj.p))) +
+  #geom_segment( aes(x=0, xend=Rho, y=MutationType, yend=MutationType), color="grey") + 
+  geom_point(linewidth = 1, 
+             position = position_dodge2(width = 0.5, preserve = "single"),
+             width = 0.2,
+             shape = 21,
+             alpha = .8,
+             colour = "black") +
+  scale_fill_manual(values = c("Adj. p Value < 0.5" = "orange", 
+                               "Adj. p Value > 0.5" = "grey"), guide = "none") +
   theme_bw() +
   labs(
-    title = "Spearman Correlations of dN/dS vs Mutation Rates",
-    y = "Spearman Rho [Mutation Rate vs dNdS]",
-    x = "Species"
+    #title = "Spearman Correlations of dN/dS vs Mutation Rates",
+    x = "Spearman Rho [Mutation Rate vs dN\\dS]",
+    y = "Species"
   ) +
   geom_hline(yintercept = 0, color = "black")  +
-   theme_bw() +
-  theme(
-    # Subtle grid
-        panel.grid.major.y     = element_line(colour = "white", linewidth = 0.3),
-        panel.grid.minor.y     = element_line(colour = "white", linewidth = 0.2),
-        panel.grid.major.x     = element_line(colour = "white", linewidth = 0.3),
-        panel.grid.minor.x     = element_line(colour = "white", linewidth = 0.2),
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.title.y = element_text(colour = "white", size = 28, margin = margin(r = 2)),
-    axis.text.x = element_text(size = 3, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 30, color = "white", margin = margin(r = 20)),
-    axis.line.x = element_blank(),
-    legend.title = element_text(size = 70, color = "white", vjust = 0),
-    legend.text = element_text(size = 50, color = "white"),
-    legend.position = "bottom",
-    legend.direction = "horizontal",
-    legend.background = element_blank(),
-    legend.key.width = unit(2, "cm"),
-    legend.key.spacing = unit(1, "cm"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    #strip.text = element_blank(),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    panel.border = element_blank(),
-    panel.spacing = unit(4, "lines"),
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
-  scale_y_continuous(n.breaks = 20) +
-  scale_x_discrete(expand = expansion(mult = 0.12)) +
-  scale_fill_manual(values = c("black",
-                               "grey",
-                               "#333333",
-                               "#eeeeee",
-                               "#B21801",
-                               "red",
-                               "#ff5800",
-                               "#FFB703",
-                               "#c8ff00",
-                               "#66ff00",
-                               "#008000")) +
-  scale_colour_manual(values = c("black",
-                               "grey",
-                               "#333333",
-                               "#eeeeee",
-                               "#B21801",
-                               "red",
-                               "#ff5800",
-                               "#FFB703",
-                               "#c8ff00",
-                               "#66ff00",
-                               "#008000")) +
+  scale_x_continuous(n.breaks = 20) +
+  scale_y_discrete(expand = expansion(mult = 0.12)) +
   guides(colour = "none",
          fill = guide_legend(title.position = "top"),
          alpha = guide_legend(title.position = "top")) +
-  facet_grid(~Species, scales = "free_x", space = "free")
+  geom_vline(xintercept = 0, linetype = 2) +
+  #facet_grid(rows = vars(Species), scales = "free_y", ncol = 1) +
+  facet_wrap(~ Species, ncol = 1) +
+  theme(
+    legend.margin=margin(0, 0, -10, 0),
+    legend.position = "top",
+    legend.box = "vertical",
+    legend.title.position = "left",
+    legend.key.width = unit(0.4, "cm"),
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.text = element_text(size = BASE_SIZE-4),
+    legend.title = element_text(size = BASE_SIZE-3),
+    axis.text.x = element_text(size = BASE_SIZE-5),
+    axis.text.y = element_text(size = BASE_SIZE-2),
+    axis.title = element_text(size = BASE_SIZE-2),
+    axis.title.y = element_blank(),
+    strip.text = element_text(size = BASE_SIZE-2)) +
+  guides(
+  fill = guide_legend(title.position = "left", direction = "horizontal"),
+  size = guide_legend(title.position = "left", direction = "horizontal", override.aes = list(fill = "orange")))
 
 # Save the plot — change width/height as needed
       ggsave(plot = test,
       filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                        "Species_Mutation_Category_vs_dNdS_Plot.png"),
       create.dir = TRUE,
-      width = 40,
-      height = 15,
-      dpi = 800,
+      width = 3.75,
+      height = 9,
+      dpi = 2500,
       device = ragg::agg_png)
 
+```
+
+```{r Merging Synonymous with Non-Synonymous Data}
+library(dplyr)
+# ============================================================
+# SYNONYMOUS
+# ============================================================
+
+# Reduce to unique GENE_ID + mutation rate combinations
+# THEN rename the mutation rate column
+Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants,
+  function(df) {
+
+    df %>%
+      dplyr::select(
+        GENE_ID,
+        UniqueVariantsPlusOnePerBP
+      ) %>%
+      dplyr::distinct(
+        GENE_ID,
+        UniqueVariantsPlusOnePerBP,
+        .keep_all = TRUE
+      ) %>%
+      dplyr::rename(
+        UniqueSynonymousVariantsPlusOnePerBP =
+          UniqueVariantsPlusOnePerBP
+      )
+
+  }
+)
+
+cols_to_remove <- c(
+  "UniqueSynonymousVariantsPlusOnePerBP.x",
+  "UniqueIntronicVariantsPlusOnePerBP.x",
+  "UniqueSynonymousVariantsPlusOnePerBP.y",
+  "UniqueIntronicVariantsPlusOnePerBP.y"
+)
+
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+    df[, !(names(df) %in% cols_to_remove), drop = FALSE]
+  }
+)
+
+# Merge synonymous rates into main object
+Annotated_VCFs_PC_Gene_Body_Variants <- Map(
+  function(variants_df, syn_df) {
+
+    dplyr::left_join(
+      variants_df,
+      syn_df,
+      by = "GENE_ID"
+    )
+
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants
+)
+
+
+# ============================================================
+# INTRONIC
+# ============================================================
+
+# Reduce to unique GENE_ID + mutation rate combinations
+# THEN rename the mutation rate column
+Annotated_VCFs_PC_Gene_Body_Intronic_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
+  function(df) {
+
+    df %>%
+      dplyr::select(
+        GENE_ID,
+        UniqueVariantsPlusOnePerBP
+      ) %>%
+      dplyr::distinct(
+        GENE_ID,
+        UniqueVariantsPlusOnePerBP,
+        .keep_all = TRUE
+      ) %>%
+      dplyr::rename(
+        UniqueIntronicVariantsPlusOnePerBP =
+          UniqueVariantsPlusOnePerBP
+      )
+
+  }
+)
+
+# Merge intronic rates into main object
+Annotated_VCFs_PC_Gene_Body_Variants <- Map(
+  function(variants_df, int_df) {
+
+    dplyr::left_join(
+      variants_df,
+      int_df,
+      by = "GENE_ID"
+    )
+
+  },
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants
+)
+
+```
+
+```{r Saving}
+save(Annotated_VCFs_PC_Gene_Body_Variants, file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 ```

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 
-#SBATCH --job-name=15_Downloading_C_elegans_TimeSeries_Expression2
+#SBATCH --job-name=17_Downloading_C_elegans_TimeSeries_Expression2
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
 

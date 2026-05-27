@@ -39,6 +39,9 @@ delta_phrase <- "in Ppa relative to Cel"
 ```{r Loading Data}
 load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 load(file = paste0(R_Data, "CelegansPpacificus_dNdS_Table"))
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
 ```
 
 ```{r Wrangle Orthologs}
@@ -56,7 +59,7 @@ colnames(Orthologs) <- c("Celegans_orthologR", "Ppacificus_orthologR")
 ```{r Setup Features to Test}
 # Convert to data.table so `with = FALSE` works
 ce_tbl <- Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235
-pp_tbl <- Annotated_VCFs_PC_Gene_Body_Variants$Wang_2026_MA_Ppacificus_Elpaco
+pp_tbl <- Annotated_VCFs_PC_Gene_Body_Variants$WellerWang_20142026_MA_Ppacificus_Elpaco
 setDT(ce_tbl)
 setDT(pp_tbl)
 
@@ -274,26 +277,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       alpha = 0.9
     ) +
     geom_smooth(method = "loess", color = "purple", fill = "orange") +
-    theme_bw() +
-    theme(
-      panel.background = element_rect(fill = "white", colour = NA),
-      plot.background = element_rect(fill = "transparent", colour = NA),
-      legend.position = "none",
-      legend.background = element_rect(fill = "transparent", colour = NA),
-      legend.box.background = element_rect(fill = "transparent", colour = NA),
-      panel.grid.major = element_line(color = "black", size = 0.2),
-      panel.grid.minor = element_line(color = "black", size = 0.1),
-      plot.title = element_text(size = 12, colour = "white", hjust = .5),
-      text = element_text(color = "white"),
-      axis.title = element_text(color = "white"),
-      axis.text = element_text(color = "white"),
-      legend.title = element_text(color = "white"),
-      legend.text = element_text(color = "white"),
-      plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-      plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-      strip.text = element_text(color = "white"),
-      plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-    ) +
+    
     scale_x_continuous(n.breaks = 10) +
     scale_y_continuous(n.breaks = 10) +
     labs(
@@ -369,26 +353,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       geom_violin() +
       geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
       geom_hline(yintercept = 0, linetype = "dashed") +
-      theme_bw() +
-      theme(
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.position = "none",
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", size = 0.2),
-        panel.grid.minor = element_line(color = "black", size = 0.1),
-        plot.title = element_text(size = 12, colour = "white", hjust = .5),
-        text = element_text(color = "white"),
-        axis.title = element_text(color = "white"),
-        axis.text = element_text(color = "white"),
-        legend.title = element_text(color = "white"),
-        legend.text = element_text(color = "white"),
-        plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "white"),
-        plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_color_manual(values = c("orange", "purple")) +
       scale_fill_manual(values = c(alpha("orange", alpha = .4),
@@ -446,25 +411,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           round(jt$p.value, 3)
         )
       ) +
-      theme_bw(base_size = 10) +
-      theme(
-        plot.title = element_text(size = 5, colour = "black", hjust = .5),
-        text = element_text(color = "black"),
-        axis.title = element_text(color = "black"),
-        axis.text.x = element_text(size = 5, color = "black", vjust = .6, angle = 20),
-        axis.text.y = element_text(size = 6, color = "black"),
-        legend.title = element_text(color = "black"),
-        legend.text = element_text(color = "black"),
-        plot.subtitle = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "black"),
-        panel.background = element_rect(fill = "transparent", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", linewidth = 0.2),
-        panel.grid.minor = element_line(color = "black", linewidth = 0.1)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_fill_manual(values = colorRampPalette(
         c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
@@ -535,27 +482,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         )) +
         geom_boxplot(width = 0.5, outlier.shape = NA, alpha = .7) +
         geom_hline(yintercept = 0, linetype = "dashed") +
-        theme_bw() +
-        theme(
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.position = "none",
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          panel.grid.major.y = element_line(color = "black", size = 0.2),
-          panel.grid.minor.y = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 12, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-          plot.margin = margin(t = 10, r = 10, b = 10, l = 40),
-          axis.text.x = element_text(angle = 45, hjust = 1)
-        ) +
+        
         scale_y_continuous(n.breaks = 10) +
         discrete_scale("colour", "custom_colour", palette = pal_fun) +
         scale_fill_manual(values = cols) +
@@ -591,27 +518,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         )) +
         geom_boxplot(width = 0.5, outlier.shape = NA, alpha = .7) +
         geom_hline(yintercept = 0, linetype = "dashed") +
-        theme_bw() +
-        theme(
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.position = "none",
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          panel.grid.major.y = element_line(color = "black", size = 0.2),
-          panel.grid.minor.y = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 12, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-          plot.margin = margin(t = 10, r = 10, b = 10, l = 40),
-          axis.text.x = element_text(angle = 45, hjust = 1)
-        ) +
+        
         scale_y_continuous(n.breaks = 10) +
         discrete_scale("fill", "custom_fill", palette = pal_fun) +
         discrete_scale("colour", "custom_colour", palette = pal_fun) +
@@ -650,26 +557,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
            geom_violin() +
       geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
       geom_hline(yintercept = 0, linetype = "dashed") +
-      theme_bw() +
-      theme(
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.position = "none",
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", size = 0.2),
-        panel.grid.minor = element_line(color = "black", size = 0.1),
-        plot.title = element_text(size = 12, colour = "white", hjust = .5),
-        text = element_text(color = "white"),
-        axis.title = element_text(color = "white"),
-        axis.text = element_text(color = "white"),
-        legend.title = element_text(color = "white"),
-        legend.text = element_text(color = "white"),
-        plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "white"),
-        plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_color_manual(values = c("orange", "purple")) +
       scale_fill_manual(values = c(alpha("orange", alpha = .4),
@@ -716,26 +604,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           geom_violin() +
       geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
       geom_hline(yintercept = 0, linetype = "dashed") +
-      theme_bw() +
-      theme(
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.position = "none",
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", size = 0.2),
-        panel.grid.minor = element_line(color = "black", size = 0.1),
-        plot.title = element_text(size = 12, colour = "white", hjust = .5),
-        text = element_text(color = "white"),
-        axis.title = element_text(color = "white"),
-        axis.text = element_text(color = "white"),
-        legend.title = element_text(color = "white"),
-        legend.text = element_text(color = "white"),
-        plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "white"),
-        plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_color_manual(values = c("orange", "purple")) +
       scale_fill_manual(values = c(alpha("orange", alpha = .4),
@@ -782,26 +651,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
            geom_violin() +
       geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
       geom_hline(yintercept = 0, linetype = "dashed") +
-      theme_bw() +
-      theme(
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.position = "none",
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", size = 0.2),
-        panel.grid.minor = element_line(color = "black", size = 0.1),
-        plot.title = element_text(size = 12, colour = "white", hjust = .5),
-        text = element_text(color = "white"),
-        axis.title = element_text(color = "white"),
-        axis.text = element_text(color = "white"),
-        legend.title = element_text(color = "white"),
-        legend.text = element_text(color = "white"),
-        plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "white"),
-        plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_color_manual(values = c("orange", "purple")) +
       scale_fill_manual(values = c(alpha("orange", alpha = .4),
@@ -856,7 +706,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           alpha = 0.2,
           colour = NA
         ) +
-        theme_bw(base_size = 10) +
+        
         labs(
           x = paste0("Expression group change (", delta_phrase, ")"),
           y = paste0("Mean delta mutation percentile (", delta_phrase, ")"),
@@ -1092,26 +942,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       alpha = 0.9
     ) +
     geom_smooth(method = "loess", color = "purple", fill = "orange") +
-    theme_bw() +
-    theme(
-      panel.background = element_rect(fill = "white", colour = NA),
-      plot.background = element_rect(fill = "transparent", colour = NA),
-      legend.position = "none",
-      legend.background = element_rect(fill = "transparent", colour = NA),
-      legend.box.background = element_rect(fill = "transparent", colour = NA),
-      panel.grid.major = element_line(color = "black", size = 0.2),
-      panel.grid.minor = element_line(color = "black", size = 0.1),
-      plot.title = element_text(size = 12, colour = "white", hjust = .5),
-      text = element_text(color = "white"),
-      axis.title = element_text(color = "white"),
-      axis.text = element_text(color = "white"),
-      legend.title = element_text(color = "white"),
-      legend.text = element_text(color = "white"),
-      plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-      plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-      strip.text = element_text(color = "white"),
-      plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-    ) +
+    
     scale_x_continuous(n.breaks = 10) +
     scale_y_continuous(n.breaks = 10) +
     labs(
@@ -1156,7 +987,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       geom_point(size = 3) +
       geom_line() +
       geom_hline(yintercept = 0, linetype = "dashed") +
-      theme_minimal() +
+      
       labs(
         x = paste0("Binned delta ", feature_name, " percentile (", delta_phrase, ")"),
         y = paste0("Mean delta mutation percentile (", delta_phrase, ")"),
@@ -1188,25 +1019,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
       geom_hline(yintercept = 0, linetype = "dashed") +
       theme_bw() +
-      theme(
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.position = "none",
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", size = 0.2),
-        panel.grid.minor = element_line(color = "black", size = 0.1),
-        plot.title = element_text(size = 12, colour = "white", hjust = .5),
-        text = element_text(color = "white"),
-        axis.title = element_text(color = "white"),
-        axis.text = element_text(color = "white"),
-        legend.title = element_text(color = "white"),
-        legend.text = element_text(color = "white"),
-        plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "white"),
-        plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_color_manual(values = c("orange", "purple")) +
       scale_fill_manual(values = c(alpha("orange", alpha = .4),
@@ -1264,25 +1077,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           round(jt$p.value, 3)
         )
       ) +
-      theme_bw(base_size = 10) +
-      theme(
-        plot.title = element_text(size = 5, colour = "black", hjust = .5),
-        text = element_text(color = "black"),
-        axis.title = element_text(color = "black"),
-        axis.text.x = element_text(size = 5, color = "black", vjust = .6, angle = 20),
-        axis.text.y = element_text(size = 6, color = "black"),
-        legend.title = element_text(color = "black"),
-        legend.text = element_text(color = "black"),
-        plot.subtitle = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-        plot.caption = element_text(size = 6, color = "black", hjust = .5, face = "italic"),
-        strip.text = element_text(color = "black"),
-        panel.background = element_rect(fill = "transparent", colour = NA),
-        plot.background = element_rect(fill = "transparent", colour = NA),
-        legend.background = element_rect(fill = "transparent", colour = NA),
-        legend.box.background = element_rect(fill = "transparent", colour = NA),
-        panel.grid.major = element_line(color = "black", linewidth = 0.2),
-        panel.grid.minor = element_line(color = "black", linewidth = 0.1)
-      ) +
+      
       scale_y_continuous(n.breaks = 10) +
       scale_fill_manual(values = colorRampPalette(
         c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
@@ -1350,27 +1145,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         )) +
         geom_boxplot(width = 0.5, outlier.shape = NA, alpha = .7) +
         geom_hline(yintercept = 0, linetype = "dashed") +
-        theme_bw() +
-        theme(
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.position = "none",
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          panel.grid.major.y = element_line(color = "black", size = 0.2),
-          panel.grid.minor.y = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 12, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-          plot.margin = margin(t = 10, r = 10, b = 10, l = 40),
-          axis.text.x = element_text(angle = 45, hjust = 1)
-        ) +
+        
         scale_y_continuous(n.breaks = 10) +
         discrete_scale("colour", "custom_colour", palette = pal_fun) +
         scale_fill_manual(values = cols) +
@@ -1406,27 +1181,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         )) +
         geom_boxplot(width = 0.5, outlier.shape = NA, alpha = .7) +
         geom_hline(yintercept = 0, linetype = "dashed") +
-        theme_bw() +
-        theme(
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.position = "none",
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          panel.grid.major.y = element_line(color = "black", size = 0.2),
-          panel.grid.minor.y = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 12, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-          plot.margin = margin(t = 10, r = 10, b = 10, l = 40),
-          axis.text.x = element_text(angle = 45, hjust = 1)
-        ) +
+        
         scale_y_continuous(n.breaks = 10) +
         discrete_scale("fill", "custom_fill", palette = pal_fun) +
         discrete_scale("colour", "custom_colour", palette = pal_fun) +
@@ -1471,27 +1226,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           geom_violin() +
           geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7) +
           geom_hline(yintercept = 0, linetype = "dashed") +
-          theme_bw() +
-          theme(
-            panel.background = element_rect(fill = "white", colour = NA),
-            plot.background = element_rect(fill = "transparent", colour = NA),
-            legend.position = "none",
-            legend.background = element_rect(fill = "transparent", colour = NA),
-            legend.box.background = element_rect(fill = "transparent", colour = NA),
-            panel.grid.major.y = element_line(color = "black", size = 0.2),
-            panel.grid.minor.y = element_line(color = "black", size = 0.1),
-            plot.title = element_text(size = 12, colour = "white", hjust = .5),
-            text = element_text(color = "white"),
-            axis.title = element_text(color = "white"),
-            axis.text = element_text(color = "white"),
-            legend.title = element_text(color = "white"),
-            legend.text = element_text(color = "white"),
-            plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-            plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-            strip.text = element_text(color = "white"),
-            plot.margin = margin(t = 10, r = 10, b = 10, l = 40),
-            axis.text.x = element_text(angle = 45, hjust = 1)
-          ) +
+          
           scale_y_continuous(n.breaks = 10) +
           scale_fill_manual(values = c("orange", "purple")) +
           scale_colour_manual(values = c("orange", "purple")) +
@@ -1537,27 +1272,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           geom_violin() +
           geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7) +
           geom_hline(yintercept = 0, linetype = "dashed") +
-          theme_bw() +
-          theme(
-            panel.background = element_rect(fill = "white", colour = NA),
-            plot.background = element_rect(fill = "transparent", colour = NA),
-            legend.position = "none",
-            legend.background = element_rect(fill = "transparent", colour = NA),
-            legend.box.background = element_rect(fill = "transparent", colour = NA),
-            panel.grid.major.y = element_line(color = "black", size = 0.2),
-            panel.grid.minor.y = element_line(color = "black", size = 0.1),
-            plot.title = element_text(size = 12, colour = "white", hjust = .5),
-            text = element_text(color = "white"),
-            axis.title = element_text(color = "white"),
-            axis.text = element_text(color = "white"),
-            legend.title = element_text(color = "white"),
-            legend.text = element_text(color = "white"),
-            plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-            plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-            strip.text = element_text(color = "white"),
-            plot.margin = margin(t = 10, r = 10, b = 10, l = 40),
-            axis.text.x = element_text(angle = 45, hjust = 1)
-          ) +
+          
           scale_y_continuous(n.breaks = 10) +
           scale_fill_manual(values = c("orange", "purple")) +
           scale_colour_manual(values = c("orange", "purple")) +
@@ -1612,7 +1327,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
             alpha = 0.2,
             colour = NA
           ) +
-          theme_bw(base_size = 10) +
+          
           labs(
             x = paste0("Expression group change (", delta_phrase, ")"),
             y = paste0("Mean delta mutation percentile (", delta_phrase, ")"),
@@ -1926,24 +1641,7 @@ lasso_plot <-
     x = "Feature (ordered by Spearman)",
     y = "Normalised coefficient (within test)"
   ) +
-  theme_minimal(base_size = 13) +
-  theme(
-    plot.title = element_text(size = 10, face = "bold", colour = "white", hjust = .5),
-    plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 5, color = "white"),
-    axis.text.y = element_text(size = 8, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    strip.text = element_text(color = "white"),
-    legend.position = "top",
-    panel.background = element_rect(fill = "white", color = "black"),
-    plot.background = element_rect(fill = NA, color = NA),
-    legend.background = element_rect(fill = NA, color = NA),
-    panel.grid.major = element_line(colour = "black", size = .3)
-  ) +
+  
   scale_y_continuous(n.breaks = 10)
 
 lasso_plot
@@ -2274,15 +1972,7 @@ full_spearmanBarPlot <-
     values = scales::rescale(c(1, 2, 5, 20)),
     name = expression(-log[10](p))
   ) +
-  theme_minimal(base_size = 11) +
-  theme(
-    panel.background = element_rect(fill = "transparent", colour = NA),
-    plot.background = element_rect(fill = "transparent", colour = NA),
-    legend.background = element_rect(fill = "transparent", colour = NA),
-    legend.box.background = element_rect(fill = "transparent", colour = NA),
-    panel.grid.major.y = element_blank(),
-    axis.title.y = element_blank()
-  ) +
+  
   labs(
     x = NULL,
     y = "Spearman coefficient",

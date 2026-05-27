@@ -28,7 +28,7 @@ Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # F
 ```
 
 ```{r Loading Data}
-load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 ```
 
 ```{r GO_GSEA_MutationRate_Celegans_Dmel}

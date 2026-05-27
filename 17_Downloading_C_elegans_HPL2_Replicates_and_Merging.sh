@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+#SBATCH --job-name=17_Downloading_C_elegans_HPL2_Replicates_and_Merging
+#SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
+#SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
+
 module load deepTools/3.5.2-foss-2022a
 module load Anaconda3
 source activate UCSC_liftOver

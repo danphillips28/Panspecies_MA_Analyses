@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=19_CalculatingCelegansPpacificus_DNDS_Submitter
+#SBATCH --job-name=21_CalculatingCelegansPpacificus_DNDS_Submitter
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out   # Standard output (%x = job name, %j = job ID)
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err    # Standard error
 

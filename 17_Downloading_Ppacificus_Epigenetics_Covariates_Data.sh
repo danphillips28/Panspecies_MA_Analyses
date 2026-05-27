@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --job-name=15_Downloading_Ppacificus_Epigenetics_Covariates_Data
+#SBATCH --job-name=17_Downloading_Ppacificus_Epigenetics_Covariates_Data
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
 
@@ -10,7 +10,7 @@ module load all/BEDTools/2.31.0-GCC-12.3.0
 set -euo pipefail
 IFS=$'\n\t'   # keep newline+tab for most parsing
 
-TSV="Ppacificus_Epigenetic_Data_Source_File.tsv"
+TSV="/home/ocdm0351/DPhil/scripts/Ppacificus_Epigenetic_Data_Source_File.tsv"
 OUTDIR="/home/ocdm0351/DPhil/R_Data"
 BIN_SIZE=25
 THREADS=4

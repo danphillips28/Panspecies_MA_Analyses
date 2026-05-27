@@ -23,6 +23,9 @@ library(scales)
 
 ```{r Loading Annotated VCF List}
 load(file = "/home/ocdm0351/DPhil/R_Data/Annotated_VCFs_Raw")
+source("/home/ocdm0351/DPhil/R_Data/plotting.themes.R")
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
 ```
 
 ```{r Reduced to Unique Variants}
@@ -33,279 +36,226 @@ Reduced_Variants <- lapply(
 ```
 
 ```{r Enriched Heatmap}
-feature_mode <- "cds"  # use "exon" if you want all exons including UTRs
+# ---- Libraries ----
+library(tidyverse)
+library(GenomicRanges)
+library(rtracklayer)
+library(EnrichedHeatmap)
+library(ComplexHeatmap)
 
+# ---- Settings ----
+feature_mode <- "cds"  # or "exon" or "intron"
+
+feature_label <- if (feature_mode == "cds") {
+  "Canonical CDS"
+} else {
+  "Canonical Exons"
+}
+
+# ---- Setup lists ----
 Species_Features_gtf <- list()
 Species_Canonical_Mappings <- list()
 MutationDensityPlots <- list()
+MutationDensityData <- list()
 
+# ---- Helper ----
 get_feature_ranges <- function(full.gtf, canonical_map, feature_mode = c("cds", "exon")) {
   feature_mode <- match.arg(feature_mode)
   canonical_ids <- canonical_map$transcriptId
 
   if (feature_mode == "cds") {
-    feat <- full.gtf %>%
-      subset(type == "CDS" & transcript_id %in% canonical_ids)
+    feat <- full.gtf[full.gtf$type == "CDS" &
+                     full.gtf$transcript_id %in% canonical_ids]
   } else {
-    feat <- full.gtf %>%
-      subset(type == "exon" & transcript_id %in% canonical_ids)
+    feat <- full.gtf[full.gtf$type == "exon" &
+                     full.gtf$transcript_id %in% canonical_ids]
   }
 
-  feat <- reduce(feat, ignore.strand = TRUE)
-  feat
+  # ✅ IMPORTANT FIX: use GenomicRanges::reduce
+  GenomicRanges::reduce(feat, ignore.strand = TRUE)
 }
 
+# ---- Main loop ----
 lapply(names(Reduced_Variants), function(element_name) {
 
   element <- Reduced_Variants[[element_name]]
 
   build <- str_split(element_name, "_", simplify = TRUE)[, 5]
   species <- str_split(element_name, "_", simplify = TRUE)[, 4] %>%
-    str_replace(., "^(.)(.*)$", "\\1_\\2")
+    str_replace("^(.)(.*)$", "\\1_\\2")
 
   full.gtf <- rtracklayer::import(
-    paste0(
-      "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
-      species, "/", build, "/", "genes.gtf"
-    )
+    paste0("/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/",
+           species, "/", build, "/genes.gtf")
   )
 
   Species_Canonical_Mappings[[element_name]] <<- read_tsv(
-    file = paste0(
-      "/home/ocdm0351/DPhil/R_Data/Canonical_Transcripts_",
-      species, "_", build, "_snpEffSift.tsv"
-    )
+    paste0("/home/ocdm0351/DPhil/R_Data/Canonical_Transcripts_",
+           species, "_", build, "_snpEffSift.tsv")
   )
 
   feature_ranges <- get_feature_ranges(
-    full.gtf = full.gtf,
-    canonical_map = Species_Canonical_Mappings[[element_name]],
-    feature_mode = feature_mode
+    full.gtf,
+    Species_Canonical_Mappings[[element_name]],
+    feature_mode
   )
 
   Species_Features_gtf[[element_name]] <<- feature_ranges
 
+  # ---- Variants ----
   variant_ranges <- makeGRangesFromDataFrame(
     element,
     keep.extra.columns = TRUE,
     ignore.strand = TRUE,
-    seqnames.field = c("CHROM"),
-    na.rm = TRUE,
+    seqnames.field = "CHROM",
     start.field = "POS",
-    end.field = "POS",
-    strand.field = "strand",
-    starts.in.df.are.0based = FALSE
+    end.field = "POS"
   )
 
   variant_ranges <- coverage(variant_ranges)
   variant_ranges <- as(variant_ranges, "GRanges")
   variant_ranges <- variant_ranges[variant_ranges$score > 0]
 
-  Parameters <- data.frame(
-    mean_mode_type = c("absolute"),
-    extend_value = c(1000),
-    window = c(50),
-    target_ratio_value = c(0.6)
+  # ---- Parameters ----
+  mean_mode_type <- "absolute"
+  extend_value <- 1000
+  window <- 50
+  target_ratio_value <- 0.6
+
+  # ---- Normalize ----
+  body_variants <- normalizeToMatrix(
+    variant_ranges,
+    feature_ranges,
+    extend = extend_value,
+    mean_mode = mean_mode_type,
+    w = window,
+    target_ratio = target_ratio_value,
+    smooth = TRUE,
+    background = 0
   )
 
-  for (row in 1:nrow(Parameters)) {
-    mean_mode_type <- Parameters[row, "mean_mode_type"]
-    extend_value <- Parameters[row, "extend_value"]
-    window <- Parameters[row, "window"]
-    target_ratio_value <- Parameters[row, "target_ratio_value"]
+  # ---- Summarise ----
+  avg <- colMeans(body_variants)
+  se <- apply(body_variants, 2, function(x) sd(x) / sqrt(length(x)))
 
-    feature_label <- if (feature_mode == "cds") {
-      "Canonical CDS"
-    } else {
-      "Canonical Exons"
-    }
+  MutationDensities <- data.frame(
+    position = seq_along(avg),
+    mean_score = avg,
+    se = se,
+    species = species,
+    element_name = element_name
+  )
 
-    body_variants <- normalizeToMatrix(
-      variant_ranges,
-      feature_ranges,
-      extend = extend_value,
-      mean_mode = mean_mode_type,
-      w = window,
-      target_ratio = target_ratio_value,
-      smooth = FALSE,
-      background = 0
+  MutationDensityData[[element_name]] <<- MutationDensities
+
+  # ---- Individual plot ----
+  regionLength <- round(target_ratio_value * length(avg))
+  lengthEachSide <- (length(avg) - regionLength) / 2
+  start <- lengthEachSide
+  end <- length(avg) - lengthEachSide
+
+  MutationDensityPlot <-
+    ggplot(MutationDensities, aes(x = position, y = mean_score)) +
+    geom_line(color = "#66ff00", linewidth = 1.2) +
+    geom_ribbon(
+      aes(ymin = mean_score - se, ymax = mean_score + se),
+      fill = "orange", alpha = 0.7
+    ) +
+    geom_vline(xintercept = start, linetype = "dotted") +
+    geom_vline(xintercept = end, linetype = "dotted") +
+    labs(
+      x = "Windows",
+      y = "Mutation Density",
+      title = paste(element_name, "\nMutational Frequency Around", feature_label)
     )
 
-    avg <- colMeans(body_variants)
-    se <- apply(body_variants, 2, function(x) sd(x) / sqrt(length(x)))
-
-    regionLength <- round(target_ratio_value * length(avg))
-    lengthEachSide <- (length(avg) - regionLength) / 2
-    start <- lengthEachSide
-    end <- length(avg) - lengthEachSide
-
-    MutationDensities <- data.frame(
-      position = seq_along(avg),
-      mean_score = avg,
-      se = se
-    )
-
-    MutationDensityPlot <-
-      ggplot(MutationDensities, aes(x = position, y = mean_score)) +
-      geom_line(color = "#66ff00", linewidth = 1.2) +
-      geom_ribbon(
-        aes(ymin = mean_score - se, ymax = mean_score + se),
-        fill = "orange",
-        alpha = 0.7
-      ) +
-      geom_vline(xintercept = start, linetype = "dotted") +
-      geom_vline(xintercept = end, linetype = "dotted") +
-      labs(
-        x = "Windows",
-        y = "Mutation Density",
-        title = paste(
-          "Mutational Frequency Around", feature_label,
-          "\nWindow Size =", window,
-          "Mean Mode =", mean_mode_type,
-          "Extended =", extend_value
-        )
-      ) +
-      theme(
-        panel.background = element_rect(fill = NA, color = "white"),
-        plot.background = element_rect(fill = NA, color = NA),
-        panel.grid.major.x = element_line(color = "grey70", linewidth = 0.4),
-        panel.grid.minor.x = element_line(color = "grey85", linewidth = 0.3),
-        panel.grid.major.y = element_line(color = "grey70", linewidth = 0.4),
-        panel.grid.minor.y = element_line(color = "grey85", linewidth = 0.3),
-        axis.line = element_line(color = "white"),
-        axis.ticks = element_line(color = "white"),
-        axis.text = element_text(color = "white", size = 16),
-        axis.title = element_text(color = "white", size = 20, face = "bold"),
-        plot.title = element_text(size = 11, hjust = 0.5, color = "white")
-      ) +
-      scale_x_continuous(
-        labels = scales::comma,
-        minor_breaks = pretty(MutationDensities$position, n = 20)
-      )
-
-    out_dir <- paste0(
-      "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/",
-      feature_mode, "/", mean_mode_type
-    )
-
-    ggsave(
-      filename = paste0(
-        out_dir, "/",
-        feature_mode, "_", element_name, "_", window, "_Peaks.png"
-      ),
-      plot = MutationDensityPlot,
-      bg = "transparent",
-      type = "cairo",
-      units = "cm",
-      height = 15,
-      width = 25,
-      create.dir = TRUE,
-      dpi = 2000
-    )
-
-    MutationDensityPlots[[element_name]] <<- MutationDensityPlot
-  }
+  MutationDensityPlots[[element_name]] <<- MutationDensityPlot
 })
-```
 
-```{r Combined Plots 1}
-Combined_MutationDensityPlots1 <- wrap_plots(
-  MutationDensityPlots[
-    c(
-      "Assaf_2017_MA_Dmelanogaster_BDGP6",
-      "SaxenaKonrad_2019_MA_Celegans_WS235",
-      "Behringer_2016_MA_Spombe_ASM294v2",
-      "Villalbadelapena_2023_MA_Ncrassa_NC12",
-      "denovoDB_XXXX_Trio_Hsapiens_hg38"
-    )
-  ],
-  ncol = 1
-) &
-  theme(
-    plot.background = element_rect(fill = "transparent", colour = NA),
-    panel.background = element_rect(fill = "#eeeeee", colour = NA),
-    legend.background = element_rect(fill = "transparent", colour = NA),
-    legend.box.background = element_rect(fill = "transparent", colour = NA)
-  )
+# ---- REMOVE human datasets ----
+MutationDensityData <- MutationDensityData[
+  !grepl("Hsapiens", names(MutationDensityData))
+]
 
+# ---- Combine ----
+Combined_MutationDensityData <- bind_rows(MutationDensityData)
+
+# ---- Normalize within species ----
+Combined_MutationDensityData <- Combined_MutationDensityData %>%
+  group_by(species) %>%
+  mutate(mean_score = mean_score / mean(mean_score)) %>%
+  ungroup()
+
+# ---- Define boundaries ----
+target_ratio_value <- 0.6
+extend_value <- 1000
+
+n_bins <- max(Combined_MutationDensityData$position)
+
+regionLength <- target_ratio_value * n_bins
+lengthEachSide <- (n_bins - regionLength) / 2
+
+start_bin <- lengthEachSide
+end_bin <- n_bins - lengthEachSide
+
+# ---- Combined plot ----
+MultiSpeciesPlot <-
+  ggplot(Combined_MutationDensityData,
+         aes(x = position,
+             y = mean_score,
+             color = species,
+             fill = species)) +
+
+  geom_line(linewidth = 1.2) +
+
+  geom_ribbon(
+    aes(ymin = mean_score - se, ymax = mean_score + se),
+    alpha = 0.2,
+    colour = NA
+  ) +
+
+  annotate("rect",
+           xmin = start_bin, xmax = end_bin,
+           ymin = -Inf, ymax = Inf,
+           alpha = 0.05, fill = "grey") +
+
+  geom_vline(xintercept = start_bin, linetype = "dashed") +
+  geom_vline(xintercept = end_bin, linetype = "dashed") +
+
+  annotate("text", x = start_bin,
+           y = max(Combined_MutationDensityData$mean_score),
+           label = "Start", vjust = -0.5) +
+
+  annotate("text", x = end_bin,
+           y = max(Combined_MutationDensityData$mean_score),
+           label = "End", vjust = -0.5) +
+
+  scale_x_continuous(
+    breaks = c(1, start_bin, end_bin, n_bins),
+    labels = c(paste0("-", extend_value),
+               "Start",
+               "End",
+               paste0("+", extend_value))
+  ) +
+
+  labs(
+    x = paste0("Position relative to ", feature_label),
+    y = "Relative Mutation Enrichment",
+    title = paste("Mutation Enrichment Around", feature_label, "(Non-human species)")
+  ) +
+
+  theme_minimal()
+
+# ---- Save ----
 ggsave(
-  filename = paste0(
-    "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/",
-    feature_mode, "/Combined_MutationDensityPlots1.png"
-  ),
-  plot = Combined_MutationDensityPlots1,
-  width = 40,
-  height = 10 * length(Combined_MutationDensityPlots1),
+  filename = paste0("/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/",
+                    feature_mode, "/MultiSpecies_", feature_mode, "_Enrichment.png"),
+  plot = MultiSpeciesPlot,
+  width = 25,
+  height = 15,
   units = "cm",
   dpi = 1000,
   bg = "transparent"
 )
 ```
 
-```{r Combined Plots 2}
-Combined_MutationDensityPlots2 <- wrap_plots(
-  MutationDensityPlots[
-    c(
-      "Assaf_2017_MA_Dmelanogaster_BDGP6",
-      "SaxenaKonrad_2019_MA_Celegans_WS235",
-      "Behringer_2016_MA_Spombe_ASM294v2",
-      "Villalbadelapena_2023_MA_Ncrassa_NC12",
-      "Goldmann_2016_Trio_Hsapiens_hg38"
-    )
-  ],
-  ncol = 1
-) &
-  theme(
-    plot.background = element_rect(fill = "transparent", colour = NA),
-    panel.background = element_rect(fill = "#eeeeee", colour = NA),
-    legend.background = element_rect(fill = "transparent", colour = NA),
-    legend.box.background = element_rect(fill = "transparent", colour = NA)
-  )
-
-ggsave(
-  filename = paste0(
-    "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/",
-    feature_mode, "/Combined_MutationDensityPlots2.png"
-  ),
-  plot = Combined_MutationDensityPlots2,
-  width = 40,
-  height = 10 * length(Combined_MutationDensityPlots2),
-  units = "cm",
-  dpi = 1000,
-  bg = "transparent"
-)
-```
-
-```{r Combined Plots 3}
-Combined_MutationDensityPlots3 <- wrap_plots(
-  MutationDensityPlots[
-    c(
-      "Assaf_2017_MA_Dmelanogaster_BDGP6",
-      "SaxenaKonrad_2019_MA_Celegans_WS235",
-      "Behringer_2016_MA_Spombe_ASM294v2",
-      "Villalbadelapena_2023_MA_Ncrassa_NC12",
-      "Franciolo_2015_Trio_Hsapiens_hg38"
-    )
-  ],
-  ncol = 1
-) &
-  theme(
-    plot.background = element_rect(fill = "transparent", colour = NA),
-    panel.background = element_rect(fill = "#eeeeee", colour = NA),
-    legend.background = element_rect(fill = "transparent", colour = NA),
-    legend.box.background = element_rect(fill = "transparent", colour = NA)
-  )
-
-ggsave(
-  filename = paste0(
-    "/home/ocdm0351/DPhil/R_Data/Plots/2_GeneBody_Plots/",
-    feature_mode, "/Combined_MutationDensityPlots3.png"
-  ),
-  plot = Combined_MutationDensityPlots3,
-  width = 40,
-  height = 10 * length(Combined_MutationDensityPlots3),
-  units = "cm",
-  dpi = 1000,
-  bg = "transparent"
-)
-```

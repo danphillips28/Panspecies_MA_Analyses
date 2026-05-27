@@ -21,12 +21,13 @@ library(mgcv)
 library(tidyverse)
 library(stringr)
 library(dplyr)
+library(PMCMRplus)
 `%ni%` <- Negate(`%in%`)
 ```
 
 ```{r Setting Paths}
 R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
 
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
@@ -39,6 +40,10 @@ load(file = paste0(R_Data,"Species_dNdS_Ratios"))
 load(file = paste0(R_Data,"Species_Genes_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Transcripts_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Mappings"))
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+
 ```
 
 ```{r Removing Version Number from dNdS Object}
@@ -229,7 +234,6 @@ Annotated_VCFs_Gene_Body_Variants <- lapply(
       ungroup()
   }
 )
-
 ```
 
 ```{r Calculating Gene-Wise Mutation-Type Specific Mutation Rates}
@@ -256,7 +260,6 @@ df %>%
 
 ```
 
-
 ```{r Plotting Mutation Rates and dNdS Associations}
 # 1 Mutation Count Distribution 
 Genewise_Body_Mutation_Counts_Plots <- Map(
@@ -272,34 +275,8 @@ Genewise_Body_Mutation_Counts_Plots <- Map(
         y = "Gene Body Mutation Count",
         colour = NULL
       ) +
-      theme(
-        # Transparent backgrounds
-        panel.background       = element_rect(fill = "transparent", colour = NA),
-        plot.background        = element_rect(fill = "transparent", colour = NA),
-        legend.background      = element_rect(fill = "transparent", colour = NA),
-        legend.box.background  = element_rect(fill = "transparent", colour = NA),
-        
-        # Subtle grid
-        panel.grid.major.y     = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.y     = element_line(colour = "grey80", linewidth = 0.2),
-        panel.grid.major.x     = element_blank(),
-        panel.grid.minor.x     = element_blank(),
-        
-        # Axes and text styling
-        axis.text.x   = element_blank(),
-        axis.text.y   = element_text(colour = "white", size = 35),
-        axis.title.x  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.title.y  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.ticks    = element_line(colour = "white"),
-        axis.line     = element_line(colour = "white"),
-        
-        # Title
-        plot.title    = element_text(hjust = 0.5, colour = "white", size = 16, face = "bold"),
-        
-        # Legend
-        legend.position = "right",
-        legend.text     = element_text(colour = "white", size = 20)
-      ) +
+      
+      theme(axis.text.x = element_blank()) +
       scale_x_discrete(expand = c(0.05, 0.01)) +
       scale_colour_manual(
         values = scales::hue_pal()(length(unique(df$gene_biotype)))
@@ -317,7 +294,7 @@ Genewise_Body_Mutation_Counts_Plots <- Map(
       ),
       units = "cm",
       height = 10,
-      width = total_width,
+      width = 14,
       dpi = 1500,
       bg = "transparent",
       create.dir = TRUE
@@ -329,34 +306,6 @@ Genewise_Body_Mutation_Counts_Plots <- Map(
   Annotated_VCFs_Gene_Body_Variants,
   names(Annotated_VCFs_Gene_Body_Variants)
 )
-
-# --- Combine selected plots vertically ---
-Combined_Counts_Plots <- wrap_plots(Genewise_Body_Mutation_Counts_Plots[
-  c("Assaf_2017_MA_Dmelanogaster_BDGP6",
-    "SaxenaKonrad_2019_MA_Celegans_WS235",
-    "Behringer_2016_MA_Spombe_ASM294v2",
-    "Villalbadelapena_2023_MA_Ncrassa_NC12",
-    "Goldmann_2016_Trio_Hsapiens_hg38")
-], ncol = 1) &
-  theme(
-    plot.background       = element_rect(fill = "transparent", colour = NA),
-    panel.background      = element_rect(fill = "#eeeeee", colour = NA),
-    legend.background     = element_rect(fill = "transparent", colour = NA),
-    legend.box.background = element_rect(fill = "transparent", colour = NA)
-  )
-
-# --- Save the combined figure ---
-ggsave(
-  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/Combined_Mutation_Count_Distribution_Plots.png"),
-  plot = Combined_Counts_Plots,
-  width = 50,
-  height = 10 * length(Genewise_Body_Mutation_Counts_Plots),
-  units = "cm",
-  dpi = 800,
-  bg = "transparent"
-)
-
-
 
 
 
@@ -373,24 +322,7 @@ Genewise_Body_Mutation_Rate_Plots <- Map(
                  "Unique Canonical Genes"), 
        y = "Gene Body Mutations (+1) per BP",
        colour = NULL) +
-  theme(
-        # transparent panel and plot backgrounds
-        panel.background = element_rect(fill = NA, colour = NA),
-        plot.background  = element_rect(fill = NA, colour = NA),
-        # light-gray grid lines
-        panel.grid.major = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor = element_line(colour = "grey80", linewidth = 0.2),
-        # white text, axes, and ticks
-        axis.text.x   = element_blank(),
-        axis.text.y   = element_text(colour = "white", size = 10),
-        axis.title.x  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.title.y  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.ticks    = element_line(colour = "white"),
-        axis.line     = element_line(colour = "white"),
-        # title
-        plot.title    = element_text(hjust = 0.5, colour = "white", size = 16, face = "bold"),
-        # remove legend unless needed
-        legend.position = "none") +
+  
         scale_x_discrete(expand = c(0.05, 0.01)) 
     
     # Save the plot — change width/height as needed
@@ -409,7 +341,6 @@ Genewise_Body_Mutation_Rate_Plots <- Map(
 )
 
 
-library(patchwork)
 # 3 Protein Coding Mutation Rate Distribution 
 Genewise_Protein_Body_Mutation_Rate_Plots <- Map(
   function(df, name) {
@@ -424,46 +355,23 @@ Genewise_Protein_Body_Mutation_Rate_Plots <- Map(
       labs(
         title = name,
         x = paste(length(unique(df$GENE_ID)), "Unique Canonical Protein Coding Genes"), 
-        y = "Gene Body Mutations (+1) per BP",
-        colour = NULL
-      ) +
-      theme(
-        plot.margin = margin(5, 5, 5, 30),
-        panel.grid.major.y    = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.y    = element_line(colour = "grey80", linewidth = 0.2),
-        panel.grid.major.x    = element_blank(),
-        panel.grid.minor.x    = element_blank(),
-        axis.text.x   = element_blank(),
-        axis.text.y   = element_text(colour = "white", size = 40),
-        axis.title.x  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.title.y  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.ticks    = element_line(colour = "white"),
-        axis.line     = element_line(colour = "white"),
-        plot.title    = element_text(hjust = 0.5, colour = "white", size = 16, face = "bold"),
-        legend.position = "none",
-        legend.text     = element_text(colour = "white", size = 10)
-      ) +
+        y = "Gene Body Mutations (+1) per BP") +
+      theme(axis.text.x = element_blank()) +
       scale_x_discrete(expand = c(0.05, 0.01)) +
-      scale_y_continuous(position = "left") +
-      scale_colour_gradient(low = "orange", high = "red") +
-      theme(
-  plot.background       = element_rect(fill = "transparent", colour = NA),
-  panel.background      = element_rect(fill = "#eeeeee", colour = NA),
-  legend.background     = element_rect(fill = "transparent", colour = NA),
-  legend.box.background = element_rect(fill = "transparent", colour = NA))
+      scale_colour_gradient(low = "orange", high = "red") 
     
     # --- Save individual plot ---
     ggsave(
       plot = p1,
       filename = paste0(
         R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-        name, "_Protein_Mutation_Count_Distribution_Plot.png"
+        name, "_Protein_Mutation_Rate_Distribution_Plot.png"
       ),
       create.dir = TRUE,
       units = "cm",
       height = 10,
-      width = 40,
-      dpi = 1500,
+      width = 20,
+      dpi = 2000,
       bg = "transparent"  # <--- preserve transparency on export
     )
 
@@ -472,30 +380,6 @@ Genewise_Protein_Body_Mutation_Rate_Plots <- Map(
   Annotated_VCFs_Gene_Body_Variants,
   names(Annotated_VCFs_Gene_Body_Variants)
 )
-
-# --- Combine all plots vertically ---
-Combined_Protein_Plots <- wrap_plots(Genewise_Protein_Body_Mutation_Rate_Plots[
-  c("Assaf_2017_MA_Dmelanogaster_BDGP6",
-    "SaxenaKonrad_2019_MA_Celegans_WS235",
-    "Behringer_2016_MA_Spombe_ASM294v2",
-    "Villalbadelapena_2023_MA_Ncrassa_NC12",
-    "Goldmann_2016_Trio_Hsapiens_hg38")], ncol = 1) &
-  theme(
-  plot.background       = element_rect(fill = "transparent", colour = NA),
-  panel.background      = element_rect(fill = "#eeeeee", colour = NA),
-  legend.background     = element_rect(fill = "transparent", colour = NA),
-  legend.box.background = element_rect(fill = "transparent", colour = NA))
-
-# --- Save the combined figure ---
-ggsave(
-  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/Combined_Protein_Mutation_Count_Distribution_Plots.png"),
-  plot = Combined_Protein_Plots,
-  width = 55,
-  height = 10 * length(Genewise_Protein_Body_Mutation_Rate_Plots),
-  units = "cm",
-  dpi = 90,
-  bg = "transparent")  # <--- critical for transparent composite
-
 
 
 
@@ -513,30 +397,10 @@ Genewise_Protein_dNdS_Plots <- Map(
         x = paste(length(unique(df$GENE_ID)), "Unique Orthologs"),
         y = "dNdS Ratio"
       ) +
-       theme(
-        plot.margin = margin(5, 5, 5, 30),
-        panel.grid.major.y    = element_line(colour = "grey60", linewidth = 0.3),
-        panel.grid.minor.y    = element_line(colour = "grey80", linewidth = 0.2),
-        panel.grid.major.x    = element_blank(),
-        panel.grid.minor.x    = element_blank(),
-        axis.text.x   = element_blank(),
-        axis.text.y   = element_text(colour = "white", size = 15),
-        axis.title.x  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.title.y  = element_text(colour = "white", size = 14, face = "bold"),
-        axis.ticks    = element_line(colour = "white"),
-        axis.line     = element_line(colour = "white"),
-        plot.title    = element_text(hjust = 0.5, colour = "white", size = 16, face = "bold"),
-        legend.position = "none",
-        legend.text     = element_text(colour = "white", size = 10)
-      ) +
+       
       scale_x_discrete(expand = c(0.05, 0.01)) +
       scale_y_continuous(position = "left", n.breaks = 8) +
-      scale_colour_gradient(low = "orange", high = "#00ff00") +
-      theme(
-  plot.background       = element_rect(fill = "transparent", colour = NA),
-  panel.background      = element_rect(fill = "#eeeeee", colour = NA),
-  legend.background     = element_rect(fill = "transparent", colour = NA),
-  legend.box.background = element_rect(fill = "transparent", colour = NA))
+      scale_colour_gradient(low = "orange", high = "#00ff00") 
     
  
 # Save the plot with transparent background
@@ -565,9 +429,20 @@ Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
 })
 
 
-# 5 Mutation Rate vs dNdS Associations: Linear and Non-Linear
+# 5 Mutation Rate vs dNdS Associations: 
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(quantreg)
+library(mgcv)
+
+# 5 Mutation Rate vs dNdS Associations: 
 Species_dNdS_MutationRate_Spearman_Tests <- list()
 Species_dNdS_MutationRate_Pearson_Tests <- list()
+Species_dNdS_MutationRate_Quantile_Fits <- list()
+Species_dNdS_MutationRate_Quantile_Summaries <- list()
+Species_dNdS_MutationRate_GAM_Fits <- list()
+Species_dNdS_MutationRate_GAM_Summaries <- list()
 
 Genewise_MutationRate_by_dNdS_Plots <- Map(
   function(df, name) {
@@ -575,12 +450,12 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
   # Run Spearman Correlations
   spearman_test <- 
     cor.test(log(df$dNdS+.5),
-             df$UniqueVariantsPlusOnePerBP,
+             log(df$UniqueVariantsPlusOnePerBP),
              method = "spearman")
   # Run Pearson Correlations
   pearson_test <- 
     cor.test(log(df$dNdS+.5),
-             df$UniqueVariantsPlusOnePerBP,
+             log(df$UniqueVariantsPlusOnePerBP),
              method = "pearson")
   
   # Save results into object
@@ -591,7 +466,7 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
   p1 <- 
   ggplot(
   data = subset(df, !is.na(dNdS)),
-  aes(x = log(dNdS+.5), y = UniqueVariantsPlusOnePerBP)
+  aes(x = log(dNdS+.5), y = log(UniqueVariantsPlusOnePerBP))
 ) +
   geom_point() +
   geom_smooth(
@@ -620,20 +495,7 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
     ),
     caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
   ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(size = 10, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text = element_text(color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel w/ black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  
   scale_x_continuous(n.breaks = 10) +
   scale_y_continuous(n.breaks = 10)
 
@@ -645,71 +507,178 @@ ggsave(
     name, "_dNdS_vs_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensures background transparency in PNG
-  width = 5,
+  width = 4,
   height = 4,
   dpi = 2500
 )
+
+  # ----------------------------
+  # Plot 2: quantile regression lines
+  # ----------------------------
+  plot_df <- subset(df, !is.na(dNdS) & !is.na(UniqueVariantsPlusOnePerBP))
+  plot_df <- plot_df %>%
+    mutate(
+      x = log(dNdS + .5),
+      y = log(UniqueVariantsPlusOnePerBP)
+    ) %>%
+    filter(is.finite(x), is.finite(y))
+  
+  taus <- c(0.10, 0.25, 0.50, 0.75, 0.90)
+  
+  # Fit one model per quantile
+  rq_fits <- setNames(
+    lapply(taus, function(tau) {
+      rq(y ~ x, tau = tau, data = plot_df)
+    }),
+    paste0("tau_", sprintf("%.2f", taus))
+  )
+  
+  Species_dNdS_MutationRate_Quantile_Fits[[name]] <<- rq_fits
+  
+  # Extract coefficient + p value for the slope from each quantile model
+  rq_stats <- bind_rows(lapply(taus, function(tau) {
+    fit_name <- paste0("tau_", sprintf("%.2f", tau))
+    fit_sum <- summary(rq_fits[[fit_name]], se = "nid")
+    coef_tab <- fit_sum$coefficients
     
+    slope_est <- if ("x" %in% rownames(coef_tab)) coef_tab["x", "Value"] else NA_real_
+    slope_p   <- if ("x" %in% rownames(coef_tab)) coef_tab["x", "Pr(>|t|)"] else NA_real_
     
-    # Calculate some statistics beforehand
-    # --- Fit GAM (nonparametric smooth) ---
-    gam_fit <- gam(UniqueVariantsPlusOnePerBP ~ s(dNdS, k = 6), data = df)
-
-    # --- Fit linear model first, then segmented ---
-    lm_fit <- lm(UniqueVariantsPlusOnePerBP ~ dNdS, data = df)
-    seg_fit <- segmented(lm_fit, seg.Z = ~ dNdS, npsi = 2)  # try 2 breakpoints
-
-    # Create a prediction grid
-    newdata <- data.frame(dNdS = seq(min(df$dNdS, na.rm = TRUE), max(df$dNdS, na.rm = TRUE), length.out = 200))
-
-    # Predictions from both models
-    newdata$GAM_fit <- predict(gam_fit, newdata, type = "response")
-    newdata$SEG_fit <- predict(seg_fit, newdata, type = "response")
-    breaks <- seg_fit$psi[, "Est."]
-
-    p2 <-
-    ggplot2::ggplot(data = subset(df,
-                 is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = UniqueVariantsPlusOnePerBP)) +
-    geom_point() +
-    geom_line(data = newdata, aes(y = GAM_fit), color = "blue", size = 1.2) +
-    geom_line(data = newdata, aes(y = SEG_fit), color = "orange", linetype = "dashed", size = 1) +
-    geom_vline(xintercept = breaks, linetype = "dotted", color = "orange") +
-    annotate("text", x = breaks, y = max(subset(df, is.na(dNdS) == FALSE)$UniqueVariantsPlusOnePerBP, na.rm = TRUE) * 0.5,
-           label = paste0("Breakpoint\n", round(breaks, 3)),
-           color = "orange", hjust = -0.1, size = 3.2) +
-    labs(title = paste(name, "\n",
-                       subset(df, is.na(dNdS) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
-                       unique() %>% length(), "Unique Protein Coding Genes with dNdS Estimate"),
-      subtitle = "Red = GAM smooth; Blue dashed = segmented regression",
-      caption = "Blue line represents fit of generalised linear model: gam(UniqueVariantsPlusOnePerBP ~ s(dNdS, k = 6), data = df). \n
-                Orange line represents fit of segmented linear regression: seg_fit <- segmented(lm_fit, seg.Z = ~ dNdS, npsi = 2)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white")) +
-          scale_x_continuous(n.breaks = 10) +
-          scale_y_continuous(n.breaks = 10)
-
-    # Save the plot — change width/height as needed
-      ggsave(plot = p2,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       name, "_GAM_SegReg_dNdS_vs_Mutation_Rate_Plot.png"),
-      create.dir = TRUE,
-      width = 6,
-      height = 6,
-      dpi = 300)
+    data.frame(
+      tau = sprintf("%.2f", tau),
+      tau_label = paste0(
+        "tau = ", sprintf("%.2f", tau),
+        "\nβ = ", signif(slope_est, 3),
+        ", p = ", signif(slope_p, 3)
+      ),
+      beta = slope_est,
+      p_value = slope_p,
+      stringsAsFactors = FALSE
+    )
+  }))
+  
+  Species_dNdS_MutationRate_Quantile_Summaries[[name]] <<- rq_stats
+  
+  # Prediction grid
+  x_grid <- data.frame(
+    x = seq(min(plot_df$x), max(plot_df$x), length.out = 300)
+  )
+  
+  # Build predictions into a long table
+  rq_pred_long <- bind_rows(lapply(taus, function(tau) {
+    fit_name <- paste0("tau_", sprintf("%.2f", tau))
+    data.frame(
+      x = x_grid$x,
+      yhat = as.numeric(predict(rq_fits[[fit_name]], newdata = x_grid)),
+      tau = sprintf("%.2f", tau),
+      stringsAsFactors = FALSE
+    )
+  })) %>%
+    left_join(rq_stats, by = "tau") %>%
+    mutate(tau_label = factor(tau_label, levels = rq_stats$tau_label))
+  
+  p2 <-
+    ggplot(plot_df, aes(x = x, y = y)) +
+    geom_point(alpha = 0.4) +
+    geom_line(
+      data = rq_pred_long,
+      aes(x = x, y = yhat, colour = tau_label, group = tau_label),
+      linewidth = 1
+    ) +
+    geom_rug(alpha = 0.35, color = "orange") +
+    labs(
+      title = paste(
+        name, "\n",
+        subset(df, !is.na(dNdS) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+          unique() %>%
+          length(),
+        "Unique Protein Coding Genes with dNdS Estimate"
+      ),
+      subtitle = "Quantile regression lines on the log-transformed scale",
+      caption = "Coloured lines show quantile regression fits",
+      colour = "Tau / slope / p value"
+    ) +
+    scale_x_continuous(n.breaks = 10) +
+    scale_y_continuous(n.breaks = 10) +
+    theme_classic()
+  
+  ggsave(
+    plot = p2,
+    filename = paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Mutation_Rate_Quantile_Regression_Plot.png"
+    ),
+    bg = "transparent",
+    width = 5.5,
+    height = 4,
+    dpi = 2500
+  )
+  
+  # ----------------------------
+  # Plot 3: GAM
+  # ----------------------------
+  gam_fit <- gam(y ~ s(x, k = 5), data = plot_df, method = "REML")
+  gam_sum <- summary(gam_fit)
+  
+  Species_dNdS_MutationRate_GAM_Fits[[name]] <<- gam_fit
+  Species_dNdS_MutationRate_GAM_Summaries[[name]] <<- gam_sum
+  
+  smooth_p <- if (!is.null(gam_sum$s.table) && nrow(gam_sum$s.table) >= 1) gam_sum$s.table[1, "p-value"] else NA_real_
+  smooth_edf <- if (!is.null(gam_sum$s.table) && nrow(gam_sum$s.table) >= 1) gam_sum$s.table[1, "edf"] else NA_real_
+  dev_expl <- if (!is.null(gam_sum$dev.expl)) gam_sum$dev.expl else NA_real_
+  r_sq <- if (!is.null(gam_sum$r.sq)) gam_sum$r.sq else NA_real_
+  
+  p3 <-
+    ggplot(plot_df, aes(x = x, y = y)) +
+    geom_point(alpha = 0.4) +
+    geom_smooth(
+      method = "gam",
+      formula = y ~ s(x, k = 5),
+      se = TRUE,
+      colour = "#66ff00",
+      fill = alpha("orange", 0.5)
+    ) +
+    geom_rug(alpha = 0.35, color = "orange") +
+    labs(
+      title = paste(
+        name, "\n",
+        subset(df, !is.na(dNdS) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+          unique() %>%
+          length(),
+        "Unique Protein Coding Genes with dNdS Estimate"
+      ),
+      subtitle = paste0(
+        "GAM smooth: p = ", signif(smooth_p, 5),
+        ", edf = ", signif(smooth_edf, 4),
+        ", R² = ", signif(r_sq, 4),
+        ", deviance explained = ", signif(dev_expl, 4)
+      ),
+      caption = "Smooth term fitted using mgcv::gam with y ~ s(x, k = 5)"
+    ) +
+    scale_x_continuous(n.breaks = 10) +
+    scale_y_continuous(n.breaks = 10) +
+    theme_classic()
+  
+  ggsave(
+    plot = p3,
+    filename = paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Mutation_Rate_GAM_Plot.png"
+    ),
+    bg = "transparent",
+    width = 4,
+    height = 4,
+    dpi = 2500
+  )
+  
+  list(p1 = p1, p2 = p2, p3 = p3)
     
   },
   Annotated_VCFs_PC_Gene_Body_Variants,
   names(Annotated_VCFs_PC_Gene_Body_Variants)
 )
+
+
 
 
 # 5 Mutation Rate vs dNdS Association of Genes with at least one MA Variant
@@ -737,7 +706,7 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
   p1 <- 
   ggplot(
   data = subset(df, UniqueVariants > 0 & !is.na(dNdS)),
-  aes(x = log(dNdS+.5), y = UniqueVariantsPlusOnePerBP)
+  aes(x = log(dNdS+.5), y = log(UniqueVariantsPlusOnePerBP))
 ) +
   geom_point() +
   geom_smooth(
@@ -763,29 +732,16 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
                        "Coefficient = ", Species_dNdS_MutationRate_Pearson_TestsMutatedOnly[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(
-    plot.title = element_text(size = 10, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text = element_text(color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel w/ black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+    
   scale_x_continuous(n.breaks = 10) +
   scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p1,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_Mutation_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 5,
+      width = 4,
       height = 4,
       dpi = 2500)
 
@@ -796,11 +752,10 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
 
 ```
 
-
 ```{r Essential_vs_NonEssential_Mutation_Rate_Boxplots}
-for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
-  df <- Annotated_VCFs_Gene_Body_Variants[[element_name]]
+  df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
 
   species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
     str_replace(., "^(.)(.*)$", "\\1_\\2")
@@ -816,7 +771,7 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
       filter(!is.na(Essential), !is.na(UniqueVariantsPlusOnePerBP)) %>%
       mutate(
         Essential = factor(Essential, levels = c("Non-Essential", "Essential")),
-        logRate = log10(UniqueVariantsPlusOnePerBP)
+        logRate = log(UniqueVariantsPlusOnePerBP)
       )
 
     if (length(unique(na.omit(ess_df$Essential))) == 2) {
@@ -835,47 +790,32 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
           comparisons = list(c("Non-Essential", "Essential")),
           method = "wilcox.test",
           label = "p.format",
-          label.y = y_pos
+          label.y = y_pos,
+          size = 3
         ) +
-        theme_bw() +
-        theme(
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.position = "none",
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          panel.grid.major = element_line(color = "black", size = 0.2),
-          panel.grid.minor = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 12, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 5, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-          plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-        ) +
+        
+        theme(plot.subtitle = element_text(size = 3),
+              plot.title = element_text(size = 3),
+              legend.position = "none") +
         scale_x_discrete(labels = c(
           "Non-Essential" = paste0("Non-Essential\nn = ", n1),
           "Essential" = paste0("Essential\nn = ", n2)
         )) +
-        scale_y_continuous(n.breaks = 10) +
-        scale_color_manual(values = c("orange", "purple")) +
-        scale_fill_manual(values = c(alpha("orange", alpha = .4),
-                                     alpha("purple", alpha = .4))) +
+        scale_color_manual(values = c("grey", "black")) +
+        scale_fill_manual(values = c(alpha("grey", alpha = .4),
+                                     alpha("black", alpha = .4))) +
         labs(
           title = paste0(species, " Essential Genes"),
-          subtitle = "Wilcoxon test on log10-transformed mutation rates",
+          subtitle = "Wilcoxon test on log-transformed mutation rates",
           x = NULL,
-          y = "log10(Mutation rate (+1 per bp))"
+          y = "log(Mutation rate (+1 per bp))"
         )
 
       ggsave(
         plot = p1,
-        filename = paste0(R_Data, "Plots/", species, "_Essential_Boxplot.png"),
-        width = 3, height = 5,
+        filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       element_name, "_Essential_Boxplot.png"),
+        width = 2.5, height = 5,
         background = "transparent"
       )
     }
@@ -890,7 +830,7 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
       filter(!is.na(HouseKeeping), !is.na(UniqueVariantsPlusOnePerBP)) %>%
       mutate(
         HouseKeeping = factor(HouseKeeping, levels = c("Non-HouseKeeping", "HouseKeeping")),
-        logRate = log10(UniqueVariantsPlusOnePerBP)
+        logRate = log(UniqueVariantsPlusOnePerBP)
       )
 
     if (length(unique(na.omit(hk_df$HouseKeeping))) == 2) {
@@ -909,47 +849,32 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
           comparisons = list(c("Non-HouseKeeping", "HouseKeeping")),
           method = "wilcox.test",
           label = "p.format",
-          label.y = y_pos
+          label.y = y_pos,
+          size = 3
         ) +
-        theme_bw() +
-        theme(
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.position = "none",
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          panel.grid.major = element_line(color = "black", size = 0.2),
-          panel.grid.minor = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 12, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 5, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white"),
-          plot.margin = margin(t = 10, r = 10, b = 10, l = 40)
-        ) +
+        
+        theme(plot.subtitle = element_text(size = 3),
+              plot.title = element_text(size = 3),
+              legend.position = "none") +
         scale_x_discrete(labels = c(
           "Non-HouseKeeping" = paste0("Non-HouseKeeping\nn = ", n1),
           "HouseKeeping" = paste0("HouseKeeping\nn = ", n2)
         )) +
-        scale_y_continuous(n.breaks = 10) +
-        scale_color_manual(values = c("orange", "purple")) +
-        scale_fill_manual(values = c(alpha("orange", alpha = .4),
-                                     alpha("purple", alpha = .4))) +
+        scale_color_manual(values = c("grey", "black")) +
+        scale_fill_manual(values = c(alpha("grey", alpha = .4),
+                                     alpha("black", alpha = .4))) +
         labs(
           title = paste0(species, " HouseKeeping Genes"),
-          subtitle = "Wilcoxon test on log10-transformed mutation rates",
+          subtitle = "Wilcoxon test on log-transformed mutation rates",
           x = NULL,
-          y = "log10(Mutation rate (+1 per bp))"
+          y = "log(Mutation rate (+1 per bp))"
         )
 
       ggsave(
         plot = p2,
-        filename = paste0(R_Data, "Plots/", species, "_HouseKeeping_Boxplot.png"),
-        width = 5, height = 4,
+        filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       element_name, "_HouseKeeping_Boxplot.png"),
+        width = 2.5, height = 4,
         background = "transparent"
       )
     }
@@ -957,7 +882,6 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
 
 }
 ```
-
 
 ```{r Binning Genes into Mutation-Rate Quantiles}
 Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
@@ -969,46 +893,48 @@ Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
           UniqueVariantsPlusOnePerBP == 0, "0",
           ifelse(
             is.na(UniqueVariantsPlusOnePerBP), NA,
-            as.character(cut_number(UniqueVariantsPlusOnePerBP, n = 5))
+            as.character(cut_number(log(UniqueVariantsPlusOnePerBP), n = 5, labels = FALSE))
           )
         ),
         Overall_Mutation_Rate_Group_More = ifelse(
           UniqueVariantsPlusOnePerBP == 0, "0",
           ifelse(
             is.na(UniqueVariantsPlusOnePerBP), NA,
-            as.character(cut_number(UniqueVariantsPlusOnePerBP, n = 12))
+            as.character(cut_number(log(UniqueVariantsPlusOnePerBP), n = 28, labels = FALSE))
           )
         )
-      ) %>%
-      # Convert any scientific notation to decimal
-      mutate(
-        Overall_Mutation_Rate_Group = str_replace_all(
-          Overall_Mutation_Rate_Group,
-          "\\d+\\.?\\d*e[-+]?\\d+",
-          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
-        ),
-        Overall_Mutation_Rate_Group_More = str_replace_all(
-          Overall_Mutation_Rate_Group_More,
-          "\\d+\\.?\\d*e[-+]?\\d+",
-          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
-        )
-      ) %>%
-      # ✅ Order numerically by lower bound, treat as ordered factor
-      mutate(
-        Overall_Mutation_Rate_Group = forcats::fct_reorder(
-          factor(Overall_Mutation_Rate_Group, ordered = TRUE),
-          as.numeric(str_extract(Overall_Mutation_Rate_Group, "(?<=\\[|\\()[^,]+")),
-          .fun = min,
-          .desc = FALSE
-        ),
-        Overall_Mutation_Rate_Group_More = forcats::fct_reorder(
-          factor(Overall_Mutation_Rate_Group_More, ordered = TRUE),
-          as.numeric(str_extract(Overall_Mutation_Rate_Group_More, "(?<=\\[|\\()[^,]+")),
-          .fun = min,
-          .desc = FALSE
-        )
       )
-
+    
+#    %>%
+#      # Convert any scientific notation to decimal
+#      mutate(
+#        Overall_Mutation_Rate_Group = str_replace_all(
+#          Overall_Mutation_Rate_Group,
+#          "\\d+\\.?\\d*e[-+]?\\d+",
+#          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
+#        ),
+#        Overall_Mutation_Rate_Group_More = str_replace_all(
+#          Overall_Mutation_Rate_Group_More,
+#          "\\d+\\.?\\d*e[-+]?\\d+",
+#          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
+#        )
+#      ) %>%
+#      # ✅ Order numerically by lower bound, treat as ordered factor
+#      mutate(
+#        Overall_Mutation_Rate_Group = forcats::fct_reorder(
+#          factor(Overall_Mutation_Rate_Group, ordered = TRUE),
+#          as.numeric(str_extract(Overall_Mutation_Rate_Group, "(?<=\\[|\\()[^,]+")),
+#          .fun = min,
+#          .desc = FALSE
+#        ),
+#        Overall_Mutation_Rate_Group_More = forcats::fct_reorder(
+#          factor(Overall_Mutation_Rate_Group_More, ordered = TRUE),
+#          as.numeric(str_extract(Overall_Mutation_Rate_Group_More, "(?<=\\[|\\()[^,]+")),
+#          .fun = min,
+#          .desc = FALSE
+#        )
+#      )
+#
     return(df)
   }
 )
@@ -1035,21 +961,21 @@ Genewise_Binned_MutationRate_by_dNdS_Plots <- Map(
   function(df, name) {
 
 # Subset to only loci with dNdS 
-df <- subset(df, is.na(dNdS) == FALSE) 
+df <- subset(df, is.na(dNdS) == FALSE & is.na(Overall_dNdS_Group) == FALSE) 
 
 # Plot Association of dNdS Bins with MutationsPlusOnePerBP 
 p1 <-
   ggplot(
-    data = subset(df, !is.na(Overall_dNdS_Group)),
+    data = df,
     aes(
       x = Overall_dNdS_Group,
       y = UniqueVariantsPlusOnePerBP,
       fill = Overall_dNdS_Group
     )
   ) +
-  theme_bw() +
   geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
   labs(
+    y = "Gene Body Mutation Rate",
     title = paste(
       name, "\n",
       subset(df, !is.na(Overall_dNdS_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
@@ -1058,7 +984,19 @@ p1 <-
       "Unique Protein Coding Genes with dNdS Estimate"
     ),
     subtitle = paste(
-      "Jonckheere =",
+      "Cuzick test =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_dNdS_Group,
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      "p =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_dNdS_Group,
+        alternative = "two.sided"
+      )$p.value %>% round(3), "\n",
+      "Jonckheere test =",
       jonckheere.test(
         df$UniqueVariantsPlusOne,
         df$Overall_dNdS_Group,
@@ -1071,22 +1009,11 @@ p1 <-
         alternative = "two.sided"
       )$p.value %>% round(3)
     )
-  ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 5, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  ) +  
+  theme(plot.title = element_text(size = BASE_SIZE - 6),
+        axis.title.x = element_text(size = BASE_SIZE -4),
+        plot.subtitle = element_text(size = BASE_SIZE - 6),
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3)) +
   scale_y_continuous(n.breaks = 10) +
   scale_fill_manual(values = c("#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801")) +
   guides(fill = "none")
@@ -1099,7 +1026,7 @@ ggsave(
     name, "_Binned_dNdS_vs_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensure transparent PNG background
-  width = 2.75,
+  width = 2,
   height = 4,
   dpi = 2500
 )
@@ -1115,9 +1042,9 @@ p2 <-
       fill = Overall_dNdS_Group_More
     )
   ) +
-  theme_bw() +
-  geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+  geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
   labs(
+    y = "Gene Body Mutation Rate",
     title = paste(
       name, "\n",
       subset(df, !is.na(Overall_dNdS_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
@@ -1126,7 +1053,19 @@ p2 <-
       "Unique Protein Coding Genes with dNdS Estimate"
     ),
     subtitle = paste(
-      "Jonckheere =",
+      "Cuzick test =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_dNdS_Group_More,
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      "p =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_dNdS_Group_More,
+        alternative = "two.sided"
+      )$p.value %>% round(3), "\n",
+      "Jonckheere test =",
       jonckheere.test(
         df$UniqueVariantsPlusOne,
         df$Overall_dNdS_Group_More,
@@ -1140,21 +1079,10 @@ p2 <-
       )$p.value %>% round(3)
     )
   ) +
-  theme_bw() +
-  theme(
-    plot.title = element_text(size = 6, colour = "white", hjust = .5),
-    text = element_text(color = "white"),
-    axis.title = element_text(color = "white"),
-    axis.text.x = element_text(size = 4, color = "white", vjust = .6, angle = 15),
-    axis.text.y = element_text(size = 6, color = "white"),
-    legend.title = element_text(color = "white"),
-    legend.text = element_text(color = "white"),
-    plot.subtitle = element_text(size = 7, color = "white", hjust = .5, face = "italic"),
-    plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-    strip.text = element_text(color = "white"),
-    panel.background = element_rect(fill = "#eeeeee", colour = "white"),  # transparent panel, black border
-    plot.background = element_rect(fill = NA, colour = NA)         # transparent overall background
-  ) +
+  theme(plot.title = element_text(size = BASE_SIZE - 6),
+        axis.title.x = element_text(size = BASE_SIZE -4),
+        plot.subtitle = element_text(size = BASE_SIZE - 6),
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1)) +  
   scale_y_continuous(n.breaks = 10) +
   scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_dNdS_Group_More)))) +
   guides(fill = "none")
@@ -1167,7 +1095,7 @@ ggsave(
     name, "_More_Binned_dNdS_vs_Mutation_Rate_Plot.png"
   ),
   bg = "transparent",   # ensure transparent PNG background
-  width = 2.75,
+  width = 2,
   height = 4,
   dpi = 2500
 )
@@ -1206,54 +1134,54 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   function(df, name) {
   # Run Spearman Correlations
   spearman_test_TtoA_or_AtoT <- 
-    cor.test(df$dNdS,
-             df$TtoA_or_AtoT_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             log(df$TtoA_or_AtoT_UniqueVariantsPlusOnePerBP),
              method = "spearman")
   spearman_test_CtoG_or_GtoC <- 
-    cor.test(df$dNdS,
-             df$CtoG_or_GtoC_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             log(df$CtoG_or_GtoC_UniqueVariantsPlusOnePerBP),
              method = "spearman")
   spearman_test_CtoT_or_GtoA <- 
-    cor.test(df$dNdS,
-             df$CtoT_or_GtoA_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$CtoT_or_GtoA_UniqueVariantsPlusOnePerBP),
              method = "spearman")
   spearman_test_CtoA_or_GtoT <- 
-    cor.test(df$dNdS,
-             df$CtoA_or_GtoT_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$CtoA_or_GtoT_UniqueVariantsPlusOnePerBP),
              method = "spearman")
   spearman_test_TtoG_or_AtoC <- 
-    cor.test(df$dNdS,
-             df$TtoG_or_AtoC_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$TtoG_or_AtoC_UniqueVariantsPlusOnePerBP),
              method = "spearman")
   spearman_test_TtoC_or_AtoG <- 
-    cor.test(df$dNdS,
-             df$TtoC_or_AtoG_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$TtoC_or_AtoG_UniqueVariantsPlusOnePerBP),
              method = "spearman")
   
   # Run Pearson Correlations
   pearson_test_TtoA_or_AtoT <- 
-    cor.test(df$dNdS,
-             df$TtoA_or_AtoT_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$TtoA_or_AtoT_UniqueVariantsPlusOnePerBP),
              method = "pearson")
   pearson_test_CtoG_or_GtoC <- 
-    cor.test(df$dNdS,
-             df$CtoG_or_GtoC_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$CtoG_or_GtoC_UniqueVariantsPlusOnePerBP),
              method = "pearson")
   pearson_test_CtoT_or_GtoA <- 
-    cor.test(df$dNdS,
-             df$CtoT_or_GtoA_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$CtoT_or_GtoA_UniqueVariantsPlusOnePerBP),
              method = "pearson")
   pearson_test_CtoA_or_GtoT <- 
-    cor.test(df$dNdS,
-             df$CtoA_or_GtoT_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$CtoA_or_GtoT_UniqueVariantsPlusOnePerBP),
              method = "pearson")
   pearson_test_TtoG_or_AtoC <- 
-    cor.test(df$dNdS,
-             df$TtoG_or_AtoC_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$TtoG_or_AtoC_UniqueVariantsPlusOnePerBP),
              method = "pearson")
   pearson_test_TtoC_or_AtoG <- 
-    cor.test(df$dNdS,
-             df$TtoC_or_AtoG_UniqueVariantsPlusOnePerBP,
+    cor.test(log(df$dNdS+.5),
+             (df$TtoC_or_AtoG_UniqueVariantsPlusOnePerBP),
              method = "pearson")
   
   # Save results into object
@@ -1275,7 +1203,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   p_TtoA_or_AtoT <- 
   ggplot2::ggplot(data = subset(df,
                  is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = TtoA_or_AtoT_UniqueVariantsPlusOnePerBP)) +
+                    aes(x = log(dNdS+.5), y = log(TtoA_or_AtoT_UniqueVariantsPlusOnePerBP))) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE) +
     labs(title = paste(name, "\n",
@@ -1293,26 +1221,16 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        "Coefficient = ", Species_dNdS_TtoA_or_AtoT_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoA_or_AtoT,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoA_or_AtoT_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 300)
       
@@ -1322,7 +1240,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
   p_CtoG_or_GtoC <- 
     ggplot2::ggplot(data = subset(df,
                  is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = CtoG_or_GtoC_UniqueVariantsPlusOnePerBP)) +
+                    aes(x = log(dNdS+.5), y = log(CtoG_or_GtoC_UniqueVariantsPlusOnePerBP))) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE) +
     labs(title = paste(name, "\n",
@@ -1340,26 +1258,16 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        "Coefficient = ", Species_dNdS_CtoG_or_GtoC_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoG_or_GtoC,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoG_or_GtoC_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 300)
       
@@ -1369,7 +1277,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
     p_CtoT_or_GtoA <- 
     ggplot2::ggplot(data = subset(df,
                  is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = CtoT_or_GtoA_UniqueVariantsPlusOnePerBP)) +
+                    aes(x = log(dNdS+.5), y = log(CtoT_or_GtoA_UniqueVariantsPlusOnePerBP))) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE) +
     labs(title = paste(name, "\n",
@@ -1387,26 +1295,16 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        "Coefficient = ", Species_dNdS_CtoT_or_GtoA_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoT_or_GtoA,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoT_or_GtoA_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 300)
       
@@ -1416,7 +1314,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
     p_CtoA_or_GtoT <- 
     ggplot2::ggplot(data = subset(df,
                  is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = CtoA_or_GtoT_UniqueVariantsPlusOnePerBP)) +
+                    aes(x = log(dNdS+.5), y = log(CtoA_or_GtoT_UniqueVariantsPlusOnePerBP))) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE) +
     labs(title = paste(name, "\n",
@@ -1434,26 +1332,16 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        "Coefficient = ", Species_dNdS_CtoA_or_GtoT_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_CtoA_or_GtoT,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoA_or_GtoT_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 300)
       
@@ -1463,7 +1351,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
     p_TtoG_or_AtoC <- 
     ggplot2::ggplot(data = subset(df,
                  is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = TtoG_or_AtoC_UniqueVariantsPlusOnePerBP)) +
+                    aes(x = log(dNdS+.5), y = log(TtoG_or_AtoC_UniqueVariantsPlusOnePerBP))) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE) +
     labs(title = paste(name, "\n",
@@ -1481,26 +1369,16 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        "Coefficient = ", Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoG_or_AtoC,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoG_or_AtoC_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 300)
       
@@ -1510,7 +1388,7 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
     p_TtoC_or_AtoG <- 
     ggplot2::ggplot(data = subset(df,
                  is.na(dNdS) == FALSE),
-                    aes(x = dNdS, y = TtoC_or_AtoG_UniqueVariantsPlusOnePerBP)) +
+                    aes(x = log(dNdS+.5), y = log(TtoC_or_AtoG_UniqueVariantsPlusOnePerBP))) +
     geom_point() +
     geom_smooth(method = "lm", se = TRUE) +
     labs(title = paste(name, "\n",
@@ -1528,26 +1406,16 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
                        "Coefficient = ", Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests[[name]]$estimate %>% 
                          signif(., digits = 5)),
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    theme_bw() +
-    theme(plot.title = element_text(size = 10, colour = "black", hjust = .5),
-          text = element_text(color = "black"),
-          axis.title.x = element_text(size = 10, color = "black", vjust = .6),
-          axis.title.y = element_text(size = 8, color = "black"),
-          axis.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          legend.text = element_text(color = "black"),
-          plot.subtitle = element_text(size = 8, color = "black", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 5, color = "black", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "black")) +
+    
           scale_x_continuous(n.breaks = 10) +
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
       ggsave(plot = p_TtoC_or_AtoG,
-      filename = paste(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoC_or_AtoG_Rate_MutatedOnly_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 300)
 
@@ -1557,148 +1425,6 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
 )
 
 
-```
-
-```{r NEEDS FIXING Mutation Enrichment by dNdS Group, eval=FALSE, include=FALSE}
-
-Annotated_VCFs_Raw <- mapply(function(raw_df, pc_df) {
-
-  merge(
-    raw_df,
-    pc_df[, c("GENE_ID", "Overall_dNdS_Group")],
-    by = "GENE_ID",
-    all.x = TRUE
-  )
-
-}, Annotated_VCFs_Raw, Annotated_VCFs_PC_Gene_Body_Variants, SIMPLIFY = FALSE)
-
-
-GeneBody_MutationEnrichment_by_dNdS_Plots <- Map(
-  function(df, name) {
-
-    # Convert gene coordinates to GRanges
-    # Subset to only loci with dNdS 
-    #df <- subset(df, is.na(dNdS) == FALSE) 
-    gene_df <- subset(df, is.na(GENE_ID) == FALSE)
-    
-    gene_gr <- GRanges(
-    seqnames = gene_df$CHROM,
-    ranges = IRanges(start = gene_df$start, end = gene_df$end),
-    strand = gene_df$strand,
-    dNdS_Group = gene_df$Overall_dNdS_Group,
-    mut_Group = gene_df$Overall_Mutation_Rate_Group
-  )
-
-    mutated_df <- subset(df, UniqueVariants > 0)
-    # Convert gene coordinates to GRanges
-    variant_ranges <-
-  makeGRangesFromDataFrame(df,
-                           keep.extra.columns=FALSE,
-                           ignore.strand=TRUE,
-                           seqnames.field=c("CHROM"),
-                           na.rm = TRUE,
-                           start.field="POS",
-                           end.field=c("POS"),
-                           strand.field="strand",
-                           starts.in.df.are.0based=FALSE)
-  
-  variant_ranges <- coverage(variant_ranges)
-  # keep only non-zero coverage runs
-  variant_ranges <- as(variant_ranges, "GRanges")
-  variant_ranges <- variant_ranges[variant_ranges$score > 0]
-    
-    # Plot Metagene EnrichedHeatmap of dNdS Around Gene Body
-    body_DNV_enrichment <- normalizeToMatrix(DNVs_gr,
-                                             gene_gr,
-                                             extend = 5000,
-                                             mean_mode = "absolute",
-                                             w = 50,
-                                             target_ratio = .7,
-                                             smooth = FALSE,
-                                             background = 0)
-    
-    #test <-
-    #EnrichedHeatmap(body_epi_enrichment, name = "H3K9me3",
-    # top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = 2:4))),
-    # column_title = "H3K9me3",
-    # row_split = gene_gr$mut_Group)
-
-    # Extract Enrichment Bins and Grouping Indexing Information
-    mat <- as.matrix(body_DNV_enrichment)
-    groups <- as.factor(gene_gr$dNdS_Group)
-    # Combine into a tidy data frame
-    df <- as.data.frame(mat) %>%
-      mutate(dNdS_Group = groups) %>%
-      pivot_longer(cols = -c(dNdS_Group), names_to = "position", values_to = "value") %>%
-      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
-    # Summarise by dNdS group (mean + SE per position)
-    MutationDensities <- df %>%
-      group_by(dNdS_Group, position) %>%
-      summarise( mean_score = mean(value, na.rm = TRUE), se = sd(value, na.rm = TRUE) / sqrt(n()), .groups = "drop")
-
-    # --- keep your original boundary logic exactly ---
-    avg <- colMeans(mat)
-    regionLength <- ((0.7 * 100) * length(avg)) / 100
-    lengthEachSide <- (length(avg) - regionLength) / 2
-    start <- lengthEachSide
-    end <- length(avg) - lengthEachSide
-    # Renaming NA dNdS Group
-    #MutationDensities <- MutationDensities %>% mutate(dNds_Group = forcats::fct_explicit_na(group, na_level = "No Ortholog"))
-
-    # --- Plot grouped by dNdS version ---
-      MutationDensityPlot <-
-      ggplot(MutationDensities,
-             aes(x = position, y = mean_score, color = dNdS_Group, fill = dNdS_Group)) +
-      geom_line(size = .5) +
-      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
-              alpha = 0.2, color = NA) +
-      geom_vline(xintercept = c(start, end), linetype = "dotted") +
-      theme_bw() +
-      labs(
-      title = paste("Enrichment of DNVs Across", species_name, "Gene Bodies"),
-      x = "Windows",
-      y = paste("Mean DNVs"),
-      color = "dNdS \n Quantile",
-      fill = "dNdS \n Quantile") +
-      theme_bw() +
-    theme(# Transparent backgrounds
-          panel.background = element_rect(fill = "white", colour = NA),
-          plot.background = element_rect(fill = "transparent", colour = NA),
-          legend.background = element_rect(fill = "transparent", colour = NA),
-          legend.box.background = element_rect(fill = "transparent", colour = NA),
-          # Keep grid lines visible and black
-          panel.grid.major = element_line(color = "black", size = 0.2),
-          panel.grid.minor = element_line(color = "black", size = 0.1),
-          plot.title = element_text(size = 6, colour = "white", hjust = .5),
-          text = element_text(color = "white"),
-          axis.title = element_text(color = "white"),
-          axis.text = element_text(color = "white"),
-          legend.title = element_text(color = "white"),
-          legend.text = element_text(color = "white"),
-          plot.subtitle = element_text(size = 8, color = "white", hjust = .5, face = "italic"),
-          plot.caption = element_text(size = 6, color = "white", hjust = .5, face = "italic"),
-          strip.text = element_text(color = "white")) +
-          scale_x_continuous(n.breaks = 10) +
-          scale_y_continuous(n.breaks = 10)
-
-          # ggSaving
-          ggsave(MutationDensityPlot,
-             filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
-                               "Epigenetic_EnrichedHeatmaps/",
-                               species_prefix,
-                                "/GeneBody_Enrichment_of_DNVs", name, ".png"),
-             bg = "transparent",
-             type="cairo",
-             units = "cm",
-             height = 8,
-             width = 15,
-             create.dir = TRUE,
-             dpi = 2000)
-   
-  },
-  Annotated_VCFs_Raw,
-  names(Annotated_VCFs_Raw)
-)
 ```
 
 ```{r Saving Annotated_VCFs}

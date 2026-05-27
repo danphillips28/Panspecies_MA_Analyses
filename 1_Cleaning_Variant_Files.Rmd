@@ -92,6 +92,16 @@ Wang_2026_MA_Ppacificus_Variants_Simple <- VCF_File[ , c("Chromosome","Position"
 colnames(Wang_2026_MA_Ppacificus_Variants_Simple) <- c("#CHROM","POS","ID","REF","ALT","QUAL","FILTER","INFO")
 ```
 
+```{r Combining Ppa}
+## Combine both P. pacificus mutation datasets
+WellerWang_20142026_MA_Ppacificus_Variants_Simple <-
+  dplyr::bind_rows(
+    Weller_2014_MA_Ppacificus_Variants_Simple,
+    Wang_2026_MA_Ppacificus_Variants_Simple
+  )
+
+```
+
 ```{r Drosophila}
 # Drosophila
 Assaf_2017_MA_Dmelanogaster_Variants <-
@@ -218,23 +228,6 @@ write_tsv(Weller_2014_MA_Ppacificus_Variants_Simple,
           file = "/home/ocdm0351/DPhil/VCF_DATA/Weller_2014_MA_Ppacificus_Variants_Simple.vcf")
 write_tsv(Wang_2026_MA_Ppacificus_Variants_Simple,
           file = "/home/ocdm0351/DPhil/VCF_DATA/Wang_2026_MA_Ppacificus_Variants_Simple.vcf")
-
-```
-
-```{r Remove hashed lines}
-library(readr)
-
-vcf_dir <- "/home/ocdm0351/DPhil/VCF_DATA"
-vcf_files <- list.files(vcf_dir, pattern = "\\.vcf$", full.names = TRUE)
-
-for (f in vcf_files) {
-  lines <- readr::read_lines(f)
-  # remove BOM on first line if present, normalize CR
-  if (length(lines) > 0) lines[1] <- sub("^\ufeff", "", lines[1])
-  lines <- sub("\r$", "", lines)
-  # keep everything that does NOT start with "##"
-  keep <- !grepl("^##", lines)
-  readr::write_lines(lines[keep], f)
-  message("Cleaned: ", basename(f))
-}
+write_tsv(WellerWang_20142026_MA_Ppacificus_Variants_Simple,
+          file = "/home/ocdm0351/DPhil/VCF_DATA/WellerWang_20142026_MA_Ppacificus_Variants_Simple.vcf")
 ```
