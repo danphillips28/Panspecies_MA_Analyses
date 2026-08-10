@@ -27,7 +27,8 @@ scripts=(
 "7_Downloading_Dmelanogaster_Essential_Genes.sh"
 "8_Cleaning_Annotated_Variant_Files_Submitter.sh"
 "9_Summarising_VCFs_Submitter.sh"
-"10_EnrichmentAroundFeatures_Submitter.sh") # Need to create sister species manually before running next section of pipeline # Currently automated at end of this script
+"10_EnrichmentAroundFeatures_Submitter.sh" # Need to run this because it produces some genomic resource objects needed in other scripts
+) # Need to create sister species manually before running next section of pipeline # Currently automated at end of this script
 
 prev_jobid=""
 

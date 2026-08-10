@@ -1,0 +1,59 @@
+---
+title: "Dmelanogaster_Testi_Cell_Expression"
+output: html_document
+date: "2026-06-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(Seurat)
+library(tidyr)
+library(readxl)
+library(janitor)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+# Subset to just Drosophila for testing
+Annotated_Dmelanogaster_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Dmelanogaster" ]
+                                                                     
+```
+
+```{r Download and Load Data}
+url <- "https://static-content.springer.com/esm/art%3A10.1186%2Fs12864-018-5085-z/MediaObjects/12864_2018_5085_MOESM2_ESM.xlsx"
+
+download.file(
+  url,
+  destfile = file.path(R_Data, "12864_2018_5085_MOESM2_ESM.xlsx"),
+  mode = "wb",
+  method = "libcurl"
+)
+
+Dmelanogaster_Germline_RNA <- read_excel(
+  paste0(R_Data, "/12864_2018_5085_MOESM2_ESM.xlsx"),
+  skip = 2
+)
+
+Dmelanogaster_Germline_RNA <- Dmelanogaster_Germline_RNA |>
+  janitor::clean_names()
+```

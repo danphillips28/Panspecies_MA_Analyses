@@ -820,7 +820,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
       filter(!is.na(Essential), !is.na(UniqueVariantsPlusOnePerBP)) %>%
       mutate(
         Essential = factor(Essential, levels = c("Non-Essential", "Essential")),
-        logRate = log(UniqueVariantsPlusOnePerBP)
+        mutationRate = UniqueVariantsPlusOnePerBP
       )
 
     if (length(unique(na.omit(ess_df$Essential))) == 2) {
@@ -828,42 +828,49 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
       n1 <- sum(ess_df$Essential == "Non-Essential", na.rm = TRUE)
       n2 <- sum(ess_df$Essential == "Essential", na.rm = TRUE)
 
-      y_pos <- max(ess_df$logRate, na.rm = TRUE) +
-        0.15 * diff(range(ess_df$logRate, na.rm = TRUE))
+      x1 <- ess_df$mutationRate[ess_df$Essential == "Non-Essential"]
+      x2 <- ess_df$mutationRate[ess_df$Essential == "Essential"]
 
-      p1 <- ggplot(ess_df, aes(x = Essential, y = logRate, fill = Essential, colour = Essential)) +
-        geom_violin() +
-        geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
-        ggpubr::stat_compare_means(
-          comparisons = list(c("Non-Essential", "Essential")),
-          method = "wilcox.test",
-          label = "p.format",
-          label.y = y_pos,
-          size = 3
+      y_top <- max(
+        boxplot.stats(x1)$stats[5],
+        boxplot.stats(x2)$stats[5]
+      )
+
+      y_line <- y_top * 1.03
+      y_text <- y_top * 1.07
+      y_lim  <- y_top * 1.15
+
+      pval <- wilcox.test(x1, x2)$p.value
+      ptxt <- paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3))
+
+      p1 <- ggplot(ess_df, aes(x = Essential, y = mutationRate, fill = Essential, colour = Essential)) +
+        geom_boxplot(width = 0.7, outlier.shape = NA, alpha = .2) +
+        annotate("segment", x = 1, xend = 2, y = y_line, yend = y_line, linewidth = 0.4) +
+        annotate("text", x = 1.5, y = y_text, label = ptxt, size = 3) +
+        coord_cartesian(ylim = c(0, y_lim), clip = "off") +
+        theme(
+          plot.subtitle = element_text(size = 3),
+          plot.title = element_text(size = 3),
+          legend.position = "none"
         ) +
-        
-        theme(plot.subtitle = element_text(size = 3),
-              plot.title = element_text(size = 3),
-              legend.position = "none") +
         scale_x_discrete(labels = c(
           "Non-Essential" = paste0("Non-Essential\nn = ", n1),
           "Essential" = paste0("Essential\nn = ", n2)
         )) +
-        scale_color_manual(values = c("grey", "black")) +
-        scale_fill_manual(values = c(alpha("grey", alpha = .4),
-                                     alpha("black", alpha = .4))) +
+        scale_color_manual(values = c("black", "orange")) +
+        scale_fill_manual(values = c(alpha("black", alpha = .2),
+                                     alpha("orange", alpha = .2))) +
         labs(
           title = paste0(species, " Essential Genes"),
-          subtitle = "Wilcoxon test on log-transformed mutation rates",
+          subtitle = "Wilcoxon test on raw mutation rates",
           x = NULL,
-          y = "log(Mutation rate (+1 per bp))"
+          y = "Synonymous Mutation Rate"
         )
 
       ggsave(
         plot = p1,
-        filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       element_name, "Synonymous__Essential_Boxplot.png"),
+        filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "Synonymous_Essential_Boxplot.png"),
         width = 2.5, height = 5,
         background = "transparent"
       )
@@ -879,7 +886,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
       filter(!is.na(HouseKeeping), !is.na(UniqueVariantsPlusOnePerBP)) %>%
       mutate(
         HouseKeeping = factor(HouseKeeping, levels = c("Non-HouseKeeping", "HouseKeeping")),
-        logRate = log(UniqueVariantsPlusOnePerBP)
+        mutationRate = UniqueVariantsPlusOnePerBP
       )
 
     if (length(unique(na.omit(hk_df$HouseKeeping))) == 2) {
@@ -887,42 +894,49 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants)) {
       n1 <- sum(hk_df$HouseKeeping == "Non-HouseKeeping", na.rm = TRUE)
       n2 <- sum(hk_df$HouseKeeping == "HouseKeeping", na.rm = TRUE)
 
-      y_pos <- max(hk_df$logRate, na.rm = TRUE) +
-        0.15 * diff(range(hk_df$logRate, na.rm = TRUE))
+      x1 <- hk_df$mutationRate[hk_df$HouseKeeping == "Non-HouseKeeping"]
+      x2 <- hk_df$mutationRate[hk_df$HouseKeeping == "HouseKeeping"]
 
-      p2 <- ggplot(hk_df, aes(x = HouseKeeping, y = logRate, fill = HouseKeeping, colour = HouseKeeping)) +
-        geom_violin() +
-        geom_boxplot(width = 0.2, outlier.shape = NA, alpha = .7) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
-        ggpubr::stat_compare_means(
-          comparisons = list(c("Non-HouseKeeping", "HouseKeeping")),
-          method = "wilcox.test",
-          label = "p.format",
-          label.y = y_pos,
-          size = 3
+      y_top <- max(
+        boxplot.stats(x1)$stats[5],
+        boxplot.stats(x2)$stats[5]
+      )
+
+      y_line <- y_top * 1.03
+      y_text <- y_top * 1.07
+      y_lim  <- y_top * 1.15
+
+      pval <- wilcox.test(x1, x2)$p.value
+      ptxt <- paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3))
+
+      p2 <- ggplot(hk_df, aes(x = HouseKeeping, y = mutationRate, fill = HouseKeeping, colour = HouseKeeping)) +
+        geom_boxplot(width = 0.7, outlier.shape = NA, alpha = .2) +
+        annotate("segment", x = 1, xend = 2, y = y_line, yend = y_line, linewidth = 0.4) +
+        annotate("text", x = 1.5, y = y_text, label = ptxt, size = 3) +
+        coord_cartesian(ylim = c(0, y_lim), clip = "off") +
+        theme(
+          plot.subtitle = element_text(size = 3),
+          plot.title = element_text(size = 3),
+          legend.position = "none"
         ) +
-        
-        theme(plot.subtitle = element_text(size = 3),
-              plot.title = element_text(size = 3),
-              legend.position = "none") +
         scale_x_discrete(labels = c(
           "Non-HouseKeeping" = paste0("Non-HouseKeeping\nn = ", n1),
           "HouseKeeping" = paste0("HouseKeeping\nn = ", n2)
         )) +
-        scale_color_manual(values = c("grey", "black")) +
-        scale_fill_manual(values = c(alpha("grey", alpha = .4),
-                                     alpha("black", alpha = .4))) +
+        scale_color_manual(values = c("black", "orange")) +
+        scale_fill_manual(values = c(alpha("black", alpha = .2),
+                                     alpha("orange", alpha = .2))) +
         labs(
           title = paste0(species, " HouseKeeping Genes"),
-          subtitle = "Wilcoxon test on log-transformed mutation rates",
+          subtitle = "Wilcoxon test on raw mutation rates",
           x = NULL,
-          y = "log(Mutation rate (+1 per bp))"
+          y = "Synonymous Mutation Rate"
         )
 
       ggsave(
         plot = p2,
-        filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
-                       element_name, "Synonymous_HouseKeeping_Boxplot.png"),
+        filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "Synonymous_HouseKeeping_Boxplot.png"),
         width = 2.5, height = 4,
         background = "transparent"
       )

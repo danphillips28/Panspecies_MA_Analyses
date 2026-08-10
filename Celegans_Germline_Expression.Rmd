@@ -1,0 +1,294 @@
+---
+title: "Celegans_Germline_Expression"
+output: html_document
+date: "2026-06-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(Seurat)
+library(tidyr)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+# Subset to just Drosophila for testing
+Annotated_Celegans_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                 #     "Dmelanogaster" |
+                                                                     # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                    #  "Hsapiens" |
+                                                                   #   names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Celegans" ]$SaxenaKonrad_2019_MA_Celegans_WS235
+
+# Read scRNA-Seq Expression 
+Celegans_Germline_scRNA <- readRDS(file.path(R_Data, "l4_sperm_tsne.rds"))
+class(Celegans_Germline_scRNA)
+```
+
+```{r Quick Exploration of the Data We Were Given}
+class(Celegans_Germline_scRNA)
+dim(Celegans_Germline_scRNA)
+colnames(Celegans_Germline_scRNA@meta.data)
+
+
+Assays(Celegans_Germline_scRNA)
+DefaultAssay(Celegans_Germline_scRNA)
+Reductions(Celegans_Germline_scRNA)
+head(rownames(Celegans_Germline_scRNA))
+head(colnames(Celegans_Germline_scRNA))
+table(Celegans_Germline_scRNA$class)
+```
+
+```{r Merging with Our Annotated VCF and Wrangling}
+# Seeing how much overlap we have (because they didn't use geneIDs)
+sum(Annotated_Celegans_PC_Gene_Body_Variants$gene_name %in%
+    rownames(Celegans_Germline_scRNA))
+
+length(
+    intersect(Annotated_Celegans_PC_Gene_Body_Variants$gene_name,
+              rownames(Celegans_Germline_scRNA)))
+
+# Reduce to one row per gene
+mut_annot <- unique(
+    Annotated_Celegans_PC_Gene_Body_Variants[,.(
+            gene_name,
+            UniqueVariantsPlusOnePerBP,
+            Overall_Mutation_Rate_Group,
+            Overall_Mutation_Rate_Group_More)])
+
+# Average Expression Across Cells to Get Gene x Stage Matrix
+avg_exp <- AverageExpression(
+    Celegans_Germline_scRNA,
+    group.by = "class",
+    assays = "RNA"
+)$RNA
+
+avg_exp <- log2(avg_exp + 1)
+
+# Subset to only genes we have scRNA-Seq data for
+mut_annot <- mut_annot[
+    gene_name %in% rownames(avg_exp)
+]
+
+# Converting Matrix to Df
+expr_df <- data.frame(
+    gene_name = rownames(avg_exp),
+    avg_exp
+)
+
+# Merge with Mutation Rate Annotations
+expr_df <- merge(
+    expr_df,
+    as.data.frame(mut_annot),
+    by = "gene_name"
+)
+```
+
+```{r Correlating Expression and Mutation Rate Within Each Stage}
+stages <- c("SP1","SP2","SP3","SP4","SP5")
+
+cor_df <- do.call(
+    rbind,
+    lapply(stages, function(stage) {
+
+        test <- cor.test(
+            expr_df[[stage]],
+            expr_df$UniqueVariantsPlusOnePerBP,
+            method = "spearman"
+        )
+
+        data.frame(
+            Stage = stage,
+            Rho = unname(test$estimate),
+            P = test$p.value
+        )
+    })
+)
+
+
+cor_df$Label <- paste0(
+    "ρ = ", round(cor_df$Rho, 3),
+    "\nP = ", signif(cor_df$P, 3)
+)
+
+p <- ggplot(
+    cor_df,
+    aes(
+      x = Stage,
+      y = Rho,
+      #colour = mutation,
+      #group = mutation
+    )
+  ) +
+   # geom_line(linewidth = 0.8, alpha = 0.15) +
+    geom_point(aes(size = -log10(P)), alpha = 0.8, colour = "orange") +
+    geom_smooth(
+      #aes(group = mutation, colour = mutation),
+      method = "loess",
+      colour = "orange",
+      se = FALSE,
+      linewidth = 0.6,
+      linetype = "dashed"
+    ) +
+    #scale_colour_manual(values = pal) +
+    scale_size(range = c(0.1, 10)) +
+    labs(
+      title = paste0("Mutation Rate vs Expression Across Development"),
+      subtitle = "Each line = mutation type",
+      x = "Embryonic Timepoint",
+      y = "Spearman Correlation Coefficient (ρ)",
+      #colour = "Mutation Type",
+      size = expression(-log[10](P))
+    ) +
+    theme(
+    #plot.title = element_text(size = BASE_SIZE-3),
+    legend.key.height = unit(0.4, "cm"),
+    legend.spacing.y = unit(0.1, "cm")) +
+    geom_hline(yintercept = 0) +
+    #scale_x_continuous(n.breaks = 12) +
+    scale_y_continuous(n.breaks = 14) +
+    scale_fill_manual(values = c("#ff5a1f"))
+
+  ggsave(
+    filename = paste0(
+      R_Data,
+      "Plots/8_Celegans_Germline_Expression/Mutation_Expression_Correlation_Trajectories.png"
+    ),
+    plot = p,
+    width = 4,
+    height = 3.25,
+    dpi = 2500,
+    create.dir = TRUE)
+  
+```
+
+```{r Expression of Mutation Rate Quantiles Across Stages}
+mean_df <- expr_df[,
+    c(
+        "Overall_Mutation_Rate_Group",
+        "SP1","SP2","SP3","SP4","SP5"
+    )
+]
+
+mean_df <- as.data.table(mean_df)
+
+mean_plot <- mean_df[
+    ,
+    .(
+        SP1 = mean(SP1),
+        SP2 = mean(SP2),
+        SP3 = mean(SP3),
+        SP4 = mean(SP4),
+        SP5 = mean(SP5)
+    ),
+    by = Overall_Mutation_Rate_Group
+]
+
+median_plot <- mean_df[
+    ,
+    .(
+        SP1 = median(SP1),
+        SP2 = median(SP2),
+        SP3 = median(SP3),
+        SP4 = median(SP4),
+        SP5 = median(SP5)
+    ),
+    by = Overall_Mutation_Rate_Group
+]
+
+
+mean_plot_long <- pivot_longer(
+    as.data.frame(mean_plot),
+    cols = SP1:SP5,
+    names_to = "Stage",
+    values_to = "Expression"
+)
+
+test <-
+ggplot(
+    mean_plot_long,
+    aes(
+        x = Stage,
+        y = Expression,
+        colour = factor(Overall_Mutation_Rate_Group),
+        group = Overall_Mutation_Rate_Group
+    )
+) +
+    geom_line() +
+    geom_point() +
+    theme_classic() +
+    labs(
+        colour = "Mutation\nGroup",
+        y = "Mean expression"
+    )
+
+    ggsave(
+    filename = paste0(
+      R_Data,
+      "Plots/8_Celegans_Germline_Expression/Spermatogenesis_TimeSeries_Mean_Expression_per_Mutation_Group_Plot.png"
+    ),
+    plot = test,
+    width = 7,
+    height = 5,
+    dpi = 2500,
+    create.dir = TRUE)
+
+median_plot_long <- pivot_longer(
+    as.data.frame(median_plot),
+    cols = SP1:SP5,
+    names_to = "Stage",
+    values_to = "Expression"
+)
+
+test_median <- 
+ggplot(
+    median_plot_long,
+    aes(
+        x = Stage,
+        y = Expression,
+        colour = factor(Overall_Mutation_Rate_Group),
+        group = Overall_Mutation_Rate_Group
+    )
+) +
+    geom_line() +
+    geom_point() +
+    theme_classic() +
+    labs(
+        colour = "Mutation\nGroup",
+        y = "Median expression"
+    )
+
+    ggsave(
+    filename = paste0(
+      R_Data,
+      "Plots/8_Celegans_Germline_Expression/Spermatogenesis_TimeSeries_Median_Expression_per_Mutation_Group_Plot.png"
+    ),
+    plot = test_median,
+    width = 7,
+    height = 5,
+    dpi = 2500,
+    create.dir = TRUE)
+```
+
+```{r}
+save(expr_df, file = paste0(R_Data, "Celegans_Spermatogenic_Stages_scRNASeq_Expression"))
+```

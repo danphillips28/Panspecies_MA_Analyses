@@ -3,6 +3,7 @@
 #SBATCH --job-name=20_Associating_Epigenetics_and_Expression_etc_with_Mutation_Rate_Submitter.sh
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err
+#SBATCH --partition=himem-gen
 
 module load Anaconda3
 source activate pandoc_env

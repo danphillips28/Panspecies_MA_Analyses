@@ -3,6 +3,10 @@
 #SBATCH --job-name=17_Downloading_Celegans_Epigenetics_Covariates_Data
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
+#SBATCH --time=02:00:00
+#SBATCH --partition=cpu-gen
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=1G
 
 # Load UCSC liftOver (conda environment)
 module load Anaconda3

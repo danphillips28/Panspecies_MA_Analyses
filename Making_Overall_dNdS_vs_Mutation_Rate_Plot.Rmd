@@ -26,17 +26,16 @@ library(seqinr)
 ```
 
 ```{r Setting Paths}
-R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 
-#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/"
-#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
 source(paste0(R_Data, "plotting.themes.R"))
 # Choose theme once per session/script
 set_my_theme("light")   # or "dark"
 ```
-
 
 ```{r Loading Data}
 load(file = paste0(R_Data,"Species_dNdS_MutationRate_Spearman_Tests"))
@@ -117,9 +116,10 @@ df <- map_df(names(all_tests), function(mutation_type) {
 
 df <- subset(df, Species %in% c("Assaf_2017_MA_Dmelanogaster_BDGP6",
                                 "SaxenaKonrad_2019_MA_Celegans_WS235",
-                                "WellerWang_20142026_MA_Ppacificus_Elpaco",
-                                "Behringer_2016_MA_Spombe_ASM294v2",
-                                "Villalbadelapena_2023_MA_Ncrassa_NC12"))
+                                "WellerWang_20142026_MA_Ppacificus_Elpaco"
+                                #"Behringer_2016_MA_Spombe_ASM294v2",
+                                #"Villalbadelapena_2023_MA_Ncrassa_NC12"
+                                ))
 
 #df$Species <- factor(df$Species, 
 #                     levels = c("Assaf_2017_MA_Dmelanogaster_BDGP6",
@@ -151,7 +151,7 @@ df$adj.p <- p.adjust(df$Pvalue, method = "BH", n = length(df$Pvalue))
 df <- df %>% mutate(signif = ifelse(adj.p < .05, "Adj. p Value < 0.5", "Adj. p Value > 0.5"))
 
 test <-
-ggplot(subset(df, MutationType != "Mutated_Synonymous"),
+ggplot(subset(df, MutationType != "Mutated_Synonymous" & Species != "WellerWang_20142026_MA_Ppacificus_Elpaco"),
               aes(y = MutationType, x = Rho, fill = signif, group = MutationType, size = -log10(adj.p))) +
   #geom_segment( aes(x=0, xend=Rho, y=MutationType, yend=MutationType), color="grey") + 
   geom_point(linewidth = 1, 
@@ -186,7 +186,7 @@ ggplot(subset(df, MutationType != "Mutated_Synonymous"),
     legend.spacing.x = unit(0.1, "cm"),
     legend.text = element_text(size = BASE_SIZE-4),
     legend.title = element_text(size = BASE_SIZE-3),
-    axis.text.x = element_text(size = BASE_SIZE-5),
+    axis.text.x = element_text(size = BASE_SIZE-4.5),
     axis.text.y = element_text(size = BASE_SIZE-2),
     axis.title = element_text(size = BASE_SIZE-2),
     axis.title.y = element_blank(),
@@ -200,9 +200,65 @@ ggplot(subset(df, MutationType != "Mutated_Synonymous"),
       filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                        "Species_Mutation_Category_vs_dNdS_Plot.png"),
       create.dir = TRUE,
-      width = 3.75,
-      height = 9,
-      dpi = 2500,
+      width = 4,
+      height = 4,
+      dpi = 1800,
+      device = ragg::agg_png)
+      
+
+testPpa <-
+ggplot(subset(df, MutationType != "Mutated_Synonymous" & Species == "WellerWang_20142026_MA_Ppacificus_Elpaco"),
+              aes(y = MutationType, x = Rho, fill = signif, group = MutationType, size = -log10(adj.p))) +
+  #geom_segment( aes(x=0, xend=Rho, y=MutationType, yend=MutationType), color="grey") + 
+  geom_point(linewidth = 1, 
+             position = position_dodge2(width = 0.5, preserve = "single"),
+             width = 0.2,
+             shape = 21,
+             alpha = .8,
+             colour = "black") +
+  scale_fill_manual(values = c("Adj. p Value < 0.5" = "orange", 
+                               "Adj. p Value > 0.5" = "grey"), guide = "none") +
+  theme_bw() +
+  labs(
+    #title = "Spearman Correlations of dN/dS vs Mutation Rates",
+    x = "Spearman Rho [Mutation Rate vs dN\\dS]",
+    y = "Species"
+  ) +
+  geom_hline(yintercept = 0, color = "black")  +
+  scale_x_continuous(n.breaks = 20) +
+  scale_y_discrete(expand = expansion(mult = 0.12)) +
+  guides(colour = "none",
+         fill = guide_legend(title.position = "top"),
+         alpha = guide_legend(title.position = "top")) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  #facet_grid(rows = vars(Species), scales = "free_y", ncol = 1) +
+  facet_wrap(~ Species, ncol = 1) +
+  theme(
+    legend.margin=margin(0, 0, -10, 0),
+    legend.position = "top",
+    legend.box = "vertical",
+    legend.title.position = "left",
+    legend.key.width = unit(0.4, "cm"),
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.text = element_text(size = BASE_SIZE-4),
+    legend.title = element_text(size = BASE_SIZE-3),
+    axis.text.x = element_text(size = BASE_SIZE-4.5),
+    axis.text.y = element_text(size = BASE_SIZE-2),
+    axis.title = element_text(size = BASE_SIZE-2),
+    axis.title.y = element_blank(),
+    strip.text = element_text(size = BASE_SIZE-2)) +
+  guides(
+  fill = guide_legend(title.position = "left", direction = "horizontal"),
+  size = guide_legend(title.position = "left", direction = "horizontal", override.aes = list(fill = "orange")))
+
+# Save the plot — change width/height as needed
+      ggsave(plot = testPpa,
+      filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       "Ppacificus_Mutation_Category_vs_dNdS_Plot.png"),
+      create.dir = TRUE,
+      width = 4,
+      height = 3,
+      dpi = 1800,
       device = ragg::agg_png)
 
 ```
@@ -310,6 +366,337 @@ Annotated_VCFs_PC_Gene_Body_Variants <- Map(
   Annotated_VCFs_PC_Gene_Body_Intronic_Variants
 )
 
+```
+
+```{r Essential vs Non-Essential Combined Plot}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+
+all_essential_tests <- list()
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
+
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
+    str_replace(., "^(.)(.*)$", "\\1_\\2")
+
+  df <- df %>% dplyr::distinct(GENE_ID, .keep_all = TRUE)
+
+  if (length(unique(na.omit(df$Essential))) == 1) next
+
+  tmp_df <- df %>%
+    dplyr::select(
+      GENE_ID,
+      Essential,
+      UniqueVariantsPlusOnePerBP,
+      UniqueSynonymousVariantsPlusOnePerBP,
+      UniqueIntronicVariantsPlusOnePerBP
+    ) %>%
+    pivot_longer(
+      cols = c(
+        UniqueVariantsPlusOnePerBP,
+        UniqueSynonymousVariantsPlusOnePerBP,
+        UniqueIntronicVariantsPlusOnePerBP
+      ),
+      names_to = "MutationType",
+      values_to = "mutationRate"
+    ) %>%
+    dplyr::filter(!is.na(Essential), !is.na(mutationRate)) %>%
+    mutate(
+      Species = species,
+      ElementName = element_name,
+      Essential = factor(Essential, levels = c("Non-Essential", "Essential")),
+      MutationType = factor(
+        MutationType,
+        levels = c(
+          "UniqueVariantsPlusOnePerBP",
+          "UniqueSynonymousVariantsPlusOnePerBP",
+          "UniqueIntronicVariantsPlusOnePerBP"
+        )
+      )
+    )
+
+  tmp_stats <- tmp_df %>%
+    group_by(Species, MutationType, ElementName) %>%
+    filter(dplyr::n_distinct(Essential) == 2) %>%
+    summarise(
+      n1 = sum(Essential == "Non-Essential", na.rm = TRUE),
+      n2 = sum(Essential == "Essential", na.rm = TRUE),
+      x1 = list(mutationRate[Essential == "Non-Essential"]),
+      x2 = list(mutationRate[Essential == "Essential"]),
+      pval = wilcox.test(unlist(x1), unlist(x2))$p.value,
+      y_top = max(
+        boxplot.stats(unlist(x1))$stats[5],
+        boxplot.stats(unlist(x2))$stats[5]
+      ),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      ptxt = paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3)),
+      y_line = y_top * 1.02,
+      y_text = y_top * 1.06
+    )
+
+  tmp_plot_df <- tmp_df %>%
+    left_join(tmp_stats, by = c("Species", "MutationType", "ElementName"))
+
+  all_essential_tests[[length(all_essential_tests) + 1]] <- tmp_plot_df
+}
+
+plot_df <- bind_rows(all_essential_tests)
+
+selected_celegans_dataset <- "SaxenaKonrad_2019_MA_Celegans_WS235"
+
+plot_df <- plot_df %>%
+  dplyr::filter(
+    Species != "C_elegans" | ElementName == selected_celegans_dataset
+  ) %>%
+  mutate(
+    MutationType = factor(
+      MutationType,
+      levels = c(
+        "UniqueVariantsPlusOnePerBP",
+        "UniqueSynonymousVariantsPlusOnePerBP",
+        "UniqueIntronicVariantsPlusOnePerBP"
+      )
+    )
+  )
+
+label_df <- plot_df %>%
+  group_by(Species, MutationType) %>%
+  summarise(
+    ptxt = unique(ptxt)[1],
+    y_line = unique(y_line)[1],
+    y_text = unique(y_text)[1],
+    .groups = "drop"
+  )
+
+p_essential <-
+  ggplot(plot_df, aes(x = Essential, y = mutationRate, fill = Essential, colour = Essential)) +
+  geom_boxplot(width = 0.7, outliers = FALSE, alpha = 0.2) +
+  geom_segment(
+    data = label_df,
+    aes(x = 1, xend = 2, y = y_line, yend = y_line),
+    inherit.aes = FALSE,
+    linewidth = 0.4
+  ) +
+  geom_text(
+    data = label_df,
+    aes(x = 1.5, y = y_text, label = ptxt),
+    inherit.aes = FALSE,
+    size = 1.5
+  ) +
+  facet_wrap(
+    ~ Species + MutationType,
+    scales = "free_y",
+    labeller = labeller(MutationType = as_labeller(c("UniqueVariantsPlusOnePerBP" = "Variants", "UniqueSynonymousVariantsPlusOnePerBP" = "Synonymous", "UniqueIntronicVariantsPlusOnePerBP" = "Intronic")))
+  ) +
+  scale_x_discrete(labels = c(
+    "Non-Essential" = "Non-\nEssential",
+    "Essential" = "Essential"
+  )) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.18)),
+                     n.breaks = 10) +
+  scale_color_manual(values = c("black", "orange")) +
+  scale_fill_manual(values = c(
+    alpha("black", alpha = .2),
+    alpha("orange", alpha = .2)
+  )) +
+  labs(
+    x = NULL,
+    y = "Mutation Rate"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = BASE_SIZE - 4),
+    axis.text.x = element_text(size = BASE_SIZE - 5),
+    axis.text.y = element_text(size = BASE_SIZE - 5)
+  )
+
+ggsave(
+  plot = p_essential,
+  filename = paste0(
+    R_Data,
+    "Plots/3_Mutation_and_dNdS_Association_Plots/",
+    "Species_Essential_Mutation_Rate_Boxplots.png"
+  ),
+  create.dir = TRUE,
+  width = 3,
+  height = 4,
+  dpi = 1800,
+  device = ragg::agg_png
+)
+```
+
+```{r Housekeeping vs Non-Housekeeping Combined Plot}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+
+all_housekeeping_tests <- list()
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
+
+  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
+    str_replace(., "^(.)(.*)$", "\\1_\\2")
+
+  df <- df %>% dplyr::distinct(GENE_ID, .keep_all = TRUE)
+
+  if (length(unique(na.omit(df$HouseKeeping))) == 1) next
+
+  tmp_df <- df %>%
+    dplyr::select(
+      GENE_ID,
+      HouseKeeping,
+      UniqueVariantsPlusOnePerBP,
+      UniqueSynonymousVariantsPlusOnePerBP,
+      UniqueIntronicVariantsPlusOnePerBP
+    ) %>%
+    pivot_longer(
+      cols = c(
+        UniqueVariantsPlusOnePerBP,
+        UniqueSynonymousVariantsPlusOnePerBP,
+        UniqueIntronicVariantsPlusOnePerBP
+      ),
+      names_to = "MutationType",
+      values_to = "mutationRate"
+    ) %>%
+    dplyr::filter(!is.na(HouseKeeping), !is.na(mutationRate)) %>%
+    mutate(
+      Species = species,
+      ElementName = element_name,
+      HouseKeeping = factor(
+        HouseKeeping,
+        levels = c("Non-HouseKeeping", "HouseKeeping")
+      ),
+      MutationType = factor(
+        MutationType,
+        levels = c(
+          "UniqueVariantsPlusOnePerBP",
+          "UniqueSynonymousVariantsPlusOnePerBP",
+          "UniqueIntronicVariantsPlusOnePerBP"
+        )
+      )
+    )
+
+  if (nrow(tmp_df) == 0) next
+  if (dplyr::n_distinct(tmp_df$HouseKeeping) < 2) next
+
+  tmp_stats <- tmp_df %>%
+    group_by(Species, MutationType, ElementName) %>%
+    summarise(
+      n1 = sum(HouseKeeping == "Non-HouseKeeping", na.rm = TRUE),
+      n2 = sum(HouseKeeping == "HouseKeeping", na.rm = TRUE),
+      x1 = list(mutationRate[HouseKeeping == "Non-HouseKeeping"]),
+      x2 = list(mutationRate[HouseKeeping == "HouseKeeping"]),
+      pval = wilcox.test(unlist(x1), unlist(x2))$p.value,
+      y_top = max(
+        boxplot.stats(unlist(x1))$stats[5],
+        boxplot.stats(unlist(x2))$stats[5]
+      ),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      ptxt = paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3)),
+      y_line = y_top * 1.02,
+      y_text = y_top * 1.06
+    )
+
+  tmp_plot_df <- tmp_df %>%
+    left_join(tmp_stats, by = c("Species", "MutationType", "ElementName"))
+
+  all_housekeeping_tests[[length(all_housekeeping_tests) + 1]] <- tmp_plot_df
+}
+
+plot_df <- bind_rows(all_housekeeping_tests)
+
+plot_df <- plot_df %>%
+  dplyr::filter(
+    Species != "C_elegans" | ElementName == selected_celegans_dataset
+  ) %>%
+  mutate(
+    MutationType = factor(
+      MutationType,
+      levels = c(
+        "UniqueVariantsPlusOnePerBP",
+        "UniqueSynonymousVariantsPlusOnePerBP",
+        "UniqueIntronicVariantsPlusOnePerBP"
+      )
+    )
+  )
+
+label_df <- plot_df %>%
+  group_by(Species, MutationType) %>%
+  summarise(
+    ptxt = unique(ptxt)[1],
+    y_line = unique(y_line)[1],
+    y_text = unique(y_text)[1],
+    .groups = "drop"
+  )
+
+p_housekeeping <-
+  ggplot(plot_df, aes(x = HouseKeeping, y = mutationRate, fill = HouseKeeping, colour = HouseKeeping)) +
+  geom_boxplot(width = 0.7, outliers = FALSE, alpha = 0.2) +
+  geom_segment(
+    data = label_df,
+    aes(x = 1, xend = 2, y = y_line, yend = y_line),
+    inherit.aes = FALSE,
+    linewidth = 0.4
+  ) +
+  geom_text(
+    data = label_df,
+    aes(x = 1.5, y = y_text, label = ptxt),
+    inherit.aes = FALSE,
+    size = 3
+  ) +
+  facet_wrap(
+    ~ Species + MutationType,
+    scales = "free_y",
+    labeller = labeller(MutationType = as_labeller(c("UniqueVariantsPlusOnePerBP" = "Variants", "UniqueSynonymousVariantsPlusOnePerBP" = "Synonymous", "UniqueIntronicVariantsPlusOnePerBP" = "Intronic")))
+  ) +
+  scale_x_discrete(labels = c(
+    "Non-HouseKeeping" = "Non-\nHouseKeeping",
+    "HouseKeeping" = "HouseKeeping"
+  )) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.18)),
+                     n.breaks = 10) +
+  scale_color_manual(values = c("black", "orange")) +
+  scale_fill_manual(values = c(
+    alpha("black", alpha = .2),
+    alpha("orange", alpha = .2)
+  )) +
+  labs(
+    x = NULL,
+    y = "Mutation rate"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = BASE_SIZE - 2),
+    axis.text.x = element_text(size = BASE_SIZE - 3),
+    axis.text.y = element_text(size = BASE_SIZE - 3)
+  )
+
+ggsave(
+  plot = p_housekeeping,
+  filename = paste0(
+    R_Data,
+    "Plots/3_Mutation_and_dNdS_Association_Plots/",
+    "Species_HouseKeeping_Mutation_Rate_Boxplots.png"
+  ),
+  create.dir = TRUE,
+  width = 4,
+  height = 4,
+  dpi = 1800,
+  device = ragg::agg_png
+)
 ```
 
 ```{r Saving}

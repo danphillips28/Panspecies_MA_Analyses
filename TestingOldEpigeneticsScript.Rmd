@@ -1,0 +1,607 @@
+---
+title: "TestingOldEpigneticsScript"
+output: html_document
+date: "2026-07-10"
+---
+
+---
+title: "Associating_MutationRate_with_Epigenetics_ExpressionAgain_and_Covariates"
+output: html_document
+date: "2025-10-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(EnrichedHeatmap)
+library(GenomicRanges)
+library(caret)
+library(data.table)
+library(glmnet)
+library(tidyverse)
+library(clinfun)
+#library(cutnumberint)
+library(ggnewscale)
+
+cutnumberint <- function(x, n = 5) {
+  cut(
+    x,
+    breaks = quantile(x, probs = seq(0, 1, length.out = n + 1), na.rm = TRUE),
+    include.lowest = TRUE,
+    labels = FALSE
+  )
+}
+```
+
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+
+
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+    df <- as.data.frame(df)
+    keep <- !grepl("^mean", names(df))
+    df[, keep, drop = FALSE]
+  }
+)
+
+# Subset to just Drosophila for testing
+Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                    #  "Dmelanogaster" |
+                                                                     # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                    #  "Hsapiens" |
+                                                                     #  names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      "Celegans" ] # |
+                                                                      # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      #"Ppacificus"]
+```
+
+```{r Extract Small Dataset for Peter}
+#Celegans_WS235_MutationRates <-
+#Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235[, c("GENE_ID","cDNA_length",
+#                                                                            "UniqueVariants","log2_Expression_Plus_One")]
+
+#colnames(Celegans_WS235_MutationRates) <- c("GENE_ID","gene_width","UniqueVariants","log2_Expression_Plus_One")
+
+#save(Celegans_WS235_MutationRates, file = paste0(R_Data, "Celegans_WS235_MutationRates"))
+```
+
+```{r Read and Save Epigenetics and Covariate Data}
+# Initialize list to store results
+Species_Epigenetics_and_Covariates <- list()
+
+# Loop through each element in Annotated_VCFs_PC_Gene_Body_Variants
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+  
+  # 1. Extract the species name (between 4th and 5th underscores)
+  species_name <- strsplit(element_name, "_")[[1]][4]
+  
+  # 2. Add an underscore after the first character
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+  
+  # 3. Find all bedgraph files starting with species_prefix and ending with "bedgraph"
+  species_files <- list.files(
+    path = R_Data,
+    pattern = paste0("^", species_prefix, ".*bedgraph$"),
+    full.names = TRUE)
+  
+  #3.5. Subset for testing purposes
+  #species_files <- species_files[1:10]
+  
+  # 4. Read each file separately, store in a named list
+  file_list <- lapply(species_files, function(f) {
+  tryCatch(
+    read.table(f, header = FALSE, sep = "\t", skip = 1),
+    error = function(e) NULL)  # skip unreadable files
+  
+  })
+  
+# 5. Name each element after its file (without path or extension)
+names(file_list) <- tools::file_path_sans_ext(basename(species_files))
+
+# 6. Store in main list
+Species_Epigenetics_and_Covariates[[species_name]] <- file_list
+}
+
+```
+
+```{r Rename columns and Remove chr from Chromosome Names}
+Species_Epigenetics_and_Covariates <- lapply(Species_Epigenetics_and_Covariates, function(file_list) {
+  lapply(file_list, function(df) {
+    if (!is.data.frame(df)) return(NULL)
+    if (ncol(df) == 4) colnames(df) <- c("chrom","start","end","value")
+    if (ncol(df) == 3) df <- df[,c("V1","V2","V2","V3")]
+    colnames(df) <- c("chrom","start","end","value")
+    df$chrom <- sub("^chr", "", df$chrom)  # remove "chr" from first column (chromosome)
+    df$chrom <- sub("^Chr", "", df$chrom)  # remove "chr" from first column (chromosome)
+   # set.seed(123)
+  #  df$Overall_Mutation_Rate_Group <- cut_number(jitter(df$UniqueVariantsPlusOnePerBP), n = 5)
+    df
+  })
+})
+```
+
+```{r Calculate Mean Epigenetic Values for Each Gene and Run Correlations}
+# Empty List for Correlation Results
+Species_Chromatin_Type_Spearman_Tests <- list()
+Species_Chromatin_Type_Pearson_Tests <- list()
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+  
+  # 1️⃣ Get the VCF-like data for this speciesand subset for protein coding genes
+  vcf_df <- subset(Annotated_VCFs_PC_Gene_Body_Variants[[element_name]],
+                   gene_biotype == "protein_coding")
+  
+  # 2️⃣ Extract species name (between 4th and 5th underscores)
+  species_name <- strsplit(element_name, "_")[[1]][4]
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+  
+  # 3️⃣ Get corresponding epigenetic data
+  epigenetic_list <- Species_Epigenetics_and_Covariates[[species_name]]
+ 
+  # 4️⃣ Convert gene coordinates to GRanges
+  gene_gr <- GRanges(
+    seqnames = vcf_df$CHROM,
+    ranges = IRanges(start = vcf_df$start, end = vcf_df$end),
+    strand = vcf_df$strand,
+    dNdS_Group = vcf_df$Overall_dNdS_Group,
+    mut_Group = vcf_df$Overall_Mutation_Rate_Group
+  )
+  
+  # 5️⃣ Loop through each epigenetic dataset for this species
+  for (mark_name in names(epigenetic_list)) {
+    mark_name_nospecies <- str_split(mark_name, "_", simplify = TRUE)[3]
+    mark_df <- epigenetic_list[[mark_name]]
+    
+    # Skip if the element is NULL
+    if (is.null(mark_df)) next
+    
+    # Conver to GRanges object
+    mark_gr <- GRanges(
+      seqnames = mark_df$chrom,
+      ranges = IRanges(start = mark_df$start, end = mark_df$end),
+      value = mark_df$value
+    )
+    
+    # Add strand information if needed
+    if (mark_name %like% "plus") {
+    strand(mark_gr) <- "+"
+    }
+    if (mark_name %like% "neg" |
+        mark_name %like% "minus") {
+    strand(mark_gr) <- "-"
+    }
+    
+# # 5️⃣ (Bonus): Plot Metagene EnrichedHeatmap of Epigenetic Mark Around Gene Body
+    body_epi_enrichment <- normalizeToMatrix(mark_gr,
+                                             gene_gr,
+                                             value_column = "value",
+                                             extend = 1000,
+                                             mean_mode = "weighted",
+                                             w = 50,
+                                             target_ratio = .7,
+                                             smooth = FALSE,
+                                             background = 0)
+    #test <-
+    #EnrichedHeatmap(body_epi_enrichment, name = "H3K9me3",
+    # top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = 2:4))),
+    # column_title = "H3K9me3",
+    # row_split = gene_gr$mut_Group)
+
+    # Extract Enrichment Bins and Grouping Indexing Information
+    mat <- as.matrix(body_epi_enrichment)
+    groups <- as.factor(gene_gr$mut_Group)
+    # Combine into a tidy data frame
+    df <- as.data.frame(mat) %>%
+      mutate(mut_group = groups) %>%
+      pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
+      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
+    # Summarise by dNdS group (mean + SE per position)
+    MutationDensities <- df %>%
+      group_by(mut_group, position) %>%
+      summarise( mean_score = mean(value, na.rm = TRUE), se = sd(value, na.rm = TRUE) / sqrt(n()), .groups = "drop")
+
+    # --- keep your original boundary logic exactly ---
+    avg <- colMeans(mat)
+    regionLength <- ((0.7 * 100) * length(avg)) / 100
+    lengthEachSide <- (length(avg) - regionLength) / 2
+    start <- lengthEachSide
+    end <- length(avg) - lengthEachSide
+    # Renaming NA dNdS Group
+    #MutationDensities <- MutationDensities %>% mutate(dNds_Group = forcats::fct_explicit_na(group, na_level = "No Ortholog"))
+
+    # --- Plot grouped by dNdS version ---
+      MutationDensityPlot <-
+      ggplot(MutationDensities,
+             aes(x = position, y = mean_score, color = mut_group, fill = mut_group)) +
+      geom_line(size = .5) +
+      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+              alpha = 0.2, color = NA) +
+      geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      theme_bw() +
+      labs(
+      title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
+      x = "Windows",
+      y = paste("Mean", mark_name_nospecies),
+      color = "Mutation \n Rate \n Quantile",
+      fill = "Mutation \n Rate \n Quantile") +
+      theme_bw() +
+    
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+          # ggSaving
+          ggsave(MutationDensityPlot,
+             filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+                               "Epigenetic_EnrichedHeatmaps/",
+                               species_prefix,
+                                "/GeneBody_Enrichment_of_", mark_name_nospecies, "_", element_name, ".png"),
+             bg = "transparent",
+             type="cairo",
+             units = "cm",
+             height = 8,
+             width = 15,
+             create.dir = TRUE,
+             dpi = 2000)
+          
+      
+    # 6️⃣ Merge by overlaps
+    merged <- as.data.frame(mergeByOverlaps(gene_gr, mark_gr))
+    
+    # Compute mean of all overlapping values per gene range
+    mean_df <- merged %>%
+    group_by(gene_gr.seqnames, gene_gr.start, gene_gr.end) %>%
+    summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
+    
+    # Rename mean_value to indicate mean epigenetic modification type
+    mean_mark_name <- paste("mean", mark_name_nospecies, sep = "_")
+    colnames(mean_df) <- c("CHROM",
+                           "start","end",
+                           mean_mark_name)
+    
+    # 7️⃣ Attach new mean column back to the original VCF dataframe
+    vcf_df <- merge(vcf_df, 
+                    mean_df, 
+                    by = c("CHROM", "start", "end"), 
+                    all.x = TRUE)
+
+  # Bin Genes by their chromatin mark
+  vcf_df <- vcf_df %>%
+  mutate(
+    Overall_Mark_Group = cut_number(
+      .data[[mean_mark_name]] + runif(n(), -1e-6, 1e-6),
+      n = 5,
+      ordered_result = TRUE
+    )
+  ) 
+
+
+    
+  # 8 Epigenetic Mark versus Mutation Rate
+  # Run Spearman Correlations
+  spearman_test <- 
+    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
+             vcf_df[[mean_mark_name]],
+             method = "spearman")
+  # Run Pearson Correlations
+  pearson_test <- 
+    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
+             vcf_df[[mean_mark_name]],
+             method = "pearson")
+  
+  # Save results into object
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]] <- spearman_test
+  Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]] <- pearson_test
+  
+  # Create a Scatter Plot
+  p1 <- 
+ggplot(
+  data = subset(vcf_df, !is.na(vcf_df[[mean_mark_name]])),
+  aes(x = !!sym(mean_mark_name),
+      y = UniqueVariantsPlusOnePerBP)
+) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste(mean_mark_name, "\n",
+                       vcf_df$GENE_ID %>% 
+                       unique() %>% length(), "Unique Protein Coding Genes with Mark Estimate"),
+      subtitle = paste0("Spearman Correlation: ", 
+                       "p Value = ", 
+                       Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$p.value %>% signif(., digits = 5),", ",
+                       "Coefficient = ", 
+                       Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$estimate %>% signif(., digits = 5),
+                       "\n",
+                       "Pearson Correlation: ", 
+                       "p Value = ", 
+                       Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$p.value %>% signif(., digits = 5),", ",
+                       "Coefficient = ", 
+                       Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$estimate %>% signif(., digits = 5)),
+      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
+    
+          scale_x_continuous(n.breaks = 10) +
+          scale_y_continuous(n.breaks = 10)
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p1,
+       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
+                               "Epigenetic_MutationRate_Scatter_Plots/",
+                               species_prefix,"/",
+                               species_prefix,"_",
+                                mark_name_nospecies,"_versus_MutationRate", "_", element_name, ".png"),
+      create.dir = TRUE,
+      width = 5,
+      height = 4,
+      dpi = 300)
+    
+
+# filter properly first — cleaner than putting subset() inside ggplot()
+plot_df <- vcf_df %>%
+  filter(!is.na(.data[[mean_mark_name]])) %>%
+  filter(!is.na(.data[["UniqueVariantsPlusOnePerBP"]]))
+
+library(ggplot2)
+
+p2 <-
+ggplot(plot_df, aes(x = Overall_Mark_Group, 
+                    y = UniqueVariantsPlusOnePerBP,
+                    fill = Overall_Mark_Group)) +
+  geom_boxplot(outliers = FALSE) +
+  labs(
+    title = paste0(
+      species_prefix, "\n",
+      plot_df %>%
+        filter(!is.na(Overall_Mark_Group),
+               !is.na(UniqueVariantsPlusOnePerBP)) %>%
+        pull(GENE_ID) %>%
+        unique() %>%
+        length(),
+      " Protein Coding Genes\nwith Embryonic ", mark_name
+    ),
+    subtitle = paste0(
+      "Jonckheere = ",
+      jonckheere.test(
+        plot_df$UniqueVariantsPlusOne, 
+        plot_df$Overall_Mark_Group, 
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      ", p = ",
+      jonckheere.test(
+        plot_df$UniqueVariantsPlusOne, 
+        plot_df$Overall_Mark_Group, 
+        alternative = "two.sided"
+      )$p.value %>% round(3)
+    )
+  ) +
+  
+  scale_y_continuous(n.breaks = 10) +
+  scale_fill_manual(values = colorRampPalette(
+    c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
+  )(length(unique(plot_df$Overall_Mark_Group)))) +
+  guides(fill = "none")
+
+
+    # Save the plot — change width/height as needed
+    ggsave(plot = p2,
+       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
+                               "Epigenetic_MutationRate_JK_Plots/",
+                               species_prefix,"/",
+                               species_prefix,"_",
+                                mark_name_nospecies,"_Bins_versus_MutationRate", "_", element_name, ".png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2,
+      height = 3,
+      dpi = 300)
+  }
+  
+  # Add GC_percentage column if doesn't exist
+  vcf_df <- vcf_df %>% mutate(
+    GC_Percentage = as.numeric(GC_Length)/as.numeric(cDNA_length))
+  
+  # 8️⃣ Save updated dataframe back into list
+  Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- vcf_df
+  
+  # Add Some Manual Correlations of Data Already in vcf_df; GC_Percentage, gene width and Expression
+  # Run Spearman Correlations
+  expression_spearman_test <- 
+    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
+             vcf_df$log2_Expression_Plus_One,
+             method = "spearman")
+  # Save results into object
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["log2_Expression_Plus_One"]] <- expression_spearman_test
+  
+  # Run Spearman Correlations
+  GC_spearman_test <- 
+    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
+             log(vcf_df$GC_Percentage),
+             method = "spearman")
+  # Save results into object
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["GC_Percentage"]] <- GC_spearman_test
+  
+  # Run Spearman Correlations
+  width_spearman_test <- 
+    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
+             log(vcf_df$cDNA_length),
+             method = "spearman")
+  # Save results into object
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["cDNA_length"]] <- width_spearman_test
+  
+  message("Processed: ", element_name, " (species: ", species_name, ")")
+}
+
+```
+
+```{r LASSO Hybrid Version}
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+  
+  # 1️⃣ Get the VCF-like data for this species
+  element <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
+  species_name <- strsplit(element_name, "_")[[1]][4]
+  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
+  
+  # Subset to Only Covariate and Predictor Columns
+  element_data <- element %>%
+  dplyr::select(GENE_ID, 
+         UniqueVariantsPlusOnePerBP, 
+         log2_Expression_Plus_One, 
+         GC_Percentage,
+         matches(c("H3K27me3$","H3K36me3$",
+                 "HP1$","HPL2",
+                 "H3K9me2$","H3K9me3$",
+                 "H3K9ac$","H4K5ac$",
+                 "H3K4me1$","H3K4me3",
+                 "cDNA_length",
+                 #"plus$",
+                 #"minus$",
+                 "mean_replication")))
+  
+  # Working with complete cases for now
+  element_data_complete_cases <-
+  element_data[complete.cases(element_data) == TRUE,] %>% unique()
+
+  # 1️⃣ Split into training and testing sets
+  set.seed(69)
+  index <- createDataPartition(element_data_complete_cases$UniqueVariantsPlusOnePerBP, p = 0.8, list = FALSE)
+  train_df <- element_data_complete_cases[index, ]
+  test_df  <- element_data_complete_cases[-index, ]
+
+  # 2️⃣ Prepare matrices
+  y_train <- train_df$UniqueVariantsPlusOnePerBP
+  X_train <- scale(train_df[, setdiff(names(train_df), c("GENE_ID","UniqueVariantsPlusOnePerBP"))])  # standardize
+  y_test  <- test_df$UniqueVariantsPlusOnePerBP
+  X_test  <- scale(test_df[, setdiff(names(test_df), c("GENE_ID","UniqueVariantsPlusOnePerBP"))], 
+                 center = attr(X_train, "scaled:center"), 
+                 scale  = attr(X_train, "scaled:scale"))  # use same scaling!
+
+  # 3️⃣ Cross-validated LASSO on training set
+  cv_fit <- cv.glmnet(X_train, y_train, alpha = 1, nfolds = 10)
+
+  # 4️⃣ Evaluate on test set
+  pred_test <- predict(cv_fit, s = "lambda.min", newx = X_test)
+  test_R2 <- cor(pred_test, y_test)^2
+  test_RMSE <- sqrt(mean((y_test - pred_test)^2))
+
+  test_R2
+  test_RMSE
+
+  # 5️⃣ Extract coefficients for interpretation
+  coef_df <- as.data.frame(as.matrix(coef(cv_fit, s = "lambda.min")))
+  coef_df$variable <- rownames(coef_df)
+  colnames(coef_df)[1] <- "coefficient"
+  coef_df <- subset(coef_df,
+                    variable != "(Intercept)")
+  coef_df$p_value <- ""
+  coef_df$test <- "LASSO"
+
+  # Plot LASSO Coefficients
+  LASSO_Coefficients_Plot <-
+  ggplot(coef_df, aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(
+    values = c("TRUE" = "#1b9e77", "FALSE" = "#d95f02"),
+    labels = c("Negative", "Positive")) +
+  labs(
+    title = "LASSO Variable Importance for Mutation Rate",
+    subtitle = paste0("Cross-validated LASSO (λ = ", round(test_R2, 5), ")"),
+    x = "Predictor variable",
+    y = "Standardized coefficient",
+    fill = "Effect direction") +
+  
+  theme(
+    legend.position = "top")
+
+  # Collapse Simple Correlation Results into Dataframe
+  species_dfs <- lapply(Species_Chromatin_Type_Spearman_Tests, function(species_list) {
+  data.frame(
+    variable = names(species_list),
+    coefficient = sapply(species_list, function(x) x$estimate),  # Spearman correlation coefficient
+    p_value = sapply(species_list, function(x) x$p.value),
+    test = "Spearman",
+    stringsAsFactors = FALSE)
+  })
+    
+    # Combine Simple Correlation and LASSO Results
+    combined_results <- 
+      rbind(
+      species_dfs[[species_prefix]],
+      coef_df)
+    # Set Test type as Factor to set ordering in plot
+    combined_results$test <- factor(combined_results$test,
+                                    levels = c("Spearman","LASSO"))
+    
+    # Rename cDNA_length to gene_width
+    combined_results$variable <- gsub("cDNA_length","gene_width", combined_results$variable)
+  
+     
+    # Plot Facetable Bar Plot
+  LASSO_Spearman_Coefficients_Plot <-
+  ggplot() +
+  # The Spearman Plot
+  geom_col(data = subset(combined_results,
+                         test == "Spearman" &
+                         variable %in% c(coef_df$variable,"gene_width")),
+  aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
+  colour = "black") +
+  coord_flip() +
+  scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
+    guides(fill = "none") +
+  # Reset Scales
+  ggnewscale::new_scale_fill() +
+  # The LASSO Plot
+  geom_col(data = subset(combined_results,
+                         test == "LASSO" &
+                         variable %in% c(coef_df$variable,"gene_width")),
+  aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
+  colour = "black") +
+  coord_flip() +
+  scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
+    guides(fill = "none") +
+  # Theming
+  facet_grid(~test, scales = "free") +
+  labs(
+    title = paste(species_prefix, "\n", "LASSO Variable Importance for Mutation Rate"),
+    subtitle = paste0("Cross-validated LASSO (λ = ", round(test_R2, 5), ")"),
+    x = "Predictor variable",
+    y = "Standardized coefficient"
+  ) +
+    scale_y_continuous(n.breaks = 16) +
+    theme(axis.text.x = element_text(size = BASE_SIZE-4, angle = 90))
+
+  # Save the plot — change width/height as needed
+    ggsave(plot = LASSO_Spearman_Coefficients_Plot,
+       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
+                               "Expression_Methylation_LASSO_Plots/",
+                               element_name, "_",
+                               "_LASSO_Model_Plot",".png"),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 5.5,
+      height = 3.4,
+      dpi = 1000)
+  
+}
+
+```
+
+```{r Saving}
+save(Annotated_VCFs_PC_Gene_Body_Variants, 
+     file = paste0(R_Data,"Annotated_VCFs_PC_Gene_Body_Variants"))
+```

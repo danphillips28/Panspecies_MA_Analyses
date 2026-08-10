@@ -14,7 +14,7 @@ RMD_FILE="/home/ocdm0351/DPhil/scripts/EnrichmentAroundFeatures.Rmd"
 OUTPUT_DIR="/home/ocdm0351/DPhil/R_Data/htmls"
 Rscript -e "rmarkdown::render('$RMD_FILE', output_dir = '$OUTPUT_DIR')"
 
-#RMD_FILE="/home/ocdm0351/DPhil/scripts/EnrichmentAroundAllFeatures.Rmd"
+#RMD_FILE="/home/ocdm0351/DPhil/scripts/EnrichmentAroundTSSTTS.Rmd"
 #OUTPUT_DIR="/home/ocdm0351/DPhil/R_Data/htmls"
 #Rscript -e "rmarkdown::render('$RMD_FILE', output_dir = '$OUTPUT_DIR')"
 

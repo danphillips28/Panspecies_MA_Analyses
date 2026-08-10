@@ -19,11 +19,10 @@ library(clinfun)
 ```
 
 ```{r Setting Paths}
-R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
-Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
-#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
-
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 ```
 
 ```{r Loading Data}
@@ -31,8 +30,8 @@ load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Dmelanogaster" |
-                                                                      names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Hsapiens" |
+                                                                      #names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                      #"Hsapiens" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Celegans" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
@@ -269,76 +268,23 @@ Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
   Annotated_VCFs_PC_Gene_Body_Variants,
   function(df) {
     df <- df %>%
-      subset(gene_biotype == "protein_coding") %>%
       mutate(
         Overall_Expression_Group = ifelse(
-          Expression_value == 0, "0",
-          ifelse(is.na(Expression_value), NA,
-                 as.character(cut_number(Expression_value + runif(n(), -1e-6, 1e-6), n = 5))))) 
-
-    # If there are no non-NA groups, just return
-    if (all(is.na(df$Overall_Expression_Group))) return(df)
-
-    # get unique non-zero, non-NA labels
-    labels_nonzero <- unique(na.omit(df$Overall_Expression_Group[df$Overall_Expression_Group != "0"]))
-
-    if (length(labels_nonzero) > 0) {
-      # extract the numeric lower bound from each label (handles scientific notation)
-      lower_str <- str_extract(labels_nonzero, "-?\\d*\\.?\\d+(?:e[+-]?\\d+)?")
-      lower_num <- as.numeric(lower_str)
-
-      # if any NAs produced (labels not matching), fallback to keeping original order
-      if (all(!is.na(lower_num))) {
-        ordered_nonzero <- labels_nonzero[order(lower_num)]
-      } else {
-        ordered_nonzero <- labels_nonzero
-      }
-    } else {
-      ordered_nonzero <- character(0)
-    }
-
-    # set new factor levels with "0" first
-    new_levels <- c("0", ordered_nonzero)
-    df$Overall_Expression_Group <- factor(df$Overall_Expression_Group,
-                                         levels = new_levels,
-                                         ordered = TRUE)
-    
-    
-    df <- df %>%
-      mutate(
+          log2_Expression_Plus_One == 0, "0",
+          ifelse(
+            is.na(log2_Expression_Plus_One), NA,
+            as.character(cut_number(log(log2_Expression_Plus_One), n = 5, labels = FALSE))
+          )
+        ),
         Overall_Expression_Group_More = ifelse(
-          Expression_value == 0, "0",
-          ifelse(is.na(Expression_value), NA,
-                 as.character(cut_number(Expression_value + runif(n(), -1e-6, 1e-6), n = 28)))))
-
-    # If there are no non-NA groups, just return
-    if (all(is.na(df$Overall_Expression_Group_More))) return(df)
-
-    # get unique non-zero, non-NA labels
-    labels_nonzero <- unique(na.omit(df$Overall_Expression_Group_More[df$Overall_Expression_Group_More != "0"]))
-
-    if (length(labels_nonzero) > 0) {
-      # extract the numeric lower bound from each label (handles scientific notation)
-      lower_str <- str_extract(labels_nonzero, "-?\\d*\\.?\\d+(?:e[+-]?\\d+)?")
-      lower_num <- as.numeric(lower_str)
-
-      # if any NAs produced (labels not matching), fallback to keeping original order
-      if (all(!is.na(lower_num))) {
-        ordered_nonzero <- labels_nonzero[order(lower_num)]
-      } else {
-        ordered_nonzero <- labels_nonzero
-      }
-    } else {
-      ordered_nonzero <- character(0)
-    }
-
-    # set new factor levels with "0" first
-    new_levels <- c("0", ordered_nonzero)
-    df$Overall_Expression_Group_More <- factor(df$Overall_Expression_Group_More,
-                                         levels = new_levels,
-                                         ordered = TRUE)
-
-    df
+          log2_Expression_Plus_One == 0, "0",
+          ifelse(
+            is.na(log2_Expression_Plus_One), NA,
+            as.character(cut_number(log(log2_Expression_Plus_One), n = 15, labels = FALSE))
+          )
+        )
+      )
+    return(df)
   }
 )
 
@@ -357,74 +303,126 @@ df <- subset(df, is.na(log2_Expression_Plus_One) == FALSE)
 
 # Plot Association of Expression Bins with MutationsPlusOnePerBP 
 p1 <-
-ggplot(data = subset(df,
-                     is.na(Overall_Expression_Group) == FALSE),
-       aes(x = Overall_Expression_Group, 
-           y = UniqueVariantsPlusOnePerBP,
-           fill = Overall_Expression_Group)) +
-  theme_bw() +
-  geom_boxplot(outliers = FALSE) +
-  labs(title = paste(name, "\n",
-                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
-                       unique() %>% length(), "Protein Coding Genes with Embyonic Expression"),
-       subtitle = 
-                paste("Johnckheere =", 
-                jonckheere.test(
-                df$UniqueVariantsPlusOne, 
-                df$Overall_Expression_Group, 
-                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
-                "p =",
-                jonckheere.test(
-                df$UniqueVariantsPlusOne, 
-                df$Overall_Expression_Group, 
-                alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
-  
-  scale_y_continuous(n.breaks = 20) +
-  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group)))) +
+  ggplot(
+    data = df,
+    aes(
+      x = Overall_Expression_Group,
+      y = UniqueVariantsPlusOnePerBP,
+      fill = Overall_Expression_Group
+    )
+  ) +
+  geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+  labs(
+    y = "Gene Body Mutation Rate",
+    title = paste(
+      name, "\n",
+      subset(df, !is.na(Overall_Expression_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+        unique() %>%
+        length(),
+      "Unique Protein Coding Genes with Expression"
+    ),
+    subtitle = paste(
+      "Cuzick test =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group,
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      "p =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group,
+        alternative = "two.sided"
+      )$p.value %>% round(3), "\n",
+      "Jonckheere test =",
+      jonckheere.test(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group,
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      "p =",
+      jonckheere.test(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group,
+        alternative = "two.sided"
+      )$p.value %>% round(3)
+    )
+  ) +  
+  theme(plot.title = element_text(size = BASE_SIZE - 6),
+        axis.title.x = element_text(size = BASE_SIZE -4),
+        plot.subtitle = element_text(size = BASE_SIZE - 6),
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3)) +
+  scale_y_continuous(n.breaks = 10) +
+  scale_fill_manual(values = c("#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801")) +
   guides(fill = "none")
 
-
-    # Save the plot — change width/height as needed
-      ggsave(plot = p1,
-      filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
+# Save the plot — transparent background, keep borders
+ggsave(
+  plot = p1,
+  filename = paste0(R_Data, "Plots/4_Mutation_and_Expression_Association_Plots/",
                        species_name, "/",
                        name, "_Binned_Expression_vs_Mutation_Rate_Plot.png"),
-      bg = "transparent",
-      create.dir = TRUE,
-      width = 2.75,
-      height = 4,
-      dpi = 2500)
-      
+  bg = "transparent",   # ensure transparent PNG background
+  width = 2,
+  height = 4,
+  dpi = 2500
+)
       
       
 # Plot Association of More Expression Bins with MutationsPlusOnePerBP 
 p2 <-
-ggplot(data = subset(df,
-                     is.na(Overall_Expression_Group_More) == FALSE),
-       aes(x = Overall_Expression_Group_More, 
-           y = UniqueVariantsPlusOnePerBP,
-           fill = Overall_Expression_Group_More)) +
-  theme_bw() +
-  geom_boxplot(outliers = FALSE) +
-  labs(title = paste(name, "\n",
-                       subset(df, is.na(log2_Expression_Plus_One) == FALSE & is.na(UniqueVariantsPlusOnePerBP) == FALSE)$GENE_ID %>% 
-                       unique() %>% length(), "Protein Coding Genes\nwith Embyonic Expression"),
-       subtitle = 
-                paste("Johnckheere =", 
-                jonckheere.test(
-                df$UniqueVariantsPlusOne, 
-                df$Overall_Expression_Group_More, 
-                alternative = c("two.sided"))$statistic %>% round(., digits = 3),
-                "p =",
-                jonckheere.test(
-                df$UniqueVariantsPlusOne, 
-                df$Overall_Expression_Group_More, 
-                alternative = c("two.sided"))$p.value %>% round(., digits = 3))) +
-   
-  scale_y_continuous(n.breaks = 20) +
+  ggplot(
+    data = subset(df, !is.na(Overall_Expression_Group)),
+    aes(
+      x = Overall_Expression_Group_More,
+      y = UniqueVariantsPlusOnePerBP,
+      fill = Overall_Expression_Group_More
+    )
+  ) +
+  geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
+  labs(
+    y = "Gene Body Mutation Rate",
+    title = paste(
+      name, "\n",
+      subset(df, !is.na(Overall_Expression_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+        unique() %>%
+        length(),
+      "Unique Protein Coding Genes with Expression"
+    ),
+    subtitle = paste(
+      "Cuzick test =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group_More,
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      "p =",
+      cuzickTest(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group_More,
+        alternative = "two.sided"
+      )$p.value %>% round(3), "\n",
+      "Jonckheere test =",
+      jonckheere.test(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group_More,
+        alternative = "two.sided"
+      )$statistic %>% round(3),
+      "p =",
+      jonckheere.test(
+        df$UniqueVariantsPlusOne,
+        df$Overall_Expression_Group_More,
+        alternative = "two.sided"
+      )$p.value %>% round(3)
+    )
+  ) +
+  theme(plot.title = element_text(size = BASE_SIZE - 6),
+        axis.title.x = element_text(size = BASE_SIZE -4),
+        plot.subtitle = element_text(size = BASE_SIZE - 6),
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1)) +  
+  scale_y_continuous(n.breaks = 10) +
   scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More)))) +
   guides(fill = "none")
-
 
     # Save the plot — change width/height as needed
       ggsave(plot = p2,
@@ -433,7 +431,7 @@ ggplot(data = subset(df,
                        name, "_Binned_More_Expression_vs_Mutation_Rate_Plot.png"),
       bg = "transparent",
       create.dir = TRUE,
-      width = 2.25,
+      width = 2,
       height = 4,
       dpi = 2500)
       

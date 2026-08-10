@@ -1,0 +1,278 @@
+---
+title: "Enrichment Around TSS, TES, and Gene Bodies"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+
+library(dplyr)
+library(stringr)
+library(readr)
+library(ggplot2)
+library(rtracklayer)
+library(GenomicRanges)
+library(IRanges)
+library(EnrichedHeatmap)
+library(ComplexHeatmap)
+library(grid)
+
+```
+
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r}
+load(file = paste0(R_Data, "/Annotated_VCFs_Raw"))
+
+Annotated_VCFs_Raw <- Annotated_VCFs_Raw[1]
+
+extend_value <- 8000
+window <- 25
+target_ratio <- 0.7
+
+out_dir <- paste0(R_Data, "/Plots/2_GeneBody_Plots")
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+Reduced_Variants <- lapply(
+  Annotated_VCFs_Raw,
+  function(df) {
+    as_tibble(df) %>%
+      select(CHROM, POS) %>%
+      mutate(
+        CHROM = as.character(CHROM),
+        POS = as.integer(POS)
+      ) %>%
+      distinct()
+  }
+)
+
+for (element_name in names(Reduced_Variants)) {
+
+  message("Processing: ", element_name)
+
+  parts <- str_split(element_name, "_", simplify = TRUE)
+  build <- parts[,5]
+  species <- str_replace(parts[,4], "^(.)(.*)$", "\\1_\\2")
+
+  gtf_path <- paste0(
+    R_Data, "/data/",
+    species,
+    "/",
+    build,
+    "/genes.gtf"
+  )
+
+  canonical_path <- paste0(
+    R_Data, "/Canonical_Transcripts_",
+    species,
+    "_",
+    build,
+    "_snpEffSift.tsv"
+  )
+
+  full.gtf <- rtracklayer::import(gtf_path)
+  canonical_map <- read_tsv(canonical_path, show_col_types = FALSE)
+
+  canonical_col <- intersect(
+    c("transcriptId", "transcript_id"),
+    names(canonical_map)
+  )[1]
+
+  if (is.na(canonical_col)) next
+
+  canonical_ids <- unique(as.character(canonical_map[[canonical_col]]))
+
+  tx <- full.gtf[full.gtf$type %in% c("transcript", "mRNA")]
+  tx_cols <- names(mcols(tx))
+
+  if ("transcript_id" %in% tx_cols) {
+    tx <- tx[as.character(mcols(tx)$transcript_id) %in% canonical_ids]
+  } else if ("transcriptId" %in% tx_cols) {
+    tx <- tx[as.character(mcols(tx)$transcriptId) %in% canonical_ids]
+  } else {
+    next
+  }
+
+  if ("transcript_biotype" %in% tx_cols) {
+    tx <- tx[mcols(tx)$transcript_biotype == "protein_coding"]
+  } else if ("gene_biotype" %in% tx_cols) {
+    tx <- tx[mcols(tx)$gene_biotype == "protein_coding"]
+  } else if ("biotype" %in% tx_cols) {
+    tx <- tx[mcols(tx)$biotype == "protein_coding"]
+  }
+
+  tx <- tx[strand(tx) %in% c("+", "-")]
+  if (length(tx) == 0) next
+
+  PC_Transcripts <- data.frame(
+    seqnames = as.character(seqnames(tx)),
+    start = start(tx),
+    end = end(tx),
+    strand = as.character(strand(tx)),
+    gene_id = if ("gene_id" %in% tx_cols) {
+      as.character(mcols(tx)$gene_id)
+    } else {
+      as.character(seq_along(tx))
+    },
+    stringsAsFactors = FALSE
+  )
+
+  PC_Transcript_TSS_Ranges <- makeGRangesFromDataFrame(
+    PC_Transcripts[, c("seqnames","start","gene_id")],
+    keep.extra.columns = TRUE,
+    ignore.strand = TRUE,
+    seqnames.field = "seqnames",
+    na.rm = TRUE,
+    start.field = "start",
+    end.field = "start",
+    starts.in.df.are.0based = FALSE
+  )
+
+  PC_Transcript_Body_Ranges <- makeGRangesFromDataFrame(
+    PC_Transcripts[, c("seqnames","start","end","gene_id")],
+    keep.extra.columns = TRUE,
+    ignore.strand = TRUE,
+    seqnames.field = "seqnames",
+    na.rm = TRUE,
+    start.field = "start",
+    end.field = "end",
+    starts.in.df.are.0based = FALSE
+  )
+
+  PC_Transcript_TTS_Ranges <- makeGRangesFromDataFrame(
+    PC_Transcripts[, c("seqnames","end","gene_id")],
+    keep.extra.columns = TRUE,
+    ignore.strand = TRUE,
+    seqnames.field = "seqnames",
+    na.rm = TRUE,
+    start.field = "end",
+    end.field = "end",
+    starts.in.df.are.0based = FALSE
+  )
+
+  MA_Variant_GRanges <- makeGRangesFromDataFrame(
+    Reduced_Variants[[element_name]],
+    keep.extra.columns = TRUE,
+    ignore.strand = TRUE,
+    seqnames.field = "CHROM",
+    start.field = "POS",
+    end.field = "POS",
+    starts.in.df.are.0based = FALSE
+  )
+
+  #MA_Variant_GRanges <- coverage(MA_Variant_GRanges)
+  MA_Variant_GRanges <- as(MA_Variant_GRanges, "GRanges")
+  #MA_Variant_GRanges <- MA_Variant_GRanges[MA_Variant_GRanges$score > 0]
+
+  tss_Variants <- normalizeToMatrix(
+    MA_Variant_GRanges,
+    PC_Transcript_TSS_Ranges,
+    extend = extend_value,
+    mean_mode = "absolute",
+    w = window,
+    smooth = FALSE,
+    background = 0
+  )
+
+  body_Variants <- normalizeToMatrix(
+    MA_Variant_GRanges,
+    PC_Transcript_Body_Ranges,
+    extend = extend_value,
+    mean_mode = "absolute",
+    w = window,
+    target_ratio = target_ratio,
+    smooth = FALSE,
+    background = 0
+  )
+
+  tts_Variants <- normalizeToMatrix(
+    MA_Variant_GRanges,
+    PC_Transcript_TTS_Ranges,
+    extend = extend_value,
+    mean_mode = "absolute",
+    w = window,
+    smooth = FALSE,
+    background = 0
+  )
+
+  CombinedPlot <-
+    EnrichedHeatmap(
+      tss_Variants,
+      top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = "#ff5500",
+                                                                                   size = 10),
+                                                   axis_param = list(gp = gpar(size=4)),
+                                                   pos_line_gp = gpar(lty = 2),
+                                                   show_error = TRUE,
+                                                   height = unit(7.75, "cm"))),
+                pos_line = TRUE,
+                pos_line_gp = gpar(lty = 10),
+                axis_name_rot = 0,
+                axis_name_gp = gpar(fontsize = 10),
+                #col = c("grey", "grey"), 
+      name = "TSS",
+      column_title = "TSS",
+      show_heatmap_legend = FALSE
+    ) +
+    EnrichedHeatmap(
+      body_Variants,
+      top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = "#ff5500",
+                                                                                   size = 10),
+                                                   axis_param = list(gp = gpar(size=4)),
+                                                   pos_line_gp = gpar(lty = 2),
+                                                   show_error = TRUE,
+                                                   height = unit(7.75, "cm"))),
+                pos_line = TRUE,
+                pos_line_gp = gpar(lty = 10),
+                axis_name_rot = 0,
+                axis_name_gp = gpar(fontsize = 10),
+                #col = c("grey", "grey"), 
+      name = "Body",
+      column_title = "PC Gene Body"
+    ) +
+    EnrichedHeatmap(
+      tts_Variants,
+      top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = "#ff5500",
+                                                                                   size = 10),
+                                                   axis_param = list(gp = gpar(size=4)),
+                                                   pos_line_gp = gpar(lty = 2),
+                                                   show_error = TRUE,
+                                                   height = unit(7.75, "cm"))),
+                pos_line = TRUE,
+                pos_line_gp = gpar(lty = 10),
+                axis_name_rot = 0,
+                axis_name_gp = gpar(fontsize = 10),
+                col = c("grey", "grey"), 
+     # col = c("grey","grey"),
+      name = "TTS",
+      column_title = "TTS"
+    )
+
+  png(
+    filename = file.path(out_dir, paste0(element_name, "_TSS_Body_TTS.png")),
+    bg = "transparent",
+    units = "in",
+    width = 10,
+    height = 8,
+    res = 600
+  )
+
+  draw(
+    CombinedPlot,
+    background = "transparent",
+    ht_gap = unit(c(5,5), "mm"),
+    show_heatmap_legend = FALSE
+  )
+
+  dev.off()
+}
+```

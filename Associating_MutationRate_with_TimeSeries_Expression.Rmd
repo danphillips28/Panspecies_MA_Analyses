@@ -12,6 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggplot2)
 library(data.table)
+library(PMCMRplus)
+library(clinfun)
 `%ni%` <- Negate(`%in%`)
 ```
 
@@ -30,8 +32,6 @@ set_my_theme("light")   # or "dark"
 ```{r Loading Data}
 load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 # Subset to just Drosophila for testing
-load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
-# Subset to just Drosophila for testing
 Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "Dmelanogaster" |
                                                                      # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
@@ -40,8 +40,17 @@ Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[nam
                                                                       "Celegans" |
                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
                                                                       "WellerWang"]
+# Clean Up in Case Script is Run Out of Order
+Annotated_VCFs_PC_Gene_Body_Variants <-
+  lapply(Annotated_VCFs_PC_Gene_Body_Variants, function(df) {
 
+    keep_cols <- names(df)[
+      !grepl("\\.(x|y)$", names(df)) &
+      !startsWith(names(df), "log2_Expression_Plus_One")
+    ]
 
+    df[, ..keep_cols]
+  })
 
 ```
 
@@ -63,7 +72,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   # Find all relevant files
   species_files <- list.files(
     path = R_Data,
-    pattern = paste0("^", species_prefix, ".*TimeSeries_([0-9]+).*"),
+    pattern = paste0("^", species_prefix, ".*(TimeSeries_([0-9]+C?).*|Embryonic_Expression\\.tsv$)"),
     full.names = TRUE
   )
 
@@ -73,6 +82,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   file_dt_list <- lapply(species_files, function(f) {
     tryCatch({
       dt <- fread(f, sep = "\t", header = TRUE)
+
       # Clean up header
       setnames(dt, gsub("#", "", names(dt)))
 
@@ -84,11 +94,18 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       dt[, Expression_value := as.numeric(Expression_value)]
 
       # Compute log2(expression + 1)
-      dt[, log2_Expression_Plus_One := log2(Expression_value + .5)]
+      dt[, log2_Expression_Plus_One := log2(Expression_value + 1)]
       #dt[, log2_Expression_Plus_One := (Expression_value + 1)]
 
       # Extract timepoint number from filename
-      tp <- sub(".*TimeSeries_([0-9]+).*", "\\1", basename(f))
+      fname <- basename(f)
+
+      if (grepl("Embryonic_Expression\\.tsv$", fname)) {
+        tp <- ""
+      } else {
+        tp <- sub(".*TimeSeries_([0-9]+C?).*", "\\1", fname)
+      }
+
       dt[, time_point := tp]
 
       # Keep only required columns
@@ -106,11 +123,13 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   # Combine all timepoints into one long data.table
   combined_long <- rbindlist(file_dt_list, use.names = TRUE, fill = TRUE)
 
-  # If there are duplicated (gene_id, time_point) pairs, aggregate (mean) them:
-  # (change mean to sum/median/first if you prefer)
+  # If there are duplicated (gene_id, time_point) pairs, aggregate (mean) them
   if (any(duplicated(combined_long[, .(gene_id, time_point)]))) {
-    combined_long <- combined_long[, .(log2_Expression_Plus_One = mean(log2_Expression_Plus_One, na.rm = TRUE)),
-                                   by = .(gene_id, time_point)]
+    combined_long <- combined_long[
+      ,
+      .(log2_Expression_Plus_One = mean(log2_Expression_Plus_One, na.rm = TRUE)),
+      by = .(gene_id, time_point)
+    ]
   }
 
   # Pivot wider — use time_point as the column variable and log2_Expression_Plus_One as the values
@@ -124,7 +143,11 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   # Rename timepoint columns to include the prefix
   time_cols <- setdiff(names(merged_expression_wide), "gene_id")
-  setnames(merged_expression_wide, old = time_cols, new = paste0("log2_Expression_Plus_One", time_cols))
+  setnames(
+    merged_expression_wide,
+    old = time_cols,
+    new = paste0("log2_Expression_Plus_One", time_cols)
+  )
 
   # Merge expression matrix into the Annotated VCF (ensure both are data.tables)
   element_dt <- as.data.table(element)
@@ -135,12 +158,15 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     by.y = "gene_id",
     all.x = TRUE
   )
+
   # Save the updated element back into the list
   Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- element_expression
 
   # Store the raw list of data.tables if you need them later
   Species_TimeSeries_Expression[[species_name]] <- file_dt_list
 }
+
+save(Species_TimeSeries_Expression, file = paste0(R_Data, "Species_TimeSeries_Expression"))
 ```
 
 ```{r Expression Versus Mutation Rate Associations}
@@ -269,10 +295,192 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         p1,
         filename = paste0(
           R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
-          species_prefix, "/",
+          element_name, "/",
           plot_tag, "_Linear_Association_Plot.png"
         ),
         width = 5, height = 4, dpi = 300, create.dir = TRUE
+      )
+
+      # ============================================================
+      # BIN EXPRESSION FOR THIS TIMEPOINT
+      # ============================================================
+      df <- df_full[!is.na(df_full[[expr_col]]) & !is.na(df_full[[mutation_col]]), ]
+      name <- plot_tag
+
+      x <- df[[expr_col]]
+
+      df$Overall_Expression_Group <- NA_character_
+      df$Overall_Expression_Group_More <- NA_character_
+
+      zero <- !is.na(x) & x == 0
+      pos  <- !is.na(x) & x > 0
+
+      df$Overall_Expression_Group[zero] <- "0"
+      df$Overall_Expression_Group_More[zero] <- "0"
+
+      if (sum(pos) > 0) {
+        df$Overall_Expression_Group[pos] <-
+          as.character(ntile(x[pos], 5))
+
+        df$Overall_Expression_Group_More[pos] <-
+          as.character(ntile(x[pos], 15))
+      }
+
+      df$Overall_Expression_Group <- factor(
+        df$Overall_Expression_Group,
+        levels = as.character(0:5),
+        ordered = TRUE
+      )
+
+      df$Overall_Expression_Group_More <- factor(
+        df$Overall_Expression_Group_More,
+        levels = as.character(0:15),
+        ordered = TRUE
+      )
+      
+
+      # Plot Association of Expression Bins with MutationsPlusOnePerBP
+      p1 <-
+        ggplot(
+          data = df,
+          aes(
+            x = Overall_Expression_Group,
+            y = UniqueVariantsPlusOnePerBP,
+            fill = Overall_Expression_Group
+          )
+        ) +
+        geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+        labs(
+          y = "Gene Body Mutation Rate",
+          title = paste(
+            name, "\n",
+            subset(df, !is.na(Overall_Expression_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+              unique() %>%
+              length(),
+            "Unique Protein Coding Genes with Expression"
+          ),
+          subtitle = paste(
+            "Cuzick test =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$p.value %>% round(3), "\n",
+            "Jonckheere test =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$p.value %>% round(3)
+          )
+        ) +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 6),
+          axis.title.x = element_text(size = BASE_SIZE - 4),
+          plot.subtitle = element_text(size = BASE_SIZE - 6),
+          axis.text.x = element_text(angle = 0, size = BASE_SIZE - 3)
+        ) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(drop = FALSE, na.translate = FALSE) +
+        scale_fill_manual(values = c("yellow", "#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801"), na.translate = FALSE) +
+        guides(fill = "none")
+
+      ggsave(
+        plot = p1,
+        filename = paste0(
+          R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+          element_name, "/",
+          plot_tag, "_Binned_Expression_vs_Mutation_Rate_Plot.png"
+        ),
+        bg = "transparent",
+        width = 2,
+        height = 4,
+        dpi = 2500
+      )
+
+      # Plot Association of More Expression Bins with MutationsPlusOnePerBP
+      p2 <-
+        ggplot(
+          data = subset(df, !is.na(Overall_Expression_Group)),
+          aes(
+            x = Overall_Expression_Group_More,
+            y = UniqueVariantsPlusOnePerBP,
+            fill = Overall_Expression_Group_More
+          )
+        ) +
+        geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
+        labs(
+          y = "Gene Body Mutation Rate",
+          title = paste(
+            name, "\n",
+            subset(df, !is.na(Overall_Expression_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+              unique() %>%
+              length(),
+            "Unique Protein Coding Genes with Expression"
+          ),
+          subtitle = paste(
+            "Cuzick test =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$p.value %>% round(3), "\n",
+            "Jonckheere test =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$p.value %>% round(3)
+          )
+        ) +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 6),
+          axis.title.x = element_text(size = BASE_SIZE - 4),
+          plot.subtitle = element_text(size = BASE_SIZE - 6),
+          axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1)
+        ) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(drop = FALSE, na.translate = FALSE) +
+        scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More))),
+                          na.translate = FALSE) +
+        guides(fill = "none")
+
+      ggsave(
+        plot = p2,
+        filename = paste0(
+          R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+          element_name, "/",
+          plot_tag, "_Binned_More_Expression_vs_Mutation_Rate_Plot.png"
+        ),
+        bg = "transparent",
+        create.dir = TRUE,
+        width = 2,
+        height = 4,
+        dpi = 2500
       )
     }
 
@@ -316,10 +524,188 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         p1,
         filename = paste0(
           R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
-          species_prefix, "/",
+          element_name, "/",
           plot_tag, "_MutatedOnly_Linear_Association_Plot.png"
         ),
         width = 5, height = 4, dpi = 300, create.dir = TRUE
+      )
+
+      # ============================================================
+      # BIN EXPRESSION FOR THIS TIMEPOINT
+      # ============================================================
+      df <- df_mut[!is.na(df_mut[[expr_col]]) & !is.na(df_mut[[mutation_col]]), ]
+      name <- paste0(plot_tag, "_MutatedOnly")
+
+      x <- df[[expr_col]]
+
+      df$Overall_Expression_Group <- NA_character_
+      df$Overall_Expression_Group_More <- NA_character_
+
+      zero <- !is.na(x) & x == 0
+      pos  <- !is.na(x) & x > 0
+
+      df$Overall_Expression_Group[zero] <- "0"
+      df$Overall_Expression_Group_More[zero] <- "0"
+
+      if (sum(pos) > 0) {
+        df$Overall_Expression_Group[pos] <-
+          as.character(ntile(x[pos], 5))
+
+        df$Overall_Expression_Group_More[pos] <-
+          as.character(ntile(x[pos], 15))
+      }
+
+      df$Overall_Expression_Group <- factor(
+        df$Overall_Expression_Group,
+        levels = as.character(0:5),
+        ordered = TRUE
+      )
+
+      df$Overall_Expression_Group_More <- factor(
+        df$Overall_Expression_Group_More,
+        levels = as.character(0:15),
+        ordered = TRUE
+      )
+
+      # Plot Association of Expression Bins with MutationsPlusOnePerBP
+      p1 <-
+        ggplot(
+          data = df,
+          aes(
+            x = Overall_Expression_Group,
+            y = UniqueVariantsPlusOnePerBP,
+            fill = Overall_Expression_Group
+          )
+        ) +
+        geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+        labs(
+          y = "Gene Body Mutation Rate",
+          title = paste(
+            name, "\n",
+            subset(df, !is.na(Overall_Expression_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+              unique() %>%
+              length(),
+            "Unique Protein Coding Genes with Expression"
+          ),
+          subtitle = paste(
+            "Cuzick test =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$p.value %>% round(3), "\n",
+            "Jonckheere test =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group,
+              alternative = "two.sided"
+            )$p.value %>% round(3)
+          )
+        ) +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 6),
+          axis.title.x = element_text(size = BASE_SIZE - 4),
+          plot.subtitle = element_text(size = BASE_SIZE - 6),
+          axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3)
+        ) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_fill_manual(values = c("yellow", "#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801")) +
+        guides(fill = "none")
+
+      ggsave(
+        plot = p1,
+        filename = paste0(
+          R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+          element_name, "/",
+          plot_tag, "_MutatedOnly_Binned_Expression_vs_Mutation_Rate_Plot.png"
+        ),
+        bg = "transparent",
+        width = 2,
+        height = 4,
+        dpi = 2500
+      )
+
+      # Plot Association of More Expression Bins with MutationsPlusOnePerBP
+      p2 <-
+        ggplot(
+          data = subset(df, !is.na(Overall_Expression_Group)),
+          aes(
+            x = Overall_Expression_Group_More,
+            y = UniqueVariantsPlusOnePerBP,
+            fill = Overall_Expression_Group_More
+          )
+        ) +
+        geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
+        labs(
+          y = "Gene Body Mutation Rate",
+          title = paste(
+            name, "\n",
+            subset(df, !is.na(Overall_Expression_Group) & !is.na(UniqueVariantsPlusOnePerBP))$GENE_ID %>%
+              unique() %>%
+              length(),
+            "Unique Protein Coding Genes with Expression"
+          ),
+          subtitle = paste(
+            "Cuzick test =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            cuzickTest(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$p.value %>% round(3), "\n",
+            "Jonckheere test =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            jonckheere.test(
+              df$UniqueVariantsPlusOne,
+              df$Overall_Expression_Group_More,
+              alternative = "two.sided"
+            )$p.value %>% round(3)
+          )
+        ) +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 6),
+          axis.title.x = element_text(size = BASE_SIZE - 4),
+          plot.subtitle = element_text(size = BASE_SIZE - 6),
+          axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1)
+        ) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_Expression_Group_More)))) +
+        guides(fill = "none")
+
+      ggsave(
+        plot = p2,
+        filename = paste0(
+          R_Data, "Plots/6_Mutation_and_TimeSeries_Expression_Association_Plots/",
+          element_name, "/",
+          plot_tag, "_MutatedOnly_Binned_More_Expression_vs_Mutation_Rate_Plot.png"
+        ),
+        bg = "transparent",
+        create.dir = TRUE,
+        width = 2,
+        height = 4,
+        dpi = 2500
       )
     }
   }
@@ -345,7 +731,7 @@ Spearman_summary <- lapply(names(Species_TimeSeries_Expression_MutationRate_Spea
     data.frame(
       species     = species,
       mutation    = mutation_key,
-      timepoint   = as.numeric(names(mutation_list)),
+      timepoint   = names(mutation_list),
       coefficient = sapply(mutation_list, function(x) unname(x$estimate)),
       p_value     = sapply(mutation_list, function(x) x$p.value),
       stringsAsFactors = FALSE
@@ -400,20 +786,29 @@ pal <- setNames(
 # ============================================================
 # PLOT: ONE FIGURE PER SPECIES, MULTIPLE MUTATION LINES
 # ============================================================
+
+tp_levels <- c(
+  intersect(c("1C", "2C"), unique(Spearman_summary$timepoint)),
+  as.character(sort(as.numeric(
+    unique(Spearman_summary$timepoint)[grepl("^[0-9]+$", unique(Spearman_summary$timepoint))]
+  )))
+)
+
 for (species_name in unique(Spearman_summary$species)) {
 
   df_plot <- subset(Spearman_summary, species == species_name)
+  df_plot$timepoint_plot <- match(df_plot$timepoint, tp_levels)
 
   p <- ggplot(
     df_plot,
     aes(
-      x = timepoint,
+      x = timepoint_plot,
       y = coefficient,
       colour = mutation,
       group = mutation
     )
   ) +
-   # geom_line(linewidth = 0.8, alpha = 0.15) +
+    # geom_line(linewidth = 0.8, alpha = 0.15) +
     geom_point(aes(size = neglog10p), alpha = 0.15) +
     geom_smooth(
       aes(group = mutation, colour = mutation),
@@ -422,8 +817,20 @@ for (species_name in unique(Spearman_summary$species)) {
       linewidth = 0.6,
       linetype = "dashed"
     ) +
-    scale_colour_manual(values = pal) +
+    scale_colour_manual(values = c("#ff5a1f",
+                                   "#ff9f68",
+                                   "#ffd983",
+                                   "#e599ff",
+                                   "#d966ff",
+                                   "#cc33ff",
+                                   "#bf00ff",
+                                   "#730099",
+                                   "#35063e")) +
     scale_size(range = c(0.1, 2)) +
+    scale_x_continuous(
+  breaks = seq(1, length(tp_levels), by = 4),
+  labels = tp_levels[seq(1, length(tp_levels), by = 4)]
+  ) +
     labs(
       title = paste0(species_name, " Mutation Rate vs Expression Across Development"),
       subtitle = "Each line = mutation type",
@@ -433,20 +840,12 @@ for (species_name in unique(Spearman_summary$species)) {
       size = expression(-log[10](p))
     ) +
     theme(
-    plot.title = element_text(size = BASE_SIZE-3),
-    legend.key.height = unit(0.4, "cm"),
-    legend.spacing.y = unit(0.1, "cm")) +
-    scale_x_continuous(n.breaks = 12) +
-    scale_y_continuous(n.breaks = 14) +
-    scale_colour_manual(values = c("#ff5a1f",
-                                 "#ff9f68",
-                                 "#ffd983",
-                                 "#e599ff",
-                                 "#d966ff",
-                                 "#cc33ff",
-                                 "#bf00ff",
-                                 "#730099",
-                                 "#35063e"))
+      plot.title = element_text(size = BASE_SIZE - 3),
+      axis.text.x = element_text(size = BASE_SIZE -5),
+      legend.key.height = unit(0.4, "cm"),
+      legend.spacing.y = unit(0.1, "cm")
+    ) +
+    scale_y_continuous(n.breaks = 14)
 
   ggsave(
     filename = paste0(
@@ -462,7 +861,6 @@ for (species_name in unique(Spearman_summary$species)) {
     create.dir = TRUE
   )
 }
-
 
 
 # # # MutatedOnly
@@ -481,7 +879,7 @@ Spearman_summary_MutatedOnly <- lapply(names(Species_TimeSeries_Expression_Mutat
     data.frame(
       species     = species,
       mutation    = mutation_key,
-      timepoint   = as.numeric(names(mutation_list_MutatedOnly)),
+      timepoint   = names(mutation_list_MutatedOnly),
       coefficient = sapply(mutation_list_MutatedOnly, function(x) unname(x$estimate)),
       p_value     = sapply(mutation_list_MutatedOnly, function(x) x$p.value),
       stringsAsFactors = FALSE
@@ -536,14 +934,23 @@ pal <- setNames(
 # ============================================================
 # PLOT: ONE FIGURE PER SPECIES, MULTIPLE MUTATION LINES
 # ============================================================
+
+tp_levels <- c(
+  intersect(c("1C", "2C"), unique(Spearman_summary_MutatedOnly$timepoint)),
+  as.character(sort(as.numeric(
+    unique(Spearman_summary_MutatedOnly$timepoint)[grepl("^[0-9]+$", unique(Spearman_summary_MutatedOnly$timepoint))]
+  )))
+)
+
 for (species_name in unique(Spearman_summary_MutatedOnly$species)) {
 
   df_plot <- subset(Spearman_summary_MutatedOnly, species == species_name)
+  df_plot$timepoint_plot <- match(df_plot$timepoint, tp_levels)
 
   p <- ggplot(
     df_plot,
     aes(
-      x = timepoint,
+      x = timepoint_plot,
       y = coefficient,
       colour = mutation,
       group = mutation
@@ -560,6 +967,10 @@ for (species_name in unique(Spearman_summary_MutatedOnly$species)) {
     ) +
     scale_colour_manual(values = pal) +
     scale_size(range = c(0.1, 2)) +
+     scale_x_continuous(
+  breaks = seq(1, length(tp_levels), by = 4),
+  labels = tp_levels[seq(1, length(tp_levels), by = 4)]
+  ) +
     labs(
       title = paste0(species_name, " Mutation Rate vs Expression Across Development"),
       subtitle = "Each line = mutation type",
@@ -569,10 +980,11 @@ for (species_name in unique(Spearman_summary_MutatedOnly$species)) {
       size = expression(-log[10](p))
     ) +
     theme(
-    plot.title = element_text(size = BASE_SIZE-3),
-    legend.key.height = unit(0.4, "cm"),
-    legend.spacing.y = unit(0.1, "cm")) +
-    scale_x_continuous(n.breaks = 12) +
+      plot.title = element_text(size = BASE_SIZE - 3),
+      axis.text.x = element_text(size = BASE_SIZE -5),
+      legend.key.height = unit(0.4, "cm"),
+      legend.spacing.y = unit(0.1, "cm")
+    ) +
     scale_y_continuous(n.breaks = 14) +
     scale_colour_manual(values = c("#ff5a1f",
                                  "#ff9f68",
@@ -583,6 +995,7 @@ for (species_name in unique(Spearman_summary_MutatedOnly$species)) {
                                  "#bf00ff",
                                  "#730099",
                                  "#35063e"))
+
 
   ggsave(
     filename = paste0(
@@ -598,6 +1011,7 @@ for (species_name in unique(Spearman_summary_MutatedOnly$species)) {
     create.dir = TRUE
   )
 }
+
 ```
 
 ```{r Profiling Overall and Mutation-Group Expression Across Development}
@@ -1029,17 +1443,23 @@ process_clustering <- function(mat, meta_df, species_name, label, k_use) {
 
   ht <- Heatmap(
     mat,
+    name = "-log2(Expression + 1)",
     col = heatmap_col_fun,
     cluster_columns = FALSE,
+    cluster_row_slices = FALSE,
     row_km = k_use,
     row_km_repeats = 20,
     show_row_names = FALSE,
-    border = TRUE
+    border = TRUE,
+    heatmap_legend_param = list(
+      direction = "horizontal",
+      title_position = "topcenter"
+    )
   )
 
   png(file.path(out_dir, paste0("Heatmap_", species_name, "_", label, ".png")),
-      width = 3000, height = 5000, res = 900, type = "cairo-png")
-  ht_drawn <- draw(ht)
+      width = 5000, height = 5000, res = 900, type = "cairo-png")
+  ht_drawn <- draw(ht, heatmap_legend_side = "top")
   dev.off()
 
   cluster_list <- row_order(ht_drawn)
@@ -1097,12 +1517,14 @@ process_clustering <- function(mat, meta_df, species_name, label, k_use) {
                 fill = "grey70", alpha = 0.3) +
     geom_line(colour = "black", linewidth = 1) +
     geom_point(size = 1.5, colour = "black") +
-    facet_grid(cluster ~ ., scales = "free_y") +
+    facet_grid(cluster ~ .) +
     labs(
       title = paste0(species_name, " Cluster Mean Expression (", label, ")"),
       x = "Time",
       y = "Mean Expression"
-    )
+    ) +
+    theme(strip.text.y = element_text(size = BASE_SIZE + 8),
+          axis.title.y = element_text(size = BASE_SIZE + 16))
 
   ggsave(file.path(out_dir,
                    paste0("ClusterMeanExpression_", species_name, "_", label, ".png")),
@@ -1117,12 +1539,14 @@ process_clustering <- function(mat, meta_df, species_name, label, k_use) {
                 fill = "grey70", alpha = 0.3) +
     geom_line(colour = "black", linewidth = 1) +
     geom_point(size = 1.5, colour = "black") +
-    facet_grid(cluster ~ ., scales = "free_y") +
+    facet_grid(cluster ~ .) +
     labs(
       title = paste0(species_name, " Cluster Median Expression (", label, ")"),
       x = "Time",
       y = "Median Expression"
-    )
+    ) +
+    theme(strip.text.y = element_text(size = BASE_SIZE + 8),
+          axis.title.y = element_text(size = BASE_SIZE + 16))
 
   ggsave(file.path(out_dir,
                    paste0("ClusterMedianExpression_", species_name, "_", label, ".png")),
@@ -1148,7 +1572,10 @@ process_clustering <- function(mat, meta_df, species_name, label, k_use) {
                         fill = cluster)) +
       geom_boxplot(outliers = FALSE) +
       scale_fill_manual(values = cluster_palette_all) +
-      theme(legend.position = "none") +
+      theme(
+        legend.position = "none",
+        plot.title = element_text(size = BASE_SIZE - 12)
+      ) +
       labs(title = paste0(species_name, " Mutation Rate (", label, ")"))
 
     ggsave(file.path(out_dir,
@@ -1269,44 +1696,83 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     unscaled = clustered_unscaled
   )
 }
+
+# Add Median Mutation Rate per Cluster for Peter
+cluster_results <- lapply(cluster_results, function(x) {
+  x$scaled$median_mutation_rate <- ave(
+    x$scaled$UniqueVariantsPlusOnePerBP,
+    x$scaled$cluster,
+    FUN = function(z) median(z, na.rm = TRUE)
+  )
+
+  x$unscaled$median_mutation_rate <- ave(
+    x$unscaled$UniqueVariantsPlusOnePerBP,
+    x$unscaled$cluster,
+    FUN = function(z) median(z, na.rm = TRUE)
+  )
+
+  x
+})
+
+
+# Output for Peter
+save(cluster_results, file = paste0(R_Data, "timeseries_cluster_results"))
 ```
 
 ```{r ORA}
 # ============================================================
 # GO OVER-REPRESENTATION ENRICHMENT FOR K-MEANS CLUSTERS
 # (BP + CC + MF)
+# using BioMart-derived GO_Annotations
 # ============================================================
+
+GO_Annotations <- readRDS(
+  file.path(R_Data, "GO_Annotations.rds")
+)
 
 suppressPackageStartupMessages({
   library(clusterProfiler)
-  library(AnnotationDbi)
-  library(org.Ce.eg.db)
-  library(org.Dm.eg.db)
   library(ggplot2)
   library(dplyr)
 })
 
+ont_lookup <- c(
+  BP = "biological_process",
+  CC = "cellular_component",
+  MF = "molecular_function"
+)
+
 for (species_name in names(cluster_results)) {
 
-  if (!(species_name %in% c("Celegans", "Dmelanogaster"))) next
+  if (!(species_name %in% c("Celegans", "Dmelanogaster", "Spombe", "Ncrassa", "Ppacificus"))) next
 
   clustered_df <- cluster_results[[species_name]]$unscaled
   if (is.null(clustered_df)) next
 
   # ----------------------------
-  # Species setup
+  # Species tag
   # ----------------------------
   if (species_name == "Celegans") {
-    orgdb <- org.Ce.eg.db
-    keytype_used <- "WORMBASE"
     species_tag <- "Celegans"
-  } else {
-    orgdb <- org.Dm.eg.db
-    keytype_used <- "FLYBASE"
+  } else if (species_name == "Dmelanogaster") {
     species_tag <- "Dmelanogaster"
+  } else if (species_name == "Spombe") {
+    species_tag <- "Spombe"
+  } else if (species_name == "Ncrassa") {
+    species_tag <- "Ncrassa"
+  } else if (species_name == "Ppacificus") {
+    species_tag <- "Ppacificus"
+  } else {
+    next
   }
 
   message("Running cluster enrichment for: ", species_name)
+
+  go_species <- if (exists("GO_Annotations")) GO_Annotations[[species_tag]] else NULL
+  if (is.null(go_species) || nrow(go_species) == 0) {
+    message("No GO annotations available for ", species_tag, "; skipping cluster GO enrichment for ", species_name)
+    next
+  }
 
   species_out_dir <- file.path(
     R_Data,
@@ -1314,6 +1780,10 @@ for (species_name in names(cluster_results)) {
     species_tag
   )
   dir.create(species_out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  # Universe/background for ORA
+  gene_universe <- unique(clustered_df$GENE_ID)
+  gene_universe <- gene_universe[!is.na(gene_universe)]
 
   # ----------------------------
   # Loop over clusters
@@ -1325,6 +1795,7 @@ for (species_name in names(cluster_results)) {
       distinct(GENE_ID)
 
     genes <- df_cl$GENE_ID
+    genes <- genes[!is.na(genes)]
 
     if (length(genes) < 10) {
       message("Skipping cluster ", cl, " (too few genes: ", length(genes), ")")
@@ -1340,19 +1811,24 @@ for (species_name in names(cluster_results)) {
 
       message("  Running ", ont_type, "...")
 
+      go_subset <- go_species %>%
+        filter(ontology == ont_lookup[[ont_type]])
+
+      TERM2GENE <- unique(go_subset[, c("go_id", "gene_id")])
+      TERM2NAME <- unique(go_subset[, c("go_id", "go_name")])
+
       enrich_res <- tryCatch(
-        enrichGO(
+        clusterProfiler::enricher(
           gene = genes,
-          OrgDb = orgdb,
-          keyType = keytype_used,
-          ont = ont_type,
+          universe = gene_universe,
+          TERM2GENE = TERM2GENE,
+          TERM2NAME = TERM2NAME,
           pAdjustMethod = "BH",
           pvalueCutoff = 1,
-          qvalueCutoff = 1,
-          readable = TRUE
+          qvalueCutoff = 1
         ),
         error = function(e) {
-          message("  enrichGO failed for cluster ", cl, " (", ont_type, "): ", e$message)
+          message("  enricher failed for cluster ", cl, " (", ont_type, "): ", e$message)
           return(NULL)
         }
       )
@@ -1387,10 +1863,14 @@ for (species_name in names(cluster_results)) {
         slice_head(n = 15) %>%
         mutate(Description = factor(Description, levels = rev(Description)))
 
-      p_bar <- ggplot(plot_df,
-                      aes(x = Description,
-                          y = -log10(p.adjust),
-                          fill = Count)) +
+      p_bar <- ggplot(
+        plot_df,
+        aes(
+          x = Description,
+          y = -log10(p.adjust),
+          fill = Count
+        )
+      ) +
         geom_col(width = 0.7) +
         coord_flip() +
         scale_fill_gradient(low = "purple", high = "orange") +
@@ -1417,5 +1897,54 @@ for (species_name in names(cluster_results)) {
 ```
 
 ```{r Saving}
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+    names(df)[names(df) == "log2_Expression_Plus_OneV1"] <- "log2_Expression_Plus_One"
+    df
+  }
+)
+
+# Add Overall_Expression_Group in for overall expression
+Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
+  Annotated_VCFs_PC_Gene_Body_Variants,
+  function(df) {
+
+    valid <- !is.na(df$log2_Expression_Plus_One) &
+             !is.na(df$UniqueVariantsPlusOnePerBP)
+
+    x <- df$log2_Expression_Plus_One
+
+    df$Overall_Expression_Group <- NA_character_
+    df$Overall_Expression_Group_More <- NA_character_
+
+    zero <- valid & x == 0
+    pos  <- valid & x > 0
+
+    df$Overall_Expression_Group[zero] <- "0"
+    df$Overall_Expression_Group_More[zero] <- "0"
+
+    if (sum(pos) > 0) {
+      df$Overall_Expression_Group[pos] <- as.character(ntile(x[pos], 5))
+      df$Overall_Expression_Group_More[pos] <- as.character(ntile(x[pos], 15))
+    }
+
+    df$Overall_Expression_Group <- factor(
+      df$Overall_Expression_Group,
+      levels = as.character(0:5),
+      ordered = TRUE
+    )
+
+    df$Overall_Expression_Group_More <- factor(
+      df$Overall_Expression_Group_More,
+      levels = as.character(0:15),
+      ordered = TRUE
+    )
+
+    df
+  }
+)
+
+
 save(Annotated_VCFs_PC_Gene_Body_Variants, file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 ```

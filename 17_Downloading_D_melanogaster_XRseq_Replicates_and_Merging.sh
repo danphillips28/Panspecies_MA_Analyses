@@ -1,49 +1,96 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 #SBATCH --job-name=17_Downloading_D_melanogaster_XRseq_Replicates_and_Merging.sh
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%A.log
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%A.err
+#SBATCH --time=02:00:00
+#SBATCH --partition=himem-gen
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=1G
+
+set -euo pipefail
 
 module load deepTools/3.5.2-foss-2022a
 module load Anaconda3
 source activate UCSC_liftOver
 
-# Config
 OUTDIR="/home/ocdm0351/DPhil/R_Data/"
-REP1minus_URL="https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5600nnn/GSM5600478/suppl/GSM5600478%5FS2CPD1h1%5FACAGTG%5FS9%5FL001%5FR1%5F001%5Fminus.bw"
-REP2minus_URL="https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5661nnn/GSM5661670/suppl/GSM5661670%5FS2CPD1h2%5FGCCAAT%5FS10%5FL001%5FR1%5F001%5Fminus.bw"
-REP1plus_URL="https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5600nnn/GSM5600478/suppl/GSM5600478%5FS2CPD1h1%5FACAGTG%5FS9%5FL001%5FR1%5F001%5Fplus.bw"
-REP2plus_URL="https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM5661nnn/GSM5661670/suppl/GSM5661670%5FS2CPD1h2%5FGCCAAT%5FS10%5FL001%5FR1%5F001%5Fplus.bw"
+cd "${OUTDIR}"
 
-cd /home/ocdm0351/DPhil/R_Data/
+MANIFEST="/home/ocdm0351/DPhil/scripts/Dmel_XRseq_Manifest.tsv"
 
-# Download
-echo "Downloading replicates..."
-wget -O Dmelanogaster_XR1minus.bw "${REP1minus_URL}"
-wget -O Dmelanogaster_XR2minus.bw "${REP2minus_URL}"
-wget -O Dmelanogaster_XR1plus.bw "${REP1plus_URL}"
-wget -O Dmelanogaster_XR2plus.bw "${REP2plus_URL}"
+declare -A MINUS_FILES
+declare -A PLUS_FILES
+declare -A SEEN_SAMPLES
 
-# Merge (average)
-echo "Averaging Minus Strand replicates into one consensus bigWig..."
-bigwigCompare \
-  -b1 /home/ocdm0351/DPhil/R_Data/Dmelanogaster_XR1minus.bw \
-  -b2 /home/ocdm0351/DPhil/R_Data/Dmelanogaster_XR2minus.bw \
-  --operation mean \
-  -o Dmelanogaster_XRminus.bw \
-  --binSize 25 
+while IFS=$'\t' read -r SAMPLE STRAND URL; do
+  [[ -z "${SAMPLE}" ]] && continue
+  [[ "${SAMPLE}" =~ ^# ]] && continue
 
-echo "Averaging Plus Strand replicates into one consensus bigWig..."
-bigwigCompare \
-  -b1 /home/ocdm0351/DPhil/R_Data/Dmelanogaster_XR1plus.bw \
-  -b2 /home/ocdm0351/DPhil/R_Data/Dmelanogaster_XR2plus.bw \
-  --operation mean \
-  -o Dmelanogaster_XRplus.bw \
-  --binSize 25 
+  SEEN_SAMPLES["${SAMPLE}"]=1
+
+  FILENAME="${SAMPLE}_${STRAND}_$(basename "${URL}")"
+  wget -O "${FILENAME}" "${URL}"
+
+  if [[ "${STRAND}" == "minus" ]]; then
+    if [[ -z "${MINUS_FILES[${SAMPLE}]+x}" ]]; then
+      MINUS_FILES["${SAMPLE}"]="${FILENAME}"
+    else
+      MINUS_FILES["${SAMPLE}"]+=" ${FILENAME}"
+    fi
+  elif [[ "${STRAND}" == "plus" ]]; then
+    if [[ -z "${PLUS_FILES[${SAMPLE}]+x}" ]]; then
+      PLUS_FILES["${SAMPLE}"]="${FILENAME}"
+    else
+      PLUS_FILES["${SAMPLE}"]+=" ${FILENAME}"
+    fi
+  else
+    echo "Unknown strand '${STRAND}' for sample '${SAMPLE}'" >&2
+    exit 1
+  fi
+done < "${MANIFEST}"
+
+for SAMPLE in "${!SEEN_SAMPLES[@]}"; do
+  echo "Processing ${SAMPLE}..."
+
+  MINUS_LIST=${MINUS_FILES["${SAMPLE}"]:-}
+  PLUS_LIST=${PLUS_FILES["${SAMPLE}"]:-}
+
+  if [[ -n "${MINUS_LIST}" ]]; then
+    set -- ${MINUS_LIST}
+    if [[ $# -eq 1 ]]; then
+      cp "$1" "${SAMPLE}_XRminus.bw"
+    else
+      bigwigCompare -b1 "$1" -b2 "$2" --operation mean -o "${SAMPLE}_XRminus.bw" --binSize 25
+      shift 2
+      while [[ $# -gt 0 ]]; do
+        TMP="${SAMPLE}_XRminus_tmp.bw"
+        bigwigCompare -b1 "${SAMPLE}_XRminus.bw" -b2 "$1" --operation mean -o "${TMP}" --binSize 25
+        mv "${TMP}" "${SAMPLE}_XRminus.bw"
+        shift
+      done
+    fi
+    bigWigToBedGraph "${SAMPLE}_XRminus.bw" "${SAMPLE}_XR_minus.bedgraph"
+  fi
+
+  if [[ -n "${PLUS_LIST}" ]]; then
+    set -- ${PLUS_LIST}
+    if [[ $# -eq 1 ]]; then
+      cp "$1" "${SAMPLE}_XRplus.bw"
+    else
+      bigwigCompare -b1 "$1" -b2 "$2" --operation mean -o "${SAMPLE}_XRplus.bw" --binSize 25
+      shift 2
+      while [[ $# -gt 0 ]]; do
+        TMP="${SAMPLE}_XRplus_tmp.bw"
+        bigwigCompare -b1 "${SAMPLE}_XRplus.bw" -b2 "$1" --operation mean -o "${TMP}" --binSize 25
+        mv "${TMP}" "${SAMPLE}_XRplus.bw"
+        shift
+      done
+    fi
+    bigWigToBedGraph "${SAMPLE}_XRplus.bw" "${SAMPLE}_XR_plus.bedgraph"
+  fi
+done
+
 echo "Done!"
 
-# 1) bigWig -> bedGraph  (no chrom.sizes needed)
-echo "Converting bigWig to bedGraph..."
-bigWigToBedGraph Dmelanogaster_XRminus.bw D_melanogaster_XRminus.bedgraph
-bigWigToBedGraph Dmelanogaster_XRplus.bw D_melanogaster_XRplus.bedgraph
+rm /home/ocdm0351/DPhil/R_Data/*D_melanogaster*rep*
+rm /home/ocdm0351/DPhil/R_Data/*.bw*

@@ -1,0 +1,109 @@
+---
+title: "Dmelanogaster_Germline_Expression"
+output: html_document
+date: "2026-06-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(Seurat)
+library(tidyr)
+library(SummarizedExperiment)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+# Subset to just Drosophila for testing
+Annotated_Dmelanogaster_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                     "Dmelanogaster"]
+```
+
+```{r}
+# download
+raw_path <- file.path(R_Data, "fca_biohub_testis_10x_raw.h5ad")
+if (!file.exists(raw_path)) {
+  curl_download(
+    "https://cloud.flycellatlas.org/index.php/s/RAGbG59qwaLKqEF/download?path=%2F&files=v2_fca_biohub_testis_10x_raw.h5ad",
+    destfile = raw_path,
+    handle = new_handle(followlocation = TRUE)
+  )
+}
+
+# read
+sce_raw <- readH5AD(raw_path, use_hdf5 = TRUE)
+
+# subset male germline
+mg_raw <- sce_raw[, sce_raw$broad_annotation_extrapolated == "male germline cell"]
+
+stage_map <- c(
+  "spermatogonium" = "Spermatogonia",
+  "mid-late proliferating spermatogonia" = "Spermatogonia",
+  "spermatogonium-spermatocyte transition" = "Transition",
+  "spermatocyte" = "Early_spermatocyte",
+  "late primary spermatocytes" = "Late_spermatocyte",
+  "maturing primary spermatocyte" = "Late_spermatocyte",
+  "spermatid" = "Spermatid",
+  "early elongation stage spermatid" = "Spermatid",
+  "early-mid elongation-stage spermatid" = "Spermatid",
+  "mid-late elongation-stage spermatid" = "Spermatid"
+)
+
+groups <- stage_map[as.character(mg_raw$annotation)]
+keep <- !is.na(groups)
+
+mg_raw <- mg_raw[, keep]
+groups <- factor(
+  groups[keep],
+  levels = c("Spermatogonia", "Transition", "Early_spermatocyte",
+             "Late_spermatocyte", "Spermatid")
+)
+
+mg_raw <- scuttle::logNormCounts(mg_raw, assay.type = "X")
+expr_log <- assay(mg_raw, "logcounts")
+
+pb <- sapply(levels(groups), function(g) {
+  Matrix::rowMeans(expr_log[, groups == g, drop = FALSE])
+})
+
+pb <- as.data.frame(pb, check.names = FALSE)
+pb$gene_symbol <- trimws(rownames(pb))
+
+pb <- aggregate(
+  . ~ gene_symbol,
+  data = pb,
+  FUN = mean,
+  na.rm = TRUE
+)
+
+Dmelanogaster_Germline_scRNA <- pb[, c("gene_symbol", setdiff(names(pb), "gene_symbol"))]
+
+# Merge with Annotated VCF for Mutation Rates
+Dmelanogaster_Germline_scRNA <-
+  merge(Dmelanogaster_Germline_scRNA,
+        unique(Annotated_Dmelanogaster_PC_Gene_Body_Variants$Assaf_2017_MA_Dmelanogaster_BDGP6[ , c("GENE_ID","gene_name","UniqueVariantsPlusOnePerBP")]),
+        by.x = "gene_symbol",
+        by.y = "gene_name")
+```
+
+```{r Saving}
+save(Dmelanogaster_Germline_scRNA, file = paste0(R_Data, "Dmelanogaster_Germline_scRNA"))
+```

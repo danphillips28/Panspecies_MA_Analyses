@@ -13,22 +13,11 @@ library(tidyverse)
 library(ggplot2)
 library(EnrichedHeatmap)
 library(GenomicRanges)
-library(caret)
-library(data.table)
-library(glmnet)
-library(tidyverse)
+library(IRanges)
 library(clinfun)
-#library(cutnumberint)
-library(ggnewscale)
-
-cutnumberint <- function(x, n = 5) {
-  cut(
-    x,
-    breaks = quantile(x, probs = seq(0, 1, length.out = n + 1), na.rm = TRUE),
-    include.lowest = TRUE,
-    labels = FALSE
-  )
-}
+library(data.table)
+library(caret)
+library(glmnet)
 ```
 
 ```{r Setting Paths}
@@ -36,15 +25,12 @@ R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
 #R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
-
 ```
 
 ```{r Loading Data}
 load(file = paste0(R_Data, "Annotated_VCFs_PC_Gene_Body_Variants"))
 source(paste0(R_Data, "plotting.themes.R"))
-# Choose theme once per session/script
 set_my_theme("light")   # or "dark"
-
 
 Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
   Annotated_VCFs_PC_Gene_Body_Variants,
@@ -55,390 +41,891 @@ Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
   }
 )
 
-# Subset to just Drosophila for testing
-Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants[names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Dmelanogaster" |
-                                                                     # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                    #  "Hsapiens" |
-                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Celegans" |
-                                                                       names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
-                                                                      "Ppacificus"]
-```
-
-```{r Extract Small Dataset for Peter}
-#Celegans_WS235_MutationRates <-
-#Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235[, c("GENE_ID","cDNA_length",
-#                                                                            "UniqueVariants","log2_Expression_Plus_One")]
-
-#colnames(Celegans_WS235_MutationRates) <- c("GENE_ID","gene_width","UniqueVariants","log2_Expression_Plus_One")
-
-#save(Celegans_WS235_MutationRates, file = paste0(R_Data, "Celegans_WS235_MutationRates"))
+#Annotated_VCFs_PC_Gene_Body_Variants <- Annotated_VCFs_PC_Gene_Body_Variants["Assaf_2017_MA_Dmelanogaster_BDGP6"]
 ```
 
 ```{r Read and Save Epigenetics and Covariate Data}
-# Initialize list to store results
 Species_Epigenetics_and_Covariates <- list()
 
-# Loop through each element in Annotated_VCFs_PC_Gene_Body_Variants
 for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
-  
-  # 1. Extract the species name (between 4th and 5th underscores)
+
   species_name <- strsplit(element_name, "_")[[1]][4]
-  
-  # 2. Add an underscore after the first character
-  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
-  
-  # 3. Find all bedgraph files starting with species_prefix and ending with "bedgraph"
+  species_prefix <- paste0(
+    substr(species_name, 1, 1),
+    "_",
+    substr(species_name, 2, nchar(species_name))
+  )
+
   species_files <- list.files(
     path = R_Data,
     pattern = paste0("^", species_prefix, ".*bedgraph$"),
-    full.names = TRUE)
-  
-  #3.5. Subset for testing purposes
-  #species_files <- species_files[1:10]
-  
-  # 4. Read each file separately, store in a named list
+    full.names = TRUE
+  )
+
   file_list <- lapply(species_files, function(f) {
-  tryCatch(
-    read.table(f, header = FALSE, sep = "\t", skip = 1),
-    error = function(e) NULL)  # skip unreadable files
-  
+    tryCatch(
+      read.table(f, header = FALSE, sep = "\t", skip = 1),
+      error = function(e) NULL
+    )
   })
-  
-# 5. Name each element after its file (without path or extension)
-names(file_list) <- tools::file_path_sans_ext(basename(species_files))
 
-# 6. Store in main list
-Species_Epigenetics_and_Covariates[[species_name]] <- file_list
+  names(file_list) <- tools::file_path_sans_ext(basename(species_files))
+  Species_Epigenetics_and_Covariates[[species_name]] <- file_list
 }
-
 ```
 
 ```{r Rename columns and Remove chr from Chromosome Names}
 Species_Epigenetics_and_Covariates <- lapply(Species_Epigenetics_and_Covariates, function(file_list) {
   lapply(file_list, function(df) {
     if (!is.data.frame(df)) return(NULL)
-    if (ncol(df) == 4) colnames(df) <- c("chrom","start","end","value")
-    if (ncol(df) == 3) df <- df[,c("V1","V2","V2","V3")]
-    colnames(df) <- c("chrom","start","end","value")
-    df$chrom <- sub("^chr", "", df$chrom)  # remove "chr" from first column (chromosome)
-    df$chrom <- sub("^Chr", "", df$chrom)  # remove "chr" from first column (chromosome)
-   # set.seed(123)
-  #  df$Overall_Mutation_Rate_Group <- cut_number(jitter(df$UniqueVariantsPlusOnePerBP), n = 5)
+
+    if (ncol(df) == 4) colnames(df) <- c("chrom", "start", "end", "value")
+    if (ncol(df) == 3) df <- df[, c("V1", "V2", "V2", "V3")]
+    colnames(df) <- c("chrom", "start", "end", "value")
+
+    df$chrom <- sub("^chr", "", df$chrom)
+    df$chrom <- sub("^Chr", "", df$chrom)
+
     df
   })
 })
 ```
 
-```{r Calculate Mean Epigenetic Values for Each Gene and Run Correlations}
-# Empty List for Correlation Results
+```{r New Method to Calculate Mean Levels and Associations}
+library(dplyr)
+library(tidyr)
+
 Species_Chromatin_Type_Spearman_Tests <- list()
-Species_Chromatin_Type_Pearson_Tests <- list()
+Species_Chromatin_Type_Pearson_Tests  <- list()
+
+Species_XR_Window_MutationDensities <- list()
+Species_XR_TCR_Window_Densities <- list()
+Species_XR_TCR_Gene_Densities <- list()
+
+pc <- 1e-6
 
 for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
-  
-  # 1️⃣ Get the VCF-like data for this speciesand subset for protein coding genes
-  vcf_df <- subset(Annotated_VCFs_PC_Gene_Body_Variants[[element_name]],
-                   gene_biotype == "protein_coding")
-  
-  # 2️⃣ Extract species name (between 4th and 5th underscores)
-  species_name <- strsplit(element_name, "_")[[1]][4]
-  species_prefix <- paste0(substr(species_name, 1, 1), "_", substr(species_name, 2, nchar(species_name)))
-  
-  # 3️⃣ Get corresponding epigenetic data
-  epigenetic_list <- Species_Epigenetics_and_Covariates[[species_name]]
- 
-  # 4️⃣ Convert gene coordinates to GRanges
-  gene_gr <- GRanges(
-    seqnames = vcf_df$CHROM,
-    ranges = IRanges(start = vcf_df$start, end = vcf_df$end),
-    strand = vcf_df$strand,
-    dNdS_Group = vcf_df$Overall_dNdS_Group,
-    mut_Group = vcf_df$Overall_Mutation_Rate_Group
+
+  vcf_df <- subset(
+    Annotated_VCFs_PC_Gene_Body_Variants[[element_name]],
+    gene_biotype == "protein_coding"
   )
-  
-  # 5️⃣ Loop through each epigenetic dataset for this species
+
+  species_name <- strsplit(element_name, "_")[[1]][4]
+  species_prefix <- paste0(
+    substr(species_name, 1, 1),
+    "_",
+    substr(species_name, 2, nchar(species_name))
+  )
+
+  epigenetic_list <- Species_Epigenetics_and_Covariates[[species_name]]
+  if (is.null(epigenetic_list)) next
+
+  gene_gr <- GRanges(
+  seqnames = vcf_df$CHROM,
+  ranges   = IRanges(start = vcf_df$start, end = vcf_df$end),
+  strand   = vcf_df$strand,
+  gene_id  = vcf_df$GENE_ID,
+  gene_name = vcf_df$gene_name,
+  dNdS_Group = vcf_df$Overall_dNdS_Group,
+  expr_Group = vcf_df$Overall_Expression_Group,
+  mut_Group  = vcf_df$Overall_Mutation_Rate_Group
+) %>% unique()
+
+  # ------------------------------------------------------------------
+  # Regular mark loop: windowed gene-body profiles + one value per gene
+  # ------------------------------------------------------------------
   for (mark_name in names(epigenetic_list)) {
-    mark_name_nospecies <- str_split(mark_name, "_", simplify = TRUE)[3]
+
     mark_df <- epigenetic_list[[mark_name]]
-    
-    # Skip if the element is NULL
     if (is.null(mark_df)) next
-    
-    # Conver to GRanges object
+
+    mark_name_nospecies <- sub("^[^_]+_[^_]+_", "", mark_name)
+
     mark_gr <- GRanges(
       seqnames = mark_df$chrom,
-      ranges = IRanges(start = mark_df$start, end = mark_df$end),
-      value = mark_df$value
+      ranges   = IRanges(start = mark_df$start, end = mark_df$end),
+      value    = mark_df$value
     )
-    
-    # Add strand information if needed
-    if (mark_name %like% "plus") {
-    strand(mark_gr) <- "+"
-    }
-    if (mark_name %like% "neg" |
-        mark_name %like% "minus") {
-    strand(mark_gr) <- "-"
-    }
-    
-# # 5️⃣ (Bonus): Plot Metagene EnrichedHeatmap of Epigenetic Mark Around Gene Body
-    body_epi_enrichment <- normalizeToMatrix(mark_gr,
-                                             gene_gr,
-                                             value_column = "value",
-                                             extend = 1000,
-                                             mean_mode = "weighted",
-                                             w = 50,
-                                             target_ratio = .7,
-                                             smooth = FALSE,
-                                             background = 0)
-    #test <-
-    #EnrichedHeatmap(body_epi_enrichment, name = "H3K9me3",
-    # top_annotation = HeatmapAnnotation(lines = anno_enriched(gp = gpar(col = 2:4))),
-    # column_title = "H3K9me3",
-    # row_split = gene_gr$mut_Group)
 
-    # Extract Enrichment Bins and Grouping Indexing Information
+    body_epi_enrichment <- normalizeToMatrix(
+      mark_gr,
+      gene_gr,
+      value_column = "value",
+      extend = 1000,
+      mean_mode = "weighted",
+      w = 50,
+      target_ratio = .7,
+      smooth = FALSE,
+      background = 0
+    )
+
     mat <- as.matrix(body_epi_enrichment)
-    groups <- as.factor(gene_gr$mut_Group)
-    # Combine into a tidy data frame
-    df <- as.data.frame(mat) %>%
-      mutate(mut_group = groups) %>%
-      pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
-      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
-    # Summarise by dNdS group (mean + SE per position)
-    MutationDensities <- df %>%
-      group_by(mut_group, position) %>%
-      summarise( mean_score = mean(value, na.rm = TRUE), se = sd(value, na.rm = TRUE) / sqrt(n()), .groups = "drop")
 
-    # --- keep your original boundary logic exactly ---
-    avg <- colMeans(mat)
-    regionLength <- ((0.7 * 100) * length(avg)) / 100
+    # Gene-level scalar for downstream boxplots/correlations
+    gene_mean <- rowMeans(mat, na.rm = TRUE)
+    gene_mean[is.nan(gene_mean)] <- NA
+
+    mean_mark_name <- paste("mean", mark_name_nospecies, sep = "_")
+
+    gene_mean_df <- data.frame(
+      GENE_ID = gene_gr$gene_id,
+      mean_value = gene_mean,
+      stringsAsFactors = FALSE
+    )
+    colnames(gene_mean_df)[2] <- mean_mark_name
+
+    vcf_df <- dplyr::left_join(vcf_df, gene_mean_df, by = "GENE_ID")
+    plot_vcf_df <- vcf_df %>% distinct(GENE_ID, .keep_all = TRUE)
+
+    # ------------------------------------------------------------------
+    # Gene-body profile split by expression group
+    # ------------------------------------------------------------------
+    expr_groups <- as.factor(gene_gr$expr_Group)
+
+    expr_df <- as.data.frame(mat) %>%
+      mutate(expr_group = expr_groups) %>%
+      pivot_longer(cols = -c(expr_group), names_to = "position", values_to = "value") %>%
+      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
+
+    ExprDensities <- expr_df %>%
+      group_by(expr_group, position) %>%
+      summarise(
+        mean_score = mean(value, na.rm = TRUE),
+        se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+        .groups = "drop"
+      )
+
+    if (is.null(Species_XR_Window_MutationDensities[[species_name]])) {
+      Species_XR_Window_MutationDensities[[species_name]] <- list()
+    }
+    Species_XR_Window_MutationDensities[[species_name]][[paste0(mark_name, "_ExprGroup")]] <- ExprDensities
+
+    avg <- colMeans(mat, na.rm = TRUE)
+    regionLength <- 0.7 * length(avg)
     lengthEachSide <- (length(avg) - regionLength) / 2
     start <- lengthEachSide
     end <- length(avg) - lengthEachSide
-    # Renaming NA dNdS Group
-    #MutationDensities <- MutationDensities %>% mutate(dNds_Group = forcats::fct_explicit_na(group, na_level = "No Ortholog"))
 
-    # --- Plot grouped by dNdS version ---
-      MutationDensityPlot <-
-      ggplot(MutationDensities,
-             aes(x = position, y = mean_score, color = mut_group, fill = mut_group)) +
+    ExprDensityPlot <-
+      ggplot(
+        ExprDensities %>% filter(!is.na(expr_group)),
+        aes(x = position, y = mean_score, color = expr_group, fill = expr_group)
+      ) +
       geom_line(size = .5) +
       geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
-              alpha = 0.2, color = NA) +
+                  alpha = 0.2, color = NA) +
       geom_vline(xintercept = c(start, end), linetype = "dotted") +
-      theme_bw() +
       labs(
-      title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
-      x = "Windows",
-      y = paste("Mean", mark_name_nospecies),
-      color = "Mutation \n Rate \n Quantile",
-      fill = "Mutation \n Rate \n Quantile") +
-      theme_bw() +
-    
-          scale_x_continuous(n.breaks = 10) +
-          scale_y_continuous(n.breaks = 10)
+        title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
+        subtitle = "Grouped by expression group",
+        x = "Windows",
+        y = paste("Mean", mark_name_nospecies),
+        color = "Expression Group",
+        fill = "Expression Group"
+      ) +
+      scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+        legend.title = element_text(size = 7),
+        legend.text = element_text(size = 6),
+        legend.key.size = unit(0.3, "cm"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        plot.title = element_text(size = BASE_SIZE - 5),
+        plot.subtitle = element_text(size = BASE_SIZE - 4),
+        axis.title.y = element_text(size = BASE_SIZE - 3)
+      ) +
+      guides(
+        fill = guide_legend(nrow = 1, byrow = TRUE),
+        colour = guide_legend(nrow = 1, byrow = TRUE)
+      )
 
-          # ggSaving
-          ggsave(MutationDensityPlot,
-             filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
-                               "Epigenetic_EnrichedHeatmaps/",
-                               species_prefix,
-                                "/GeneBody_Enrichment_of_", mark_name_nospecies, "_", element_name, ".png"),
-             bg = "transparent",
-             type="cairo",
-             units = "cm",
-             height = 8,
-             width = 15,
-             create.dir = TRUE,
-             dpi = 2000)
-          
-      
-    # 6️⃣ Merge by overlaps
-    merged <- as.data.frame(mergeByOverlaps(gene_gr, mark_gr))
-    
-    # Compute mean of all overlapping values per gene range
-    mean_df <- merged %>%
-    group_by(gene_gr.seqnames, gene_gr.start, gene_gr.end) %>%
-    summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
-    
-    # Rename mean_value to indicate mean epigenetic modification type
-    mean_mark_name <- paste("mean", mark_name_nospecies, sep = "_")
-    colnames(mean_df) <- c("CHROM",
-                           "start","end",
-                           mean_mark_name)
-    
-    # 7️⃣ Attach new mean column back to the original VCF dataframe
-    vcf_df <- merge(vcf_df, 
-                    mean_df, 
-                    by = c("CHROM", "start", "end"), 
-                    all.x = TRUE)
-
-  # Bin Genes by their chromatin mark
-  vcf_df <- vcf_df %>%
-  mutate(
-    Overall_Mark_Group = cut_number(
-      .data[[mean_mark_name]] + runif(n(), -1e-6, 1e-6),
-      n = 5,
-      ordered_result = TRUE
+    ggsave(
+      plot = ExprDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_ExprGroup_", element_name, ".png"
+      ),
+      bg = "transparent",
+      type = "cairo",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE,
+      dpi = 2000
     )
-  ) 
 
+    # ------------------------------------------------------------------
+    # Gene-body profile split by mutation-rate group
+    # ------------------------------------------------------------------
+    mut_groups <- as.factor(gene_gr$mut_Group)
 
-    
-  # 8 Epigenetic Mark versus Mutation Rate
-  # Run Spearman Correlations
-  spearman_test <- 
-    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
-             vcf_df[[mean_mark_name]],
-             method = "spearman")
-  # Run Pearson Correlations
-  pearson_test <- 
-    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
-             vcf_df[[mean_mark_name]],
-             method = "pearson")
-  
-  # Save results into object
-  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]] <- spearman_test
-  Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]] <- pearson_test
-  
-  # Create a Scatter Plot
-  p1 <- 
-ggplot(
-  data = subset(vcf_df, !is.na(vcf_df[[mean_mark_name]])),
-  aes(x = !!sym(mean_mark_name),
-      y = UniqueVariantsPlusOnePerBP)
-) +
-  geom_point() +
-  geom_smooth(method = "lm", se = TRUE) +
-    labs(title = paste(mean_mark_name, "\n",
-                       vcf_df$GENE_ID %>% 
-                       unique() %>% length(), "Unique Protein Coding Genes with Mark Estimate"),
-      subtitle = paste0("Spearman Correlation: ", 
-                       "p Value = ", 
-                       Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$p.value %>% signif(., digits = 5),", ",
-                       "Coefficient = ", 
-                       Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$estimate %>% signif(., digits = 5),
-                       "\n",
-                       "Pearson Correlation: ", 
-                       "p Value = ", 
-                       Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$p.value %>% signif(., digits = 5),", ",
-                       "Coefficient = ", 
-                       Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$estimate %>% signif(., digits = 5)),
-      caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
-    
-          scale_x_continuous(n.breaks = 10) +
-          scale_y_continuous(n.breaks = 10)
+    mut_df <- as.data.frame(mat) %>%
+      mutate(mut_group = mut_groups) %>%
+      pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
+      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
 
-    # Save the plot — change width/height as needed
-    ggsave(plot = p1,
-       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
-                               "Epigenetic_MutationRate_Scatter_Plots/",
-                               species_prefix,"/",
-                               species_prefix,"_",
-                                mark_name_nospecies,"_versus_MutationRate", "_", element_name, ".png"),
+    MutationDensities <- mut_df %>%
+      group_by(mut_group, position) %>%
+      summarise(
+        mean_score = mean(value, na.rm = TRUE),
+        se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+        .groups = "drop"
+      )
+
+    if (grepl("(_plus$|_minus$)", mark_name, ignore.case = TRUE)) {
+      Species_XR_Window_MutationDensities[[species_name]][[paste0(mark_name, "_MutGroup")]] <- MutationDensities
+    }
+
+    MutationDensityPlot <-
+      ggplot(
+        MutationDensities,
+        aes(x = position, y = mean_score, color = mut_group, fill = mut_group)
+      ) +
+      geom_line(size = .5) +
+      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+                  alpha = 0.2, color = NA) +
+      geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      labs(
+        title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
+        subtitle = "Grouped by mutation rate group",
+        x = "Windows",
+        y = paste("Mean", mark_name_nospecies),
+        color = "Mutation Rate Quantile",
+        fill = "Mutation Rate Quantile"
+      ) +
+      scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+        legend.title = element_text(size = 7),
+        legend.text = element_text(size = 6),
+        legend.key.size = unit(0.3, "cm"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        plot.title = element_text(size = BASE_SIZE - 5),
+        plot.subtitle = element_text(size = BASE_SIZE - 4),
+        axis.title.y = element_text(size = BASE_SIZE - 2)
+      ) +
+      guides(
+        fill = guide_legend(nrow = 1, byrow = TRUE),
+        colour = guide_legend(nrow = 1, byrow = TRUE)
+      )
+
+    ggsave(
+      plot = MutationDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_MutGroup_", element_name, ".png"
+      ),
+      bg = "transparent",
+      type = "cairo",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE,
+      dpi = 2000
+    )
+
+    # ------------------------------------------------------------------
+    # Downstream gene-level correlations and boxplots for this mark
+    # ------------------------------------------------------------------
+    plot_vcf_df <- plot_vcf_df %>%
+      mutate(
+        Overall_Mark_Group = cut_number(
+          .data[[mean_mark_name]] + runif(n(), -1e-6, 1e-6),
+          n = 5,
+          labels = as.character(1:5),
+          ordered_result = TRUE
+        )
+      )
+
+    spearman_test <-
+      cor.test(
+        plot_vcf_df$UniqueVariantsPlusOnePerBP,
+        plot_vcf_df[[mean_mark_name]],
+        method = "spearman"
+      )
+
+    pearson_test <-
+      cor.test(
+        plot_vcf_df$UniqueVariantsPlusOnePerBP,
+        plot_vcf_df[[mean_mark_name]],
+        method = "pearson"
+      )
+
+    if (is.null(Species_Chromatin_Type_Spearman_Tests[[species_prefix]])) {
+      Species_Chromatin_Type_Spearman_Tests[[species_prefix]] <- list()
+      Species_Chromatin_Type_Pearson_Tests[[species_prefix]]  <- list()
+    }
+
+    Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]] <- spearman_test
+    Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]  <- pearson_test
+
+    p1 <-
+      ggplot(
+        data = subset(plot_vcf_df, !is.na(plot_vcf_df[[mean_mark_name]])),
+        aes(
+          x = !!sym(mean_mark_name),
+          y = UniqueVariantsPlusOnePerBP
+        )
+      ) +
+      geom_point() +
+      geom_smooth(method = "lm", se = TRUE) +
+      labs(
+        title = paste(
+          mean_mark_name, "\n",
+          plot_vcf_df$GENE_ID %>% unique() %>% length(),
+          "Unique Protein Coding Genes with Mark Estimate"
+        ),
+        subtitle = paste0(
+          "Spearman Correlation: ",
+          "p Value = ",
+          Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$p.value %>%
+            signif(., digits = 5),
+          ", ",
+          "Coefficient = ",
+          Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$estimate %>%
+            signif(., digits = 5),
+          "\n",
+          "Pearson Correlation: ",
+          "p Value = ",
+          Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$p.value %>%
+            signif(., digits = 5),
+          ", ",
+          "Coefficient = ",
+          Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$estimate %>%
+            signif(., digits = 5)
+        ),
+        caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
+      ) +
+      scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+        plot.title = element_text(size = BASE_SIZE - 5),
+        plot.subtitle = element_text(size = BASE_SIZE - 4)
+      )
+
+    ggsave(
+      plot = p1,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_Scatter_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_versus_MutationRate", "_", element_name, ".png"
+      ),
       create.dir = TRUE,
       width = 5,
       height = 4,
-      dpi = 300)
-    
-
-# filter properly first — cleaner than putting subset() inside ggplot()
-plot_df <- vcf_df %>%
-  filter(!is.na(.data[[mean_mark_name]])) %>%
-  filter(!is.na(.data[["UniqueVariantsPlusOnePerBP"]]))
-
-library(ggplot2)
-
-p2 <-
-ggplot(plot_df, aes(x = Overall_Mark_Group, 
-                    y = UniqueVariantsPlusOnePerBP,
-                    fill = Overall_Mark_Group)) +
-  geom_boxplot(outliers = FALSE) +
-  labs(
-    title = paste0(
-      species_prefix, "\n",
-      plot_df %>%
-        filter(!is.na(Overall_Mark_Group),
-               !is.na(UniqueVariantsPlusOnePerBP)) %>%
-        pull(GENE_ID) %>%
-        unique() %>%
-        length(),
-      " Protein Coding Genes\nwith Embryonic ", mark_name
-    ),
-    subtitle = paste0(
-      "Jonckheere = ",
-      jonckheere.test(
-        plot_df$UniqueVariantsPlusOne, 
-        plot_df$Overall_Mark_Group, 
-        alternative = "two.sided"
-      )$statistic %>% round(3),
-      ", p = ",
-      jonckheere.test(
-        plot_df$UniqueVariantsPlusOne, 
-        plot_df$Overall_Mark_Group, 
-        alternative = "two.sided"
-      )$p.value %>% round(3)
+      dpi = 300
     )
-  ) +
-  
-  scale_y_continuous(n.breaks = 10) +
-  scale_fill_manual(values = colorRampPalette(
-    c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
-  )(length(unique(plot_df$Overall_Mark_Group)))) +
-  guides(fill = "none")
 
+    plot_df <- plot_vcf_df %>%
+      filter(!is.na(.data[[mean_mark_name]])) %>%
+      filter(!is.na(.data[["UniqueVariantsPlusOnePerBP"]]))
 
-    # Save the plot — change width/height as needed
-    ggsave(plot = p2,
-       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
-                               "Epigenetic_MutationRate_JK_Plots/",
-                               species_prefix,"/",
-                               species_prefix,"_",
-                                mark_name_nospecies,"_Bins_versus_MutationRate", "_", element_name, ".png"),
+    p2 <-
+      ggplot(
+        plot_df,
+        aes(
+          x = Overall_Mark_Group,
+          y = UniqueVariantsPlusOnePerBP,
+          fill = Overall_Mark_Group
+        )
+      ) +
+      geom_boxplot(outliers = FALSE) +
+      labs(
+        title = paste0(
+          species_prefix, "\n",
+          plot_df %>%
+            filter(!is.na(Overall_Mark_Group), !is.na(UniqueVariantsPlusOnePerBP)) %>%
+            pull(GENE_ID) %>%
+            unique() %>%
+            length(),
+          " Protein Coding Genes\nwith Embryonic ", mark_name
+        ),
+        subtitle = paste0(
+          "Jonckheere = ",
+          jonckheere.test(
+            plot_df$UniqueVariantsPlusOnePerBP,
+            plot_df$Overall_Mark_Group,
+            alternative = "two.sided"
+          )$statistic %>% round(3),
+          ", p = ",
+          jonckheere.test(
+            plot_df$UniqueVariantsPlusOnePerBP,
+            plot_df$Overall_Mark_Group,
+            alternative = "two.sided"
+          )$p.value %>% round(3)
+        )
+      ) +
+      scale_y_continuous(n.breaks = 10) +
+      scale_fill_manual(
+        values = colorRampPalette(
+          c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
+        )(length(unique(plot_df$Overall_Mark_Group)))
+      ) +
+      guides(fill = "none") +
+      theme(
+        plot.title = element_text(size = BASE_SIZE - 5),
+        plot.subtitle = element_text(size = BASE_SIZE - 4)
+      )
+
+    ggsave(
+      plot = p2,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_JK_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_Bins_versus_MutationRate", "_", element_name, ".png"
+      ),
       bg = "transparent",
       create.dir = TRUE,
       width = 2,
       height = 3,
-      dpi = 300)
+      dpi = 300
+    )
   }
-  
+
+  # ------------------------------------------------------------------
+  # XR TCR: use plus/minus tracks, orient by gene strand
+  # ------------------------------------------------------------------
+  xrplus_names <- names(epigenetic_list)[grepl("_plus$", names(epigenetic_list), ignore.case = TRUE)]
+
+  if (length(xrplus_names) > 0) {
+
+    for (plus_name in xrplus_names) {
+
+      minus_name <- sub("_plus$", "_minus", plus_name, ignore.case = TRUE)
+      if (!minus_name %in% names(epigenetic_list)) next
+
+      plus_df  <- epigenetic_list[[plus_name]]
+      minus_df <- epigenetic_list[[minus_name]]
+
+      if (is.null(plus_df) || is.null(minus_df)) next
+
+      tcr_id <- gsub("[^A-Za-z0-9]+", "_", plus_name)
+
+      plus_gr <- GRanges(
+        seqnames = plus_df$chrom,
+        ranges   = IRanges(start = plus_df$start, end = plus_df$end),
+        value    = plus_df$value
+      )
+      strand(plus_gr) <- "+"
+
+      minus_gr <- GRanges(
+        seqnames = minus_df$chrom,
+        ranges   = IRanges(start = minus_df$start, end = minus_df$end),
+        value    = minus_df$value
+      )
+      strand(minus_gr) <- "-"
+
+      plus_mat <- as.matrix(normalizeToMatrix(
+        plus_gr,
+        gene_gr,
+        value_column = "value",
+        extend = 1000,
+        mean_mode = "weighted",
+        w = 50,
+        target_ratio = .7,
+        smooth = FALSE,
+        background = 0
+      ))
+
+      minus_mat <- as.matrix(normalizeToMatrix(
+        minus_gr,
+        gene_gr,
+        value_column = "value",
+        extend = 1000,
+        mean_mode = "weighted",
+        w = 50,
+        target_ratio = .7,
+        smooth = FALSE,
+        background = 0
+      ))
+
+      gene_strand <- as.character(strand(gene_gr))
+
+      template_mat <- plus_mat
+      nontemplate_mat <- minus_mat
+
+      template_mat[gene_strand == "+", ] <- minus_mat[gene_strand == "+", , drop = FALSE]
+      nontemplate_mat[gene_strand == "+", ] <- plus_mat[gene_strand == "+", , drop = FALSE]
+
+      template_mat[gene_strand == "-", ] <- plus_mat[gene_strand == "-", , drop = FALSE]
+      nontemplate_mat[gene_strand == "-", ] <- minus_mat[gene_strand == "-", , drop = FALSE]
+
+      tcr_mat <- log2((template_mat + pc) / (nontemplate_mat + pc))
+
+      mean_TCR <- rowMeans(tcr_mat, na.rm = TRUE)
+      mean_TCR[is.nan(mean_TCR)] <- NA
+
+      tcr_gene_df <- data.frame(
+        GENE_ID = gene_gr$gene_id,
+        template_mean = rowMeans(template_mat, na.rm = TRUE),
+        nontemplate_mean = rowMeans(nontemplate_mat, na.rm = TRUE),
+        mean_TCR = mean_TCR,
+        stringsAsFactors = FALSE
+      )
+
+      if (is.null(Species_XR_TCR_Gene_Densities[[species_name]])) {
+        Species_XR_TCR_Gene_Densities[[species_name]] <- list()
+      }
+      Species_XR_TCR_Gene_Densities[[species_name]][[tcr_id]] <- tcr_gene_df
+
+      tcr_gene_col <- paste0("mean_TCR_", tcr_id)
+
+      tcr_gene_df2 <- tcr_gene_df[, c("GENE_ID", "mean_TCR")]
+      colnames(tcr_gene_df2)[2] <- tcr_gene_col
+      plot_vcf_df <- dplyr::left_join(plot_vcf_df, tcr_gene_df2, by = "GENE_ID")
+
+      # ----------------------------------------------------------------
+      # TCR gene-body profile split by expression group
+      # ----------------------------------------------------------------
+      expr_groups <- as.factor(gene_gr$expr_Group)
+
+      tcr_expr_df <- as.data.frame(tcr_mat) %>%
+        mutate(expr_group = expr_groups) %>%
+        pivot_longer(cols = -c(expr_group), names_to = "position", values_to = "value") %>%
+        mutate(position = as.numeric(factor(position, levels = colnames(tcr_mat))))
+
+      TCR_ExprDensities <- tcr_expr_df %>%
+        group_by(expr_group, position) %>%
+        summarise(
+          mean_score = mean(value, na.rm = TRUE),
+          se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+          .groups = "drop"
+        )
+
+      if (is.null(Species_XR_TCR_Window_Densities[[species_name]])) {
+        Species_XR_TCR_Window_Densities[[species_name]] <- list()
+      }
+      Species_XR_TCR_Window_Densities[[species_name]][[paste0(tcr_id, "_ExprGroup")]] <- TCR_ExprDensities
+
+      avg <- colMeans(tcr_mat, na.rm = TRUE)
+      regionLength <- 0.7 * length(avg)
+      lengthEachSide <- (length(avg) - regionLength) / 2
+      start_tcr <- lengthEachSide
+      end_tcr <- length(avg) - lengthEachSide
+
+      TCR_ExprGroupPlot <-
+        ggplot(
+          TCR_ExprDensities %>% filter(!is.na(expr_group)),
+          aes(x = position, y = mean_score, color = expr_group, fill = expr_group)
+        ) +
+        geom_line(size = .5) +
+        geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+                    alpha = 0.2, color = NA) +
+        geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+        labs(
+          title = paste("TCR Across", species_name, "Gene Bodies"),
+          subtitle = "Grouped by expression group",
+          x = "Windows",
+          y = "Mean log2(template / non-template)",
+          color = "Expression Group",
+          fill = "Expression Group"
+        ) +
+        scale_x_continuous(n.breaks = 10) +
+        scale_y_continuous(n.breaks = 10) +
+        theme(
+          legend.title = element_text(size = 7),
+          legend.text = element_text(size = 6),
+          legend.key.size = unit(0.3, "cm"),
+          legend.position = "bottom",
+          legend.direction = "horizontal",
+          plot.title = element_text(size = BASE_SIZE - 5),
+          plot.subtitle = element_text(size = BASE_SIZE - 4),
+          axis.title.y = element_text(size = BASE_SIZE - 3)
+        ) +
+        guides(
+          fill = guide_legend(nrow = 1, byrow = TRUE),
+          colour = guide_legend(nrow = 1, byrow = TRUE)
+        )
+
+      ggsave(
+        plot = TCR_ExprGroupPlot,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_Plots/",
+          species_prefix,
+          "/TCR_", tcr_id, "_ExprGroup_", element_name, ".png"
+        ),
+        bg = "transparent",
+        type = "cairo",
+        units = "cm",
+        height = 6,
+        width = 8,
+        create.dir = TRUE,
+        dpi = 2000
+      )
+
+      # ----------------------------------------------------------------
+      # TCR gene-body profile split by mutation-rate group
+      # ------------------------------------------------------------------
+      mut_groups <- as.factor(gene_gr$mut_Group)
+
+      tcr_mut_df <- as.data.frame(tcr_mat) %>%
+        mutate(mut_group = mut_groups) %>%
+        pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
+        mutate(position = as.numeric(factor(position, levels = colnames(tcr_mat))))
+
+      TCR_MutDensities <- tcr_mut_df %>%
+        group_by(mut_group, position) %>%
+        summarise(
+          mean_score = mean(value, na.rm = TRUE),
+          se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+          .groups = "drop"
+        )
+
+      Species_XR_TCR_Window_Densities[[species_name]][[paste0(tcr_id, "_MutGroup")]] <- TCR_MutDensities
+
+      TCR_MutGroupPlot <-
+        ggplot(
+          TCR_MutDensities,
+          aes(x = position, y = mean_score, color = mut_group, fill = mut_group)
+        ) +
+        geom_line(size = .5) +
+        geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+                    alpha = 0.2, color = NA) +
+        geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+        labs(
+          title = paste("TCR Across", species_name, "Gene Bodies"),
+          subtitle = "Grouped by mutation rate group",
+          x = "Windows",
+          y = "Mean log2(template / non-template)",
+          color = "Mutation Rate Quantile",
+          fill = "Mutation Rate Quantile"
+        ) +
+        scale_x_continuous(n.breaks = 10) +
+        scale_y_continuous(n.breaks = 10) +
+        theme(
+          legend.title = element_text(size = 7),
+          legend.text = element_text(size = 6),
+          legend.key.size = unit(0.3, "cm"),
+          legend.position = "bottom",
+          legend.direction = "horizontal",
+          plot.title = element_text(size = BASE_SIZE - 5),
+          plot.subtitle = element_text(size = BASE_SIZE - 4),
+        axis.title.y = element_text(size = BASE_SIZE - 2)
+      ) +
+      guides(
+          fill = guide_legend(nrow = 1, byrow = TRUE),
+          colour = guide_legend(nrow = 1, byrow = TRUE)
+        )
+
+      ggsave(
+        plot = TCR_MutGroupPlot,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_Plots/",
+          species_prefix,
+          "/TCR_", tcr_id, "_MutGroup_", element_name, ".png"
+        ),
+        bg = "transparent",
+        type = "cairo",
+        units = "cm",
+        height = 6,
+        width = 8,
+        create.dir = TRUE,
+        dpi = 2000
+      )
+
+      # ----------------------------------------------------------------
+      # TCR scatter plot and boxplot using one value per gene
+      # ----------------------------------------------------------------
+      tcr_plot_df <- plot_vcf_df %>%
+        mutate(
+          Overall_TCR_Group = cut_number(
+            .data[[tcr_gene_col]] + runif(n(), -1e-6, 1e-6),
+            n = 5,
+            labels = as.character(1:5),
+            ordered_result = TRUE
+          )
+        )
+
+      tcr_spearman_test <-
+        cor.test(
+          tcr_plot_df$UniqueVariantsPlusOnePerBP,
+          tcr_plot_df[[tcr_gene_col]],
+          method = "spearman"
+        )
+
+      tcr_pearson_test <-
+        cor.test(
+          tcr_plot_df$UniqueVariantsPlusOnePerBP,
+          tcr_plot_df[[tcr_gene_col]],
+          method = "pearson"
+        )
+
+      Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[tcr_gene_col]] <- tcr_spearman_test
+      Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[tcr_gene_col]]  <- tcr_pearson_test
+
+      tcr_p1 <-
+        ggplot(
+          data = tcr_plot_df %>% filter(!is.na(.data[[tcr_gene_col]])),
+          aes(
+            x = !!sym(tcr_gene_col),
+            y = UniqueVariantsPlusOnePerBP
+          )
+        ) +
+        geom_point() +
+        geom_smooth(method = "lm", se = TRUE) +
+        labs(
+          title = paste(
+            tcr_gene_col, "\n",
+            tcr_plot_df$GENE_ID %>% unique() %>% length(),
+            "Unique Protein Coding Genes with TCR Estimate"
+          ),
+          subtitle = paste0(
+            "Spearman Correlation: ",
+            "p Value = ", signif(tcr_spearman_test$p.value, 5),
+            ", Coefficient = ", signif(tcr_spearman_test$estimate, 5),
+            "\nPearson Correlation: ",
+            "p Value = ", signif(tcr_pearson_test$p.value, 5),
+            ", Coefficient = ", signif(tcr_pearson_test$estimate, 5)
+          ),
+          caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
+        ) +
+        scale_x_continuous(n.breaks = 10) +
+        scale_y_continuous(n.breaks = 10) +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 5),
+          plot.subtitle = element_text(size = BASE_SIZE - 4)
+        )
+
+      ggsave(
+        plot = tcr_p1,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_Scatter_Plots/",
+          species_prefix, "/",
+          species_prefix, "_", tcr_id, "_TCR_versus_MutationRate_", element_name, ".png"
+        ),
+        create.dir = TRUE,
+        width = 5,
+        height = 4,
+        dpi = 300
+      )
+
+      tcr_box_df <- tcr_plot_df %>%
+        filter(!is.na(.data[[tcr_gene_col]]), !is.na(UniqueVariantsPlusOnePerBP)) %>%
+        mutate(
+          Overall_TCR_Group = cut_number(
+            .data[[tcr_gene_col]] + runif(n(), -1e-6, 1e-6),
+            n = 5,
+            labels = as.character(1:5),
+            ordered_result = TRUE
+          )
+        )
+
+      tcr_p2 <-
+        ggplot(
+          tcr_box_df,
+          aes(
+            x = Overall_TCR_Group,
+            y = UniqueVariantsPlusOnePerBP,
+            fill = Overall_TCR_Group
+          )
+        ) +
+        geom_boxplot(outliers = FALSE) +
+        labs(
+          title = paste0(
+            species_prefix, "\n",
+            tcr_box_df %>%
+              pull(GENE_ID) %>%
+              unique() %>%
+              length(),
+            " Protein Coding Genes\nwith XR TCR"
+          ),
+          subtitle = paste0(
+            "Jonckheere = ",
+            jonckheere.test(
+              tcr_box_df$UniqueVariantsPlusOnePerBP,
+              tcr_box_df$Overall_TCR_Group,
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            ", p = ",
+            jonckheere.test(
+              tcr_box_df$UniqueVariantsPlusOnePerBP,
+              tcr_box_df$Overall_TCR_Group,
+              alternative = "two.sided"
+            )$p.value %>% round(3)
+          ),
+          x = "TCR Quantile",
+          y = "Mutation Rate"
+        ) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_fill_manual(
+          values = colorRampPalette(
+            c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
+          )(length(unique(tcr_box_df$Overall_TCR_Group)))
+        ) +
+        guides(fill = "none") +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 5),
+          plot.subtitle = element_text(size = BASE_SIZE - 4)
+        )
+
+      ggsave(
+        plot = tcr_p2,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_JK_Plots/",
+          species_prefix, "/",
+          species_prefix, "_", tcr_id, "_TCR_Bins_versus_MutationRate_", element_name, ".png"
+        ),
+        bg = "transparent",
+        create.dir = TRUE,
+        width = 2,
+        height = 3,
+        dpi = 300
+      )
+    }
+  }
+
   # Add GC_percentage column if doesn't exist
-  vcf_df <- vcf_df %>% mutate(
-    GC_Percentage = as.numeric(GC_Length)/as.numeric(cDNA_length))
-  
-  # 8️⃣ Save updated dataframe back into list
+  vcf_df <- vcf_df %>%
+    mutate(
+      GC_Percentage = as.numeric(GC_Length) / as.numeric(cDNA_length)
+    )
+
   Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- vcf_df
-  
-  # Add Some Manual Correlations of Data Already in vcf_df; GC_Percentage, gene width and Expression
-  # Run Spearman Correlations
-  expression_spearman_test <- 
-    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
-             vcf_df$log2_Expression_Plus_One,
-             method = "spearman")
-  # Save results into object
+
+  expression_spearman_test <-
+    cor.test(
+      plot_vcf_df$UniqueVariantsPlusOnePerBP,
+      plot_vcf_df$log2_Expression_Plus_One,
+      method = "spearman"
+    )
+
   Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["log2_Expression_Plus_One"]] <- expression_spearman_test
-  
-  # Run Spearman Correlations
-  GC_spearman_test <- 
-    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
-             log(vcf_df$GC_Percentage),
-             method = "spearman")
-  # Save results into object
+
+  GC_spearman_test <-
+    cor.test(
+      vcf_df$UniqueVariantsPlusOnePerBP,
+      log(vcf_df$GC_Percentage),
+      method = "spearman"
+    )
+
   Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["GC_Percentage"]] <- GC_spearman_test
-  
-  # Run Spearman Correlations
-  width_spearman_test <- 
-    cor.test(vcf_df$UniqueVariantsPlusOnePerBP,
-             log(vcf_df$cDNA_length),
-             method = "spearman")
-  # Save results into object
+
+  width_spearman_test <-
+    cor.test(
+      plot_vcf_df$UniqueVariantsPlusOnePerBP,
+      log(plot_vcf_df$cDNA_length),
+      method = "spearman"
+    )
+
   Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["cDNA_length"]] <- width_spearman_test
-  
+
   message("Processed: ", element_name, " (species: ", species_name, ")")
 }
-
 ```
 
 ```{r LASSO Hybrid Version}
@@ -461,7 +948,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                  "H3K9me2$","H3K9me3$",
                  "H3K9ac$","H4K5ac$",
                  "H3K4me1$","H3K4me3",
-                 "cDNA_length",
+                 #"cDNA_length",
                  #"plus$",
                  #"minus$",
                  "mean_replication")))
@@ -551,7 +1038,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   # The Spearman Plot
   geom_col(data = subset(combined_results,
                          test == "Spearman" &
-                         variable %in% c(coef_df$variable,"gene_width")),
+                         variable %in% c(coef_df$variable)),
   aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
@@ -562,7 +1049,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   # The LASSO Plot
   geom_col(data = subset(combined_results,
                          test == "LASSO" &
-                         variable %in% c(coef_df$variable,"gene_width")),
+                         variable %in% c(coef_df$variable)),
   aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
@@ -587,7 +1074,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                                "_LASSO_Model_Plot",".png"),
       bg = "transparent",
       create.dir = TRUE,
-      width = 5.5,
+      width = 12.0,
       height = 3.4,
       dpi = 1000)
   
@@ -598,4 +1085,925 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 ```{r Saving}
 save(Annotated_VCFs_PC_Gene_Body_Variants, 
      file = paste0(R_Data,"Annotated_VCFs_PC_Gene_Body_Variants"))
+```
+
+```{r Calculating TCR from XR Sequencing, eval=FALSE, include=FALSE}
+
+Species_Epigenetics_and_Covariates_TCR <- Species_Epigenetics_and_Covariates
+processed_species <- character()
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  species_name <- strsplit(element_name, "_")[[1]][4]
+
+  if (species_name %in% processed_species) next
+  processed_species <- c(processed_species, species_name)
+
+  vcf_df <- subset(
+    Annotated_VCFs_PC_Gene_Body_Variants[[element_name]],
+    gene_biotype == "protein_coding"
+  )
+
+  epigenetic_list <- Species_Epigenetics_and_Covariates_TCR[[species_name]]
+  if (is.null(epigenetic_list)) next
+
+  gene_gr <- GRanges(
+    seqnames = vcf_df$CHROM,
+    ranges   = IRanges(start = vcf_df$start, end = vcf_df$end),
+    strand   = vcf_df$strand,
+    gene_id  = vcf_df$GENE_ID,
+    gene_name = vcf_df$gene_name,
+    dNdS_Group = vcf_df$Overall_dNdS_Group,
+    mut_Group  = vcf_df$Overall_Expression_Group
+  ) %>% unique()
+
+  xr_names <- names(epigenetic_list)[grepl("XR", names(epigenetic_list), ignore.case = TRUE)]
+
+  xr_bases <- unique(sub("(plus|minus|neg)$", "", xr_names, ignore.case = TRUE))
+
+  for (base in xr_bases) {
+
+    plus_name <- grep(
+      paste0("^", base, "plus$"),
+      xr_names,
+      value = TRUE,
+      ignore.case = TRUE
+    )
+
+    minus_name <- grep(
+      paste0("^", base, "minus$|^", base, "neg$"),
+      xr_names,
+      value = TRUE,
+      ignore.case = TRUE
+    )
+
+    if (length(plus_name) != 1 || length(minus_name) != 1) next
+
+    plus_df  <- epigenetic_list[[plus_name]]
+    minus_df <- epigenetic_list[[minus_name]]
+
+    if (is.null(plus_df) || is.null(minus_df)) next
+
+    plus_gr <- GRanges(
+      seqnames = plus_df$chrom,
+      ranges   = IRanges(start = plus_df$start, end = plus_df$end),
+      value    = plus_df$value
+    )
+    strand(plus_gr) <- "+"
+
+    minus_gr <- GRanges(
+      seqnames = minus_df$chrom,
+      ranges   = IRanges(start = minus_df$start, end = minus_df$end),
+      value    = minus_df$value
+    )
+    strand(minus_gr) <- "-"
+
+    plus_merged <- as.data.frame(mergeByOverlaps(gene_gr, plus_gr, ignore.strand = TRUE))
+    minus_merged <- as.data.frame(mergeByOverlaps(gene_gr, minus_gr, ignore.strand = TRUE))
+
+    if (nrow(plus_merged) == 0 || nrow(minus_merged) == 0) next
+
+    plus_mean_df <- plus_merged %>%
+      group_by(gene_id, gene_name, gene_gr.seqnames, gene_gr.start, gene_gr.end, gene_gr.strand) %>%
+      summarise(plus_mean = mean(value, na.rm = TRUE), .groups = "drop")
+
+    minus_mean_df <- minus_merged %>%
+      group_by(gene_id, gene_name, gene_gr.seqnames, gene_gr.start, gene_gr.end, gene_gr.strand) %>%
+      summarise(minus_mean = mean(value, na.rm = TRUE), .groups = "drop")
+
+    tcr_df <- full_join(
+      plus_mean_df,
+      minus_mean_df,
+      by = c("gene_id", "gene_name", "gene_gr.seqnames", "gene_gr.start", "gene_gr.end", "gene_gr.strand")
+    ) %>%
+      mutate(
+        template_mean    = ifelse(gene_gr.strand == "+", minus_mean, plus_mean),
+        nontemplate_mean = ifelse(gene_gr.strand == "+", plus_mean, minus_mean),
+        value = log2((template_mean + 1) / (nontemplate_mean + 1)),
+        CHROM = as.character(gene_gr.seqnames),
+        start = gene_gr.start,
+        end   = gene_gr.end,
+        strand = as.character(gene_gr.strand)
+      ) %>%
+      select(
+        CHROM, start, end, gene_id, gene_name, strand,
+        value, template_mean, nontemplate_mean, plus_mean, minus_mean
+      )
+
+    colnames(tcr_df)[1] <- "chrom"
+    epigenetic_list[[paste0(base, "_TCR")]] <- tcr_df[, c("chrom","start","end","value")]
+  }
+
+  Species_Epigenetics_and_Covariates_TCR[[species_name]] <- epigenetic_list #["C_elegans_XR_TCR"]
+}
+```
+
+```{r Calculate Mean Epigenetic Values for Each Gene and Run Correlations, eval=FALSE, include=FALSE}
+library(dplyr)
+library(GenomicRanges)
+library(IRanges)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(ComplexHeatmap)
+library(circlize)
+
+# Empty List for Correlation Results
+Species_Chromatin_Type_Spearman_Tests <- list()
+Species_Chromatin_Type_Pearson_Tests  <- list()
+
+# Store XR window profiles here
+Species_XR_Window_MutationDensities <- list()
+
+# Store TCR window profiles here
+Species_XR_TCR_Window_Densities <- list()
+
+pc <- 1e-6
+
+for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
+
+  # 1️⃣ Get the VCF-like data for this species and subset for protein coding genes
+  vcf_df <- subset(
+    Annotated_VCFs_PC_Gene_Body_Variants[[element_name]],
+    gene_biotype == "protein_coding"
+  )
+
+  # 2️⃣ Extract species name
+  species_name <- strsplit(element_name, "_")[[1]][4]
+  species_prefix <- paste0(
+    substr(species_name, 1, 1),
+    "_",
+    substr(species_name, 2, nchar(species_name))
+  )
+
+  # 3️⃣ Get corresponding epigenetic data
+  epigenetic_list <- Species_Epigenetics_and_Covariates[[species_name]]
+
+  # 4️⃣ Convert gene coordinates to GRanges
+  gene_gr <- GRanges(
+  seqnames = vcf_df$CHROM,
+  ranges   = IRanges(start = vcf_df$start, end = vcf_df$end),
+  strand   = vcf_df$strand,
+  gene_id  = vcf_df$GENE_ID,
+  gene_name = vcf_df$gene_name,
+  dNdS_Group = vcf_df$Overall_dNdS_Group,
+  expr_Group = vcf_df$Overall_Expression_Group,
+  mut_Group  = vcf_df$Overall_Mutation_Rate_Group
+) %>% unique()
+  )
+
+  # 5️⃣ Loop through each epigenetic dataset for this species
+  for (mark_name in names(epigenetic_list)) {
+
+    mark_name_nospecies <- str_split(mark_name, "_", simplify = TRUE)[3]
+    mark_df <- epigenetic_list[[mark_name]]
+
+    # Skip if the element is NULL
+    if (is.null(mark_df)) next
+
+    # Convert to GRanges object
+    mark_gr <- GRanges(
+      seqnames = mark_df$chrom,
+      ranges   = IRanges(start = mark_df$start, end = mark_df$end),
+      value    = mark_df$value
+    )
+
+    # Add strand information if needed
+    if (mark_name %like% "plus") {
+      strand(mark_gr) <- "+"
+    }
+    if (mark_name %like% "neg" | mark_name %like% "minus") {
+      strand(mark_gr) <- "-"
+    }
+
+    # 5️⃣ Metagene EnrichedHeatmap of Epigenetic Mark Around Gene Body
+    body_epi_enrichment <- normalizeToMatrix(
+      mark_gr,
+      gene_gr,
+      value_column = "value",
+      extend = 1000,
+      mean_mode = "weighted",
+      w = 50,
+      target_ratio = .7,
+      smooth = FALSE,
+      background = 0
+    )
+
+    # Extract Enrichment Bins and Grouping Indexing Information
+    mat <- as.matrix(body_epi_enrichment)
+
+    # ------------------------------------------------------------------
+    # Gene-body profile split by expression group
+    # ------------------------------------------------------------------
+    expr_groups <- as.factor(gene_gr$expr_Group)
+
+    expr_df <- as.data.frame(mat) %>%
+      mutate(expr_group = expr_groups) %>%
+      pivot_longer(cols = -c(expr_group), names_to = "position", values_to = "value") %>%
+      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
+
+    ExprDensities <- expr_df %>%
+      group_by(expr_group, position) %>%
+      summarise(
+        mean_score = mean(value, na.rm = TRUE),
+        se = sd(value, na.rm = TRUE) / sqrt(n()),
+        .groups = "drop"
+      )
+
+    if (is.null(Species_XR_Window_MutationDensities[[species_name]])) {
+      Species_XR_Window_MutationDensities[[species_name]] <- list()
+    }
+    Species_XR_Window_MutationDensities[[species_name]][[paste0(mark_name, "_ExprGroup")]] <- ExprDensities
+
+    # Keep your original boundary logic exactly
+    avg <- colMeans(mat)
+    regionLength <- ((0.7 * 100) * length(avg)) / 100
+    lengthEachSide <- (length(avg) - regionLength) / 2
+    start <- lengthEachSide
+    end <- length(avg) - lengthEachSide
+
+    # Plot grouped by expression group
+    ExprDensityPlot <-
+      ggplot(
+        ExprDensities %>% subset(., is.na(expr_group) == FALSE),
+        aes(x = position, y = mean_score, color = expr_group, fill = expr_group)
+      ) +
+      geom_line(size = .5) +
+      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+                  alpha = 0.2, color = NA) +
+      geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      labs(
+        title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
+        subtitle = "Grouped by expression group",
+        x = "Windows",
+        y = paste("Mean", mark_name_nospecies),
+        color = "Expression Group",
+        fill = "Expression Group"
+      ) +
+      scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  guides(
+    fill = guide_legend(nrow = 1, byrow = TRUE),
+    colour = guide_legend(nrow = 1, byrow = TRUE)
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    plot.title = element_text(size = BASE_SIZE - 5),
+    plot.subtitle = element_text(size = BASE_SIZE - 4)
+  )
+
+    ggsave(
+      plot = ExprDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_ExprGroup_", element_name, ".png"
+      ),
+      bg = "transparent",
+      type = "cairo",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE,
+      dpi = 2000
+    )
+
+    # ------------------------------------------------------------------
+    # Gene-body profile split by mutation-rate group
+    # ------------------------------------------------------------------
+    mut_groups <- as.factor(gene_gr$mut_Group)
+
+    mut_df <- as.data.frame(mat) %>%
+      mutate(mut_group = mut_groups) %>%
+      pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
+      mutate(position = as.numeric(factor(position, levels = colnames(mat))))
+
+    MutationDensities <- mut_df %>%
+      group_by(mut_group, position) %>%
+      summarise(
+        mean_score = mean(value, na.rm = TRUE),
+        se = sd(value, na.rm = TRUE) / sqrt(n()),
+        .groups = "drop"
+      )
+
+    # Store XR plus/minus window summaries
+    if (grepl("XRplus|XRminus|XRneg", mark_name, ignore.case = TRUE)) {
+      Species_XR_Window_MutationDensities[[species_name]][[paste0(mark_name, "_MutGroup")]] <- MutationDensities
+    }
+
+    # Plot grouped by mutation rate quantile
+    MutationDensityPlot <-
+      ggplot(
+        MutationDensities,
+        aes(x = position, y = mean_score, color = mut_group, fill = mut_group)
+      ) +
+      geom_line(size = .5) +
+      geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
+                  alpha = 0.2, color = NA) +
+      geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      labs(
+        title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
+        subtitle = "Grouped by mutation rate group",
+        x = "Windows",
+        y = paste("Mean", mark_name_nospecies),
+        color = "Mutation Rate Quantile",
+        fill = "Mutation Rate Quantile"
+      ) +
+      scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  guides(
+    fill = guide_legend(nrow = 1, byrow = TRUE),
+    colour = guide_legend(nrow = 1, byrow = TRUE)
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    plot.title = element_text(size = BASE_SIZE - 5),
+    plot.subtitle = element_text(size = BASE_SIZE - 4)
+  )
+      
+
+    ggsave(
+      plot = MutationDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_MutGroup_", element_name, ".png"
+      ),
+      bg = "transparent",
+      type = "cairo",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE,
+      dpi = 2000
+    )
+
+    # ------------------------------------------------------------------
+    # NEW: proper TCR gene-body profile
+    # Only compute this for XRplus, using its matching XRminus track.
+    # ------------------------------------------------------------------
+    if (grepl("XRplus$", mark_name, ignore.case = TRUE)) {
+
+      minus_name <- sub("XRplus$", "XRminus", mark_name, ignore.case = TRUE)
+
+      if (minus_name %in% names(epigenetic_list)) {
+
+        minus_df <- epigenetic_list[[minus_name]]
+
+        if (!is.null(minus_df)) {
+
+          minus_gr <- GRanges(
+            seqnames = minus_df$chrom,
+            ranges   = IRanges(start = minus_df$start, end = minus_df$end),
+            value    = minus_df$value
+          )
+          strand(minus_gr) <- "-"
+
+          # Use the already-computed plus-track matrix as plus_mat
+          plus_mat <- mat
+
+          # Compute the minus-track matrix on the same gene set
+          minus_mat <- as.matrix(normalizeToMatrix(
+            minus_gr,
+            gene_gr,
+            value_column = "value",
+            extend = 1000,
+            mean_mode = "weighted",
+            w = 50,
+            target_ratio = .7,
+            smooth = FALSE,
+            background = 0
+          ))
+
+          gene_strand <- as.character(strand(gene_gr))
+          plus_idx  <- which(gene_strand == "+")
+          minus_idx <- which(gene_strand == "-")
+
+          # Template/non-template matrices oriented by gene strand
+          template_mat <- rbind(
+            minus_mat[plus_idx, , drop = FALSE],
+            plus_mat[minus_idx, , drop = FALSE]
+          )
+
+          nontemplate_mat <- rbind(
+            plus_mat[plus_idx, , drop = FALSE],
+            minus_mat[minus_idx, , drop = FALSE]
+          )
+
+          avg_tcr <- colMeans(template_mat)
+          regionLength_tcr <- ((0.7 * 100) * length(avg_tcr)) / 100
+          lengthEachSide_tcr <- (length(avg_tcr) - regionLength_tcr) / 2
+          start_tcr <- lengthEachSide_tcr
+          end_tcr <- length(avg_tcr) - lengthEachSide_tcr
+
+          # ==============================================================
+          # TCR profile split by expression group
+          # ==============================================================
+          gene_groups <- as.factor(gene_gr$expr_Group)
+
+          template_groups <- c(gene_groups[plus_idx], gene_groups[minus_idx])
+          nontemplate_groups <- template_groups
+
+          template_df <- as.data.frame(template_mat) %>%
+            mutate(expr_group = template_groups) %>%
+            pivot_longer(cols = -c(expr_group), names_to = "position", values_to = "value") %>%
+            mutate(position = as.numeric(factor(position, levels = colnames(template_mat)))) %>%
+            group_by(expr_group, position) %>%
+            summarise(
+              mean_score_template = mean(value, na.rm = TRUE),
+              se_template = sd(value, na.rm = TRUE) / sqrt(n()),
+              .groups = "drop"
+            )
+
+          nontemplate_df <- as.data.frame(nontemplate_mat) %>%
+            mutate(expr_group = nontemplate_groups) %>%
+            pivot_longer(cols = -c(expr_group), names_to = "position", values_to = "value") %>%
+            mutate(position = as.numeric(factor(position, levels = colnames(nontemplate_mat)))) %>%
+            group_by(expr_group, position) %>%
+            summarise(
+              mean_score_nontemplate = mean(value, na.rm = TRUE),
+              se_nontemplate = sd(value, na.rm = TRUE) / sqrt(n()),
+              .groups = "drop"
+            )
+
+          tcr_expr_df <- full_join(
+            template_df,
+            nontemplate_df,
+            by = c("expr_group", "position")
+          ) %>%
+            mutate(
+              strand_bias = log2((mean_score_template + pc) / (mean_score_nontemplate + pc)),
+              bias_se = sqrt(
+                (se_template / ((mean_score_template + pc) * log(2)))^2 +
+                  (se_nontemplate / ((mean_score_nontemplate + pc) * log(2)))^2
+              )
+            ) %>%
+            arrange(expr_group, position)
+
+          if (is.null(Species_XR_TCR_Window_Densities[[species_name]])) {
+            Species_XR_TCR_Window_Densities[[species_name]] <- list()
+          }
+
+          Species_XR_TCR_Window_Densities[[species_name]][[paste0(sub("XRplus$", "XR_TCR_ExprGroup", mark_name, ignore.case = TRUE))]] <- tcr_expr_df
+
+          TCR_ExprGroupPlot <-
+            ggplot(
+              tcr_expr_df %>% subset(., is.na(expr_group) == FALSE),
+              aes(x = position, y = strand_bias, color = expr_group, fill = expr_group)
+            ) +
+            geom_line(size = .5) +
+            geom_ribbon(
+              aes(ymin = strand_bias - bias_se, ymax = strand_bias + bias_se),
+              alpha = 0.2,
+              color = NA
+            ) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            theme_bw() +
+            labs(
+              title = paste("Enrichment of TCR Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by expression group",
+              x = "Windows",
+              y = "Mean log2(template / non-template)",
+              color = "Expression Group",
+              fill = "Expression Group"
+            ) +
+            scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  guides(
+    fill = guide_legend(nrow = 1, byrow = TRUE),
+    colour = guide_legend(nrow = 1, byrow = TRUE)
+  ) +
+  theme(
+    axis.text.y = element_text(size = BASE_SIZE- 4),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    plot.title = element_text(size = BASE_SIZE - 5),
+    plot.subtitle = element_text(size = BASE_SIZE - 4)
+  )
+          
+          ggsave(
+            plot = TCR_ExprGroupPlot,
+            filename = paste0(
+              R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+              "Epigenetic_TCR_Plots/",
+              species_prefix,
+              "/TCR_", mark_name_nospecies, "_ExprGroup_", element_name, ".png"
+            ),
+            bg = "transparent",
+            type = "cairo",
+            units = "cm",
+            height = 6,
+            width = 8,
+            create.dir = TRUE,
+            dpi = 2000
+          )
+
+          # ==============================================================
+          # TCR profile split by mutation-rate group
+          # ==============================================================
+          gene_groups <- as.factor(gene_gr$mut_Group)
+
+          template_groups <- c(gene_groups[plus_idx], gene_groups[minus_idx])
+          nontemplate_groups <- template_groups
+
+          template_df <- as.data.frame(template_mat) %>%
+            mutate(mut_group = template_groups) %>%
+            pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
+            mutate(position = as.numeric(factor(position, levels = colnames(template_mat)))) %>%
+            group_by(mut_group, position) %>%
+            summarise(
+              mean_score_template = mean(value, na.rm = TRUE),
+              se_template = sd(value, na.rm = TRUE) / sqrt(n()),
+              .groups = "drop"
+            )
+
+          nontemplate_df <- as.data.frame(nontemplate_mat) %>%
+            mutate(mut_group = nontemplate_groups) %>%
+            pivot_longer(cols = -c(mut_group), names_to = "position", values_to = "value") %>%
+            mutate(position = as.numeric(factor(position, levels = colnames(nontemplate_mat)))) %>%
+            group_by(mut_group, position) %>%
+            summarise(
+              mean_score_nontemplate = mean(value, na.rm = TRUE),
+              se_nontemplate = sd(value, na.rm = TRUE) / sqrt(n()),
+              .groups = "drop"
+            )
+
+          tcr_mut_df <- full_join(
+            template_df,
+            nontemplate_df,
+            by = c("mut_group", "position")
+          ) %>%
+            mutate(
+              strand_bias = log2((mean_score_template + pc) / (mean_score_nontemplate + pc)),
+              bias_se = sqrt(
+                (se_template / ((mean_score_template + pc) * log(2)))^2 +
+                  (se_nontemplate / ((mean_score_nontemplate + pc) * log(2)))^2
+              )
+            ) %>%
+            arrange(mut_group, position)
+
+          Species_XR_TCR_Window_Densities[[species_name]][[paste0(sub("XRplus$", "XR_TCR_MutGroup", mark_name, ignore.case = TRUE))]] <- tcr_mut_df
+
+          TCR_MutGroupPlot <-
+            ggplot(
+              tcr_mut_df,
+              aes(x = position, y = strand_bias, color = mut_group, fill = mut_group)
+            ) +
+            geom_line(size = .5) +
+            geom_ribbon(
+              aes(ymin = strand_bias - bias_se, ymax = strand_bias + bias_se),
+              alpha = 0.2,
+              color = NA
+            ) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            theme_bw() +
+            labs(
+              title = paste("Enrichment of TCR Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by mutation rate group",
+              x = "Windows",
+              y = "Mean log2(template / non-template)",
+              color = "Mutation Rate Quantile",
+              fill = "Mutation Rate Quantile"
+            ) +
+            scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  theme(
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 6),
+  legend.key.size = unit(0.3, "cm")) +
+  guides(
+    fill = guide_legend(nrow = 1, byrow = TRUE),
+    colour = guide_legend(nrow = 1, byrow = TRUE)
+  ) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    plot.title = element_text(size = BASE_SIZE - 5),
+    plot.subtitle = element_text(size = BASE_SIZE - 4)
+  )
+
+          ggsave(
+            plot = TCR_MutGroupPlot,
+            filename = paste0(
+              R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+              "Epigenetic_TCR_Plots/",
+              species_prefix,
+              "/TCR_", mark_name_nospecies, "_MutGroup_", element_name, ".png"
+            ),
+            bg = "transparent",
+            type = "cairo",
+            units = "cm",
+            height = 5,
+            width = 8,
+            create.dir = TRUE,
+            dpi = 2000
+          )
+
+          # TCR binned plot stays mutation-rate based
+          tcr_bin_df <- tcr_mut_df %>%
+            filter(!is.na(strand_bias), !is.na(mut_group))
+
+          TCR_BinnedPlot <-
+            ggplot(
+              tcr_bin_df,
+              aes(x = mut_group, y = strand_bias, fill = mut_group)
+            ) +
+            geom_boxplot(outliers = FALSE) +
+            labs(
+              title = paste0(
+                species_prefix, "\n",
+                tcr_bin_df %>%
+                  pull(mut_group) %>%
+                  unique() %>%
+                  length(),
+                " Mutation Rate Groups\nwith XR TCR"
+              ),
+              subtitle = "TCR is log2(template / non-template)",
+              x = "Mutation \n Rate \n Quantile",
+              y = "TCR strand bias"
+            ) +
+            scale_y_continuous(n.breaks = 10) +
+            scale_fill_manual(
+              values = colorRampPalette(
+                c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
+              )(length(unique(tcr_bin_df$mut_group)))
+            ) +
+      theme(plot.title = element_text(size = BASE_SIZE -5),
+            plot.subtitle = element_text(size = BASE_SIZE-4))
+
+          ggsave(
+            plot = TCR_BinnedPlot,
+            filename = paste0(
+              R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+              "Epigenetic_TCR_Plots/",
+              species_prefix,
+              "/TCR_", mark_name_nospecies, "_Binned_", element_name, ".png"
+            ),
+            bg = "transparent",
+            create.dir = TRUE,
+            width = 2,
+            height = 3,
+            dpi = 300
+          )
+        }
+      }
+    }
+
+    # 6️⃣ Merge by overlaps
+    merged <- as.data.frame(mergeByOverlaps(gene_gr, mark_gr, ignore.strand = TRUE))
+
+    # Compute mean of all overlapping values per gene range
+    mean_df <- merged %>%
+      group_by(gene_gr.seqnames, gene_gr.start, gene_gr.end) %>%
+      summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
+
+    # Rename mean_value to indicate mean epigenetic modification type
+    mean_mark_name <- paste("mean", mark_name_nospecies, sep = "_")
+    colnames(mean_df) <- c(
+      "CHROM",
+      "start",
+      "end",
+      mean_mark_name
+    )
+
+    # 7️⃣ Attach new mean column back to the original VCF dataframe
+    vcf_df <- merge(
+      vcf_df,
+      mean_df,
+      by = c("CHROM", "start", "end"),
+      all.x = TRUE
+    )
+
+    # Bin Genes by their chromatin mark
+    vcf_df <- vcf_df %>%
+      mutate(
+        Overall_Mark_Group = cut_number(
+          .data[[mean_mark_name]] + runif(n(), -1e-6, 1e-6),
+          n = 5,
+          labels = as.character(1:5),
+          ordered_result = TRUE
+        )
+      )
+
+    # 8️⃣ Epigenetic Mark versus Mutation Rate
+    spearman_test <-
+      cor.test(
+        vcf_df$UniqueVariantsPlusOnePerBP,
+        vcf_df[[mean_mark_name]],
+        method = "spearman"
+      )
+
+    pearson_test <-
+      cor.test(
+        vcf_df$UniqueVariantsPlusOnePerBP,
+        vcf_df[[mean_mark_name]],
+        method = "pearson"
+      )
+
+    # Save results into object
+    if (is.null(Species_Chromatin_Type_Spearman_Tests[[species_prefix]])) {
+      Species_Chromatin_Type_Spearman_Tests[[species_prefix]] <- list()
+      Species_Chromatin_Type_Pearson_Tests[[species_prefix]]  <- list()
+    }
+
+    Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]] <- spearman_test
+    Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]  <- pearson_test
+
+    # Create a Scatter Plot
+    p1 <-
+      ggplot(
+        data = subset(vcf_df, !is.na(vcf_df[[mean_mark_name]])),
+        aes(
+          x = !!sym(mean_mark_name),
+          y = UniqueVariantsPlusOnePerBP
+        )
+      ) +
+      geom_point() +
+      geom_smooth(method = "lm", se = TRUE) +
+      labs(
+        title = paste(
+          mean_mark_name, "\n",
+          vcf_df$GENE_ID %>%
+            unique() %>%
+            length(),
+          "Unique Protein Coding Genes with Mark Estimate"
+        ),
+        subtitle = paste0(
+          "Spearman Correlation: ",
+          "p Value = ",
+          Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$p.value %>%
+            signif(., digits = 5),
+          ", ",
+          "Coefficient = ",
+          Species_Chromatin_Type_Spearman_Tests[[species_prefix]][[mean_mark_name]]$estimate %>%
+            signif(., digits = 5),
+          "\n",
+          "Pearson Correlation: ",
+          "p Value = ",
+          Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$p.value %>%
+            signif(., digits = 5),
+          ", ",
+          "Coefficient = ",
+          Species_Chromatin_Type_Pearson_Tests[[species_prefix]][[mean_mark_name]]$estimate %>%
+            signif(., digits = 5)
+        ),
+        caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
+      ) +
+      scale_x_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 10) +
+      theme(plot.title = element_text(size = BASE_SIZE -5),
+            plot.subtitle = element_text(size = BASE_SIZE-4))
+
+    # Save the plot
+    ggsave(
+      plot = p1,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_Scatter_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_versus_MutationRate", "_", element_name, ".png"
+      ),
+      create.dir = TRUE,
+      width = 5,
+      height = 4,
+      dpi = 300
+    )
+
+    # filter properly first — cleaner than putting subset() inside ggplot()
+    plot_df <- vcf_df %>%
+      filter(!is.na(.data[[mean_mark_name]])) %>%
+      filter(!is.na(.data[["UniqueVariantsPlusOnePerBP"]]))
+
+    p2 <-
+      ggplot(
+        plot_df,
+        aes(
+          x = Overall_Mark_Group,
+          y = UniqueVariantsPlusOnePerBP,
+          fill = Overall_Mark_Group
+        )
+      ) +
+      geom_boxplot(outliers = FALSE) +
+      labs(
+        title = paste0(
+          species_prefix, "\n",
+          plot_df %>%
+            filter(!is.na(Overall_Mark_Group),
+                   !is.na(UniqueVariantsPlusOnePerBP)) %>%
+            pull(GENE_ID) %>%
+            unique() %>%
+            length(),
+          " Protein Coding Genes\nwith Embryonic ", mark_name
+        ),
+        subtitle = paste0(
+          "Jonckheere = ",
+          jonckheere.test(
+            plot_df$UniqueVariantsPlusOnePerBP,
+            plot_df$Overall_Mark_Group,
+            alternative = "two.sided"
+          )$statistic %>% round(3),
+          ", p = ",
+          jonckheere.test(
+            plot_df$UniqueVariantsPlusOnePerBP,
+            plot_df$Overall_Mark_Group,
+            alternative = "two.sided"
+          )$p.value %>% round(3)
+        )
+      ) +
+      scale_y_continuous(n.breaks = 10) +
+      scale_fill_manual(
+        values = colorRampPalette(
+          c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
+        )(length(unique(plot_df$Overall_Mark_Group)))
+      ) +
+      guides(fill = "none") +
+      theme(plot.title = element_text(size = BASE_SIZE -5),
+            plot.subtitle = element_text(size = BASE_SIZE-4))
+
+    # Save the plot
+    ggsave(
+      plot = p2,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_JK_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_Bins_versus_MutationRate", "_", element_name, ".png"
+      ),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2,
+      height = 3,
+      dpi = 300
+    )
+  }
+
+  # Add GC_percentage column if doesn't exist
+  vcf_df <- vcf_df %>%
+    mutate(
+      GC_Percentage = as.numeric(GC_Length) / as.numeric(cDNA_length)
+    )
+
+  # Save updated dataframe back into list
+  Annotated_VCFs_PC_Gene_Body_Variants[[element_name]] <- vcf_df
+
+  # Manual correlations already in vcf_df; GC_Percentage, gene width and Expression
+  expression_spearman_test <-
+    cor.test(
+      vcf_df$UniqueVariantsPlusOnePerBP,
+      vcf_df$log2_Expression_Plus_One,
+      method = "spearman"
+    )
+
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["log2_Expression_Plus_One"]] <- expression_spearman_test
+
+  GC_spearman_test <-
+    cor.test(
+      vcf_df$UniqueVariantsPlusOnePerBP,
+      log(vcf_df$GC_Percentage),
+      method = "spearman"
+    )
+
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["GC_Percentage"]] <- GC_spearman_test
+
+  width_spearman_test <-
+    cor.test(
+      vcf_df$UniqueVariantsPlusOnePerBP,
+      log(vcf_df$cDNA_length),
+      method = "spearman"
+    )
+
+  Species_Chromatin_Type_Spearman_Tests[[species_prefix]][["cDNA_length"]] <- width_spearman_test
+
+  message("Processed: ", element_name, " (species: ", species_name, ")")
+}
 ```

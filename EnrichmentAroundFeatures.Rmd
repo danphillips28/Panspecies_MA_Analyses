@@ -166,7 +166,7 @@ MultiSpeciesPlot <-
              color = species,
              fill = species)) +
 
-  geom_line(size = 1.2) +
+  geom_line(size = 1.2, alpha = .5) +
 
   geom_ribbon(aes(ymin = mean_score - se,
                   ymax = mean_score + se),
@@ -221,7 +221,8 @@ ggsave(
   height = 15,
   units = "cm",
   dpi = 1000,
-  bg = "transparent"
+  bg = "transparent",
+  create.dir = TRUE
 )
 ```
 

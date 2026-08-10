@@ -1,0 +1,434 @@
+---
+title: "Dmelanogaster_CrossTissue_MutationExpression_Associations"
+output: html_document
+date: "2026-06-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(Seurat)
+library(tidyr)
+library(ggpubr)
+library(clinfun)
+library(PMCMRplus)
+library(readxl)
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Setting Paths}
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r Loading Annotated VCFs}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+```
+
+```{r Download and Load Data}
+url <- "https://static-content.springer.com/esm/art%3A10.1186%2Fs12864-018-5085-z/MediaObjects/12864_2018_5085_MOESM2_ESM.xlsx"
+
+download.file(
+  url,
+  destfile = file.path(R_Data, "12864_2018_5085_MOESM2_ESM.xlsx"),
+  mode = "wb",
+  method = "libcurl"
+)
+
+Dmelanogaster_Germline_RNA <- read_excel(
+  paste0(R_Data, "/12864_2018_5085_MOESM2_ESM.xlsx"),
+  skip = 2
+)
+
+Dmelanogaster_Germline_RNA <- Dmelanogaster_Germline_RNA |>
+  janitor::clean_names()
+
+colnames(Dmelanogaster_Germline_RNA)[4] <- "testis_apical_region"
+colnames(Dmelanogaster_Germline_RNA)[5] <- "testis_middle_region"
+colnames(Dmelanogaster_Germline_RNA)[6] <- "testis_basal_region"
+
+```
+
+```{r Loading and Merging scRNASeq Spermatogenesis}
+load(file = paste0(R_Data, "Dmelanogaster_Germline_scRNA"))
+
+Dmelanogaster_Germline_RNA <-
+  merge(Dmelanogaster_Germline_RNA,
+        Dmelanogaster_Germline_scRNA[, colnames(Dmelanogaster_Germline_scRNA) != "UniqueVariantsPlusOnePerBP"],
+        by.x = "gene_id",
+        by.y = "GENE_ID",
+        all = TRUE)
+```
+
+```{r Associating Mutation Rate and Expression Across Tissues, fig.height=14, fig.width=9, dev = "png", dev.args=list(bg="transparent"), message=FALSE, warning=FALSE}
+
+lines <- readLines(gzfile(paste0(R_Data, "Drosophila_melanogaster_modENCODE_RPKM_REPORT.tsv")))
+lines[6] <- sub("^##", "", lines[6])
+modENCODErpkmExpression <- read.delim(
+  textConnection(lines[-(1:5)]),
+  header = TRUE
+)
+
+colnames(modENCODErpkmExpression)[2] <- "gene_id"
+
+modENCODErpkmExpression$log2_RPKM_plusOne <-
+  log2(modENCODErpkmExpression$RPKM_value+1)
+
+Tissues <- c(
+  unique(
+    subset(
+      modENCODErpkmExpression,
+      Parent_library_name == "modENCODE_mRNA-Seq_tissues" |
+        Parent_library_name == "modENCODE_mRNA-Seq_development"
+    )$RNASource_name
+  ),
+  colnames(Dmelanogaster_Germline_RNA)[
+    !grepl("locus|gene_id|gene_symbol|maximum|log2|p_value|_sig|index",
+           colnames(Dmelanogaster_Germline_RNA),
+           ignore.case = TRUE)
+  ])
+
+# Create Empty Lists to fill with plots
+Tissue_Expression_MutationRate_Scatter_Plots <- list()
+Tissue_Expression_MutationRate_Box_Plots <- list()
+
+# Create an Object with Genes and their Mutation Rates
+Tissue_Expression_Mutation_Rate_Data <-
+Annotated_VCFs_PC_Gene_Body_Variants$Assaf_2017_MA_Dmelanogaster_BDGP6[, c("GENE_ID","UniqueVariantsPlusOnePerBP")] %>% unique() %>%
+  as.data.frame()
+
+# Create Empty Objects to Populate with Correlation Results for Each Tissue
+Tissue_Expression_MutationRate_Association_coefs <- 
+  data.frame(Target = "Expression-MutationRate")
+Tissue_Expression_MutationRate_Association_pVals <- 
+  data.frame(Target = "Expression-MutationRate")
+
+for (Tissue in Tissues) {
+
+  # Name the Type of Chromatin
+  Tissue_Label <- gsub("mE_mRNA_", "", Tissue)
+
+  # 1: Collect the Expression Data
+  if (Tissue %in% colnames(Dmelanogaster_Germline_RNA)) {
+
+    Tissue_modENCODErpkmExpression <-
+      Dmelanogaster_Germline_RNA[, c("gene_id", Tissue)]
+
+  } else {
+
+    Tissue_modENCODErpkmExpression <-
+      subset(
+        modENCODErpkmExpression,
+        RNASource_name == Tissue
+      )[, c("gene_id", "RPKM_value")]
+
+  }
+
+  # 2: Give it new column names
+  colnames(Tissue_modENCODErpkmExpression) <-
+    c("gene_id", Tissue_Label)
+
+  # 3: Merge with Gene IDs and their mutation rates
+  Tissue_Expression_Mutation_Rate_Data <-
+    merge(
+      Tissue_Expression_Mutation_Rate_Data,
+      Tissue_modENCODErpkmExpression,
+      by.y = c("gene_id"),
+      by.x = c("GENE_ID"),
+      all.x = TRUE,
+      all.y = FALSE
+    )
+
+# Remove NA Values before Binning Expression
+Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins <- 
+  subset(Tissue_Expression_Mutation_Rate_Data,
+         is.na(Tissue_Expression_Mutation_Rate_Data[, Tissue_Label]) == FALSE)
+
+# 4: Split Expression Values into Groups
+  x <- Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[, Tissue_Label]
+
+  Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins$Expression_Bins <- NA_character_
+
+  zero <- !is.na(x) & x == 0
+  pos  <- !is.na(x) & x > 0
+
+  Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins$Expression_Bins[zero] <- "0"
+
+  if (sum(pos) > 0) {
+  Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins$Expression_Bins[pos] <-
+    as.character(dplyr::ntile(x[pos], 5))
+  }
+
+  Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins$Expression_Bins <- factor(
+  Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins$Expression_Bins,
+  levels = as.character(0:5),
+  ordered = TRUE
+  )
+
+
+# 5: Plot MutationRate Quartiles Against Expression
+TissueExpressionMutationRateBoxPlots <-
+  ggplot(data = Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins,
+       aes(y = Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"UniqueVariantsPlusOnePerBP"],
+           x = Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"],
+           fill =Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"] )) + 
+  geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+        labs(
+          x = paste(Tissue_Label, "PC Expression [RPKM] Bins"),
+          y = "Gene Body Mutation Rate",
+          title = paste0("n=", 
+                      length(unique(Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins)$gene_id), 
+                     ' PC Genes with Expression',"\n"),
+          subtitle = paste(
+            "Cuzick test =",
+            cuzickTest(
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"UniqueVariantsPlusOnePerBP"],
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"],
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            cuzickTest(
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"UniqueVariantsPlusOnePerBP"],
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"],
+              alternative = "two.sided"
+            )$p.value %>% round(3), "\n",
+            "Jonckheere test =",
+            jonckheere.test(
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"UniqueVariantsPlusOnePerBP"],
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"],
+              alternative = "two.sided"
+            )$statistic %>% round(3),
+            "p =",
+            jonckheere.test(
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"UniqueVariantsPlusOnePerBP"],
+              Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"],
+              alternative = "two.sided"
+            )$p.value %>% round(3)
+          )
+        ) +
+        theme(
+          plot.title = element_text(size = BASE_SIZE - 6),
+          axis.title.x = element_text(size = BASE_SIZE - 4),
+          plot.subtitle = element_text(size = BASE_SIZE - 6),
+          axis.text.x = element_text(angle = 0, size = BASE_SIZE - 3)
+        ) +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(drop = FALSE, na.translate = FALSE) +
+        scale_fill_manual(values = c("yellow", "#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801"), na.translate = FALSE) +
+        guides(fill = "none")
+  
+  
+# fill empty lists with plots
+Tissue_Expression_MutationRate_Box_Plots[[Tissue_Label]] <-
+TissueExpressionMutationRateBoxPlots
+
+ggsave(Tissue_Expression_MutationRate_Box_Plots[[Tissue_Label]], 
+        filename = paste0(
+          R_Data, "Plots/10_Dmelanogaster_Mutation_and_Tissue_Expression_Association_Plots/",
+          Tissue_Label, "_Binned_Expression_vs_Mutation_Rate_Plot.png"
+        ),
+       create.dir = TRUE,
+        bg = "transparent",
+        width = 2,
+        height = 4,
+        dpi = 2500
+      )
+
+
+# Run Correlation Test and Flood Dataframes with the results
+Tissue_Expression_MutationRate_Association_coefs[, Tissue_Label] <-
+cor.test(Tissue_Expression_Mutation_Rate_Data[, Tissue_Label],
+         Tissue_Expression_Mutation_Rate_Data$UniqueVariantsPlusOnePerBP,
+         method = "spearman")$estimate
+
+Tissue_Expression_MutationRate_Association_pVals[, Tissue_Label] <-
+cor.test(Tissue_Expression_Mutation_Rate_Data[, Tissue_Label],
+         Tissue_Expression_Mutation_Rate_Data$UniqueVariantsPlusOnePerBP,
+         method = "spearman")$p.value
+
+
+}
+
+
+
+# Volcano Plot of Overall Correlation Results
+Tissue_Expression_MutationRate_Association_coefs_Long <-
+  pivot_longer(Tissue_Expression_MutationRate_Association_coefs,
+                        `em0-2hr`:Spermatid,
+                        names_to = "Type", 
+                        values_to = "Coef")
+Tissue_Expression_MutationRate_Association_pVals_Long <-
+  pivot_longer(Tissue_Expression_MutationRate_Association_pVals,
+                        `em0-2hr`:Spermatid,
+                        names_to = "Type", 
+                        values_to = "pVal")
+
+Tissue_Expression_MutationRate_Association_Long <-
+  merge(Tissue_Expression_MutationRate_Association_coefs_Long,
+        Tissue_Expression_MutationRate_Association_pVals_Long,
+        by = c("Target","Type"))
+Tissue_Expression_MutationRate_Association_Long$Rank <- 
+    rank(Tissue_Expression_MutationRate_Association_Long$Coef)
+
+# Add in some extra annotations 
+Tissue_Expression_MutationRate_Association_Long <- 
+  Tissue_Expression_MutationRate_Association_Long %>%
+  mutate(Development = 
+           ifelse(Type %like% "^A_", "Adult",
+           ifelse(Type %like% "^em", "Embryo",
+           ifelse(Type %like% "^L1","L1",
+           ifelse(Type %like% "^L2","L2",
+           ifelse(Type %like% "^L3","L3",
+           ifelse(Type %like% "^WPP","WPP",
+           ifelse(Type %like% "^P","P",
+           ifelse(Type %like% "^Adm","Adm",
+           ifelse(Type %like% "^Adf","Adf",
+                  "Other"))))))))))
+
+# Add in some extra annotations 
+Tissue_Expression_MutationRate_Association_Long <- 
+  Tissue_Expression_MutationRate_Association_Long %>%
+  mutate(Tissue_Type = 
+           ifelse(Type %like% "testis", "Testis",
+           ifelse(Type %like% "Sperm","Sperm",
+           ifelse(Type %like% "sperm","Sperm",
+           ifelse(Type %like% "Transition","Sperm",
+           ifelse(Type %like% "Ecl", "Ecl",
+           ifelse(Type %like% "acc_gland","Accessory Gland",
+           ifelse(Type %like% "PS","PS",
+           ifelse(Type %like% "saliv","Salivary Gland",
+           ifelse(Type %like% "imag_disc","Imaginal Discs",
+           ifelse(Type %like% "dig_sys","Digestive System",
+           ifelse(Type %like% "fat","Fat",
+           ifelse(Type %like% "em","Embryo",
+           ifelse(Type %like% "carcass","Carcass",
+           ifelse(Type %like% "ovary","Ovary",
+           ifelse(Type %like% "head","Head",
+           ifelse(Type %like% "CNS","CNS",
+                  "Whole Organism")))))))))))))))))
+
+# Come up with some ordering by tissue_type and coef
+Tissue_Expression_MutationRate_Association_Long <-
+Tissue_Expression_MutationRate_Association_Long %>% 
+  group_by(Tissue_Type) %>% 
+  arrange(Type, desc(Coef)) %>% 
+  mutate(rank2 = rank(Coef))
+
+# Now Setting levels of Tissue_Type for better presentaiton
+Tissue_Expression_MutationRate_Association_Long$Tissue_Type <-
+  factor(Tissue_Expression_MutationRate_Association_Long$Tissue_Type,
+         levels = rev(c("CNS","Head","Embryo","Carcass","Whole Organism","Ovary",
+                    "Ecl","Fat","Salivary Gland","Digestive System",
+                    "PS","Imaginal Discs","Accessory Gland","Testis","Sperm")))
+
+Tissue_Expression_MutationRate_Associations_Plot_Combined <-
+ggplot(data = Tissue_Expression_MutationRate_Association_Long,
+       aes(x = Coef, 
+           y = reorder(Type, rank2),
+           fill = Tissue_Type)) + 
+  geom_bar(stat = "identity", colour = alpha("black", alpha = .7), 
+           colour = "black", width = .8) +
+  theme(
+  legend.position = "none",
+  #panel.grid = element_blank(), 
+  plot.background = element_rect(fill='transparent', colour = "transparent"),
+  axis.text = element_text(size = 16),
+  axis.title = element_text(size = 18),
+  panel.spacing.y = unit(0,"line"),
+  strip.background = element_blank(),
+  strip.text.y.right = element_text(angle = 0, 
+                                    size = 16),
+  strip.text.x = element_blank()
+  ) +
+  scale_x_continuous(breaks = scales::breaks_extended(n = 8)) +
+  labs(y = NULL, x = "Expression-Mutation Rate\nSpearman Correlation Coefficient") +
+  scale_fill_manual(values = 
+                      c("CNS"="#FF0000",
+                        "Head"="#FF1200",
+                        "Testis"="#FFE000",
+                        "Ovary"="#FF5A00",
+                        "Digestive System"="#FFA200",
+                        "Carcass"="#FF3600",
+                        "Accessory Gland"="#FFD800",
+                        "Ecl"="#FF6C00",
+                        "Embryo"="#FF2400",
+                        "Whole Organism"="#FF4800",
+                        "PS"="#FFB400",
+                        "Fat"="#FF7E00",
+                        "Imaginal Discs"="#FFC600",
+                        "Salivary Gland"="#ff9000",
+                        "Sperm"="lightgreen")) +
+  facet_grid(Tissue_Type ~ ., scales = "free", space = "free")
+
+Tissue_Expression_MutationRate_Associations_Plot_Combined
+
+ggsave(Tissue_Expression_MutationRate_Associations_Plot_Combined, 
+        filename = paste0(
+          R_Data, "Plots/10_Dmelanogaster_Mutation_and_Tissue_Expression_Association_Plots/",
+          "CrossTissue_MutationRate_vs_Expression_Associations.png"
+        ),
+       create.dir = TRUE,
+        bg = "transparent",
+        width = 12,
+        height = 14,
+        dpi = 1600
+      )
+
+
+Tissue_Expression_MutationRate_Association_Long <-
+  Tissue_Expression_MutationRate_Association_Long %>%
+  group_by(Tissue_Type) %>%
+  mutate(mean_Coef = mean(Coef, na.rm = TRUE)) %>%
+  ungroup()
+
+Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed <-
+ggplot(data = Tissue_Expression_MutationRate_Association_Long[, c("Tissue_Type","mean_Coef")] %>% unique(),
+       aes(x = mean_Coef, 
+           y = reorder(Tissue_Type, mean_Coef),
+           fill = mean_Coef)) + 
+  geom_bar(stat = "identity", colour = alpha("black", alpha = .7), 
+           colour = "black", width = .8) +
+  theme(
+  legend.position = "none",
+  #panel.grid = element_blank(), 
+  plot.background = element_rect(fill='transparent', colour = "transparent"),
+  axis.text = element_text(size = 16),
+  axis.title = element_text(size = 18),
+  panel.spacing.y = unit(0,"line"),
+  strip.background = element_blank(),
+  strip.text.y.right = element_text(angle = 0, 
+                                    size = 16),
+  strip.text.x = element_blank()
+  ) +
+  scale_x_continuous(breaks = scales::breaks_extended(n = 8)) +
+  labs(y = NULL, x = "Expression-Mutation Rate\nSpearman Correlation Coefficient") +
+  scale_fill_gradient2(low = "#FF0000",
+                       mid = "#FFE000",
+                       high= "#006600") 
+
+Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed
+
+ggsave(Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed, 
+        filename = paste0(
+          R_Data, "Plots/10_Dmelanogaster_Mutation_and_Tissue_Expression_Association_Plots/",
+          "Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed.png"
+        ),
+       create.dir = TRUE,
+        bg = "transparent",
+        width = 12,
+        height = 7,
+        dpi = 1600
+      )
+```

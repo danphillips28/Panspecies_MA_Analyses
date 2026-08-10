@@ -32,23 +32,23 @@ Rscript -e 'cat("Library paths:\n"); print(.libPaths())'
 # Run RMarkdown scripts
 # ----------------------------
 
-#Rscript -e 'rmarkdown::render(
-#  "/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Mutation_Rate.Rmd",
-#  output_dir = "/home/ocdm0351/DPhil/R_Data/htmls",
-#  quiet = FALSE
-#)'
+Rscript -e 'rmarkdown::render(
+  "/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Mutation_Rate.Rmd",
+  output_dir = "/home/ocdm0351/DPhil/R_Data/htmls",
+  quiet = FALSE
+)'
 
-#Rscript -e 'rmarkdown::render(
-#  "/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Synonymous_Mutation_Rate.Rmd",
-#  output_dir = "/home/ocdm0351/DPhil/R_Data/htmls",
-#  quiet = FALSE
-#)'
+Rscript -e 'rmarkdown::render(
+  "/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Synonymous_Mutation_Rate.Rmd",
+  output_dir = "/home/ocdm0351/DPhil/R_Data/htmls",
+  quiet = FALSE
+)'
 
-#Rscript -e 'rmarkdown::render(
-#  "/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Intronic_Mutation_Rate.Rmd",
-#  output_dir = "/home/ocdm0351/DPhil/R_Data/htmls",
-#  quiet = FALSE
-#)'
+Rscript -e 'rmarkdown::render(
+  "/home/ocdm0351/DPhil/scripts/Associating_dNdS_with_Intronic_Mutation_Rate.Rmd",
+  output_dir = "/home/ocdm0351/DPhil/R_Data/htmls",
+  quiet = FALSE
+)'
 
 Rscript -e 'rmarkdown::render(
   "/home/ocdm0351/DPhil/scripts/Making_Overall_dNdS_vs_Mutation_Rate_Plot.Rmd",
