@@ -8,39 +8,12 @@ date: "2025-09-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r Libraries}
-library(GenomicRanges)
-library(GenomicFeatures)
-library(Biostrings)
-library(patchwork)
-library(Rsamtools)
-library(ggpubr)
-library(clinfun)
-library(segmented)
-library(mgcv)
-library(tidyverse)
-library(stringr)
-library(dplyr)
-library(PMCMRplus)
-library(gt)
-library(data.table)
-library(dplyr)
-library(purrr)
-library(tibble)
-library(stringr)
-library(gridExtra)
-library(grid)
-library(ragg)
-`%ni%` <- Negate(`%in%`)
-```
-
 ```{r Setting Paths}
 R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
 #R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
 
 Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 #Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
-
 ```
 
 ```{r Loading VCFs GTF dNdS and snpEff Canonical Transcripts to Filter All By}
@@ -49,6 +22,24 @@ load(file = paste0(R_Data,"Species_dNdS_Ratios"))
 load(file = paste0(R_Data,"Species_Genes_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Transcripts_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Mappings"))
+# Load packages before sourcing/applying the plotting theme so this Rmd
+# renders correctly in a clean R session.
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(quantreg)
+library(mgcv)
+
+# Bioconductor/statistical packages used by this Rmd. These must be loaded
+# before any range/sequence accessors or trend tests are called.
+library(GenomicRanges)
+library(IRanges)
+library(Biostrings)
+library(PMCMRplus)
+library(clinfun)
+
 source(paste0(R_Data, "plotting.themes.R"))
 # Choose theme once per session/script
 set_my_theme("light")   # or "dark"
@@ -129,10 +120,10 @@ table_df <- summary_table_subset %>%
     )
   )
 
-tg <- tableGrob(
+tg <- gridExtra::tableGrob(
   table_df,
   rows = NULL,
-  theme = ttheme_default(
+  theme = gridExtra::ttheme_default(
     base_size = 12,
     core = list(
       fg_params = list(hjust = 0.5, x = 0.5),
@@ -152,9 +143,20 @@ ragg::agg_png(
   res = 300
 )
 
-grid.newpage()
-grid.draw(tg)
-dev.off()
+grid::grid.newpage()
+grid::grid.draw(tg)
+grDevices::dev.off()
+
+# Matching SVG export using base R (no svglite dependency).
+grid::grid.newpage()
+grDevices::svg(
+  filename = paste0(R_Data, "Plots/1_Summaries/Variant_Annotation_Summary.svg"),
+  width = 8,
+  height = 3,
+  bg = "transparent"
+)
+grid::grid.draw(tg)
+grDevices::dev.off()
 ```
 
 ```{r Subsetting to Only Gene Body Variants}
@@ -173,7 +175,7 @@ for (element_name in unique(names(Annotated_VCFs_Gene_Body_Variants))) {
   element <- Annotated_VCFs_Gene_Body_Variants[[element_name]] %>% as.data.frame()
   # Format the gtf - Calculate Sequence Length
   element_gtf <- Species_Canonical_Transcripts_gtf[[element_name]] 
-  element_gtf$cDNA_length <- width(element_gtf)
+  element_gtf$cDNA_length <- IRanges::width(element_gtf)
   # Remove version number if present
   element_gtf$transcript_id <- sub("^(.*)[.].*", "\\1", element_gtf$transcript_id) 
   # Annotate with some information from gtf
@@ -181,11 +183,11 @@ for (element_name in unique(names(Annotated_VCFs_Gene_Body_Variants))) {
                          transcript_id = element_gtf$transcript_id,
                          gene_name = element_gtf$gene_name,
                          gene_biotype = element_gtf$gene_biotype,
-                         seqnames = seqnames(element_gtf),
-                         start = start(element_gtf),
-                         end = end(element_gtf),
+                         seqnames = GenomicRanges::seqnames(element_gtf),
+                         start = IRanges::start(element_gtf),
+                         end = IRanges::end(element_gtf),
                          cDNA_length = element_gtf$cDNA_length,
-                         strand = strand(element_gtf))
+                         strand = GenomicRanges::strand(element_gtf))
   
   # Step Two: Merge with dNdS Estimates but including ALL genes
   # First need to isolate the species name, because this is how to pull out the dNdS element
@@ -293,11 +295,11 @@ for (element_name in names(Annotated_VCFs_Gene_Body_Variants)) {
       iEnd <- element[row, "end"]
       # Next Thing
       element[row, "GC_Length"] <- 
-      subseq(DNA_fasta[names(DNA_fasta) == iChrom, ], 
-                start = as.integer(iStart), end = as.integer(iEnd)) %>% letterFrequency("GC", as.prob = FALSE) %>% as.numeric()
+      Biostrings::subseq(DNA_fasta[names(DNA_fasta) == iChrom, ], 
+                start = as.integer(iStart), end = as.integer(iEnd)) %>% Biostrings::letterFrequency("GC", as.prob = FALSE) %>% as.numeric()
       element[row, "AT_Length"] <- 
-      subseq(DNA_fasta[names(DNA_fasta) == iChrom, ], 
-                start = as.integer(iStart), end = as.integer(iEnd)) %>% letterFrequency("AT", as.prob = FALSE) %>% as.numeric()
+      Biostrings::subseq(DNA_fasta[names(DNA_fasta) == iChrom, ], 
+                start = as.integer(iStart), end = as.integer(iEnd)) %>% Biostrings::letterFrequency("AT", as.prob = FALSE) %>% as.numeric()
       }
   
   # Replace Element in Annotated_VCFs_Gene_Body_Variants with the updated one
@@ -313,7 +315,7 @@ Annotated_VCFs_Gene_Body_Variants <- lapply(
     df %>%
       group_by(GENE_ID) %>%
       mutate(UniqueVariants = n_distinct(Variant_ID[!is.na(Variant_ID)])) %>%
-      mutate(UniqueVariantsPlusOne = UniqueVariants+.5) %>%      
+      mutate(UniqueVariantsPlusOne = UniqueVariants+1) %>%      
       mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/cDNA_length) %>%
       ungroup()
   }
@@ -328,17 +330,17 @@ df %>%
   group_by(GENE_ID) %>%
   mutate(
     TtoA_or_AtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>A | A>T"]) %>% as.numeric,
-        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+.5)/as.numeric(AT_Length),
+        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+1)/as.numeric(AT_Length),
     CtoG_or_GtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>G | G>C"]) %>% as.numeric,
-        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+.5)/as.numeric(GC_Length),
+        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+1)/as.numeric(GC_Length),
     CtoT_or_GtoA_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>T | G>A"]) %>% as.numeric,
-        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+.5)/as.numeric(GC_Length),
+        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+1)/as.numeric(GC_Length),
     CtoA_or_GtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>A | G>T"]) %>% as.numeric,
-        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+.5)/as.numeric(GC_Length),
+        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+1)/as.numeric(GC_Length),
     TtoG_or_AtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>G | A>C"]) %>% as.numeric,
-        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+.5)/as.numeric(AT_Length),
+        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+1)/as.numeric(AT_Length),
     TtoC_or_AtoG_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>C | A>G"]) %>% as.numeric,
-        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+.5)/as.numeric(AT_Length)) %>%
+        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+1)/as.numeric(AT_Length)) %>%
   ungroup()
   })
 
@@ -370,19 +372,33 @@ Genewise_Body_Mutation_Counts_Plots <- Map(
     n_biotypes <- length(unique(df$gene_biotype))
     total_width <- 30 + min(0.25 * n_biotypes, 20)
 
-    ggsave(
-      plot = p1,
-      filename = paste0(
+    ggplot2::ggsave(
+  plot = p1,
+  filename = paste0(
         R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
         name, "_Mutation_Count_Distribution_Plot.png"
       ),
-      units = "cm",
-      height = 10,
-      width = 14,
-      dpi = 1500,
-      bg = "transparent",
-      create.dir = TRUE
-    )
+  width = 14,
+  height = 10,
+  units = "cm",
+  dpi = 1500,
+  bg = "transparent",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+        name, "_Mutation_Count_Distribution_Plot.png"
+      ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = (14) / 2.54,
+  height = (10) / 2.54,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
 
     # --- Return plot for patchwork ---
     p1
@@ -407,18 +423,33 @@ Genewise_Body_Mutation_Rate_Plots <- Map(
        y = "Gene Body Mutations (+1) per BP",
        colour = NULL) +
   
-        scale_x_discrete(expand = c(0.05, 0.01)) 
+        scale_x_discrete(expand = c(0.05, 0.01)) +
+        theme(legend.position = "none")
     
     # Save the plot — change width/height as needed
-    ggsave(plot = p1,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    ggplot2::ggsave(
+  plot = p1,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_Mutation_Rate_Distribution_Plot.png"),
-      create.dir = TRUE,
-      units = "cm",
-             height = 10,
-             width = 25,
-      dpi = 300
-    )
+  width = 25,
+  height = 10,
+  units = "cm",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Mutation_Rate_Distribution_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = (25) / 2.54,
+  height = (10) / 2.54,
+  bg = "white"
+)
+print(p1)
+grDevices::dev.off()
   },
   Annotated_VCFs_Gene_Body_Variants,
   names(Annotated_VCFs_Gene_Body_Variants)
@@ -442,22 +473,37 @@ Genewise_Protein_Body_Mutation_Rate_Plots <- Map(
         y = "Gene Body Mutations (+1) per BP") +
       theme(axis.text.x = element_blank()) +
       scale_x_discrete(expand = c(0.05, 0.01)) +
-      scale_colour_gradient(low = "orange", high = "red") 
+      scale_colour_gradient(low = "orange", high = "red") +
+      theme(legend.position = "none")
     
     # --- Save individual plot ---
-    ggsave(
-      plot = p1,
-      filename = paste0(
+    ggplot2::ggsave(
+  plot = p1,
+  filename = paste0(
         R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
         name, "_Protein_Mutation_Rate_Distribution_Plot.png"
       ),
-      create.dir = TRUE,
-      units = "cm",
-      height = 10,
-      width = 20,
-      dpi = 2000,
-      bg = "transparent"  # <--- preserve transparency on export
-    )
+  width = 20,
+  height = 10,
+  units = "cm",
+  dpi = 2000,
+  bg = "transparent",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+        name, "_Protein_Mutation_Rate_Distribution_Plot.png"
+      ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = (20) / 2.54,
+  height = (10) / 2.54,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
 
     return(p1)
   },
@@ -488,16 +534,29 @@ Genewise_Protein_dNdS_Plots <- Map(
     
  
 # Save the plot with transparent background
-ggsave(
+ggplot2::ggsave(
   plot = p1,
   filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                     name, "_Protein_dNdS_Distribution_Plot.png"),
-  bg = "transparent",   # ensures transparency in saved image
+  width = 16,
+  height = 10,
   units = "cm",
-             height = 10,
-             width = 16,
-  dpi = 2500
+  dpi = 2500,
+  bg = "transparent",
+  create.dir = TRUE
 )
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                    name, "_Protein_dNdS_Distribution_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = (16) / 2.54,
+  height = (10) / 2.54,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
   },
   Annotated_VCFs_Gene_Body_Variants,
   names(Annotated_VCFs_Gene_Body_Variants)
@@ -512,13 +571,6 @@ Annotated_VCFs_PC_Gene_Body_Variants <- lapply(
       subset(gene_biotype == "protein_coding")
 })
 
-
-# 5 Mutation Rate vs dNdS Associations: 
-library(ggplot2)
-library(dplyr)
-library(tidyr)
-library(quantreg)
-library(mgcv)
 
 # 5 Mutation Rate vs dNdS Associations: 
 Species_dNdS_MutationRate_Spearman_Tests <- list()
@@ -581,20 +633,40 @@ Genewise_MutationRate_by_dNdS_Plots <- Map(
   ) +
   
   scale_x_continuous(n.breaks = 10) +
-  scale_y_continuous(n.breaks = 10)
+  scale_y_continuous(n.breaks = 10) +
+  theme(
+    plot.title = element_text(size = BASE_SIZE - 6),
+    plot.subtitle = element_text(size = BASE_SIZE - 7)
+  )
 
 # Save the plot — transparent background, keep black border
-ggsave(
+ggplot2::ggsave(
   plot = p1,
   filename = paste0(
     R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
     name, "_dNdS_vs_Mutation_Rate_Plot.png"
   ),
-  bg = "transparent",   # ensures background transparency in PNG
   width = 4,
   height = 4,
-  dpi = 2500
+  units = "in",
+  dpi = 2500,
+  bg = "transparent",
+  create.dir = TRUE
 )
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_dNdS_vs_Mutation_Rate_Plot.png"
+  ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 4,
+  height = 4,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
 
   # ----------------------------
   # Plot 2: quantile regression lines
@@ -684,19 +756,42 @@ ggsave(
     ) +
     scale_x_continuous(n.breaks = 10) +
     scale_y_continuous(n.breaks = 10) +
-    theme_classic()
+        theme(
+      plot.title = element_text(size = BASE_SIZE - 6),
+      plot.subtitle = element_text(size = BASE_SIZE - 7)
+    ) +
+    theme(
+      plot.title = element_text(size = BASE_SIZE - 6),
+      plot.subtitle = element_text(size = BASE_SIZE - 7)
+    )
   
-  ggsave(
-    plot = p2,
-    filename = paste0(
+  ggplot2::ggsave(
+  plot = p2,
+  filename = paste0(
       R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
       name, "_dNdS_vs_Mutation_Rate_Quantile_Regression_Plot.png"
     ),
-    bg = "transparent",
-    width = 5.5,
-    height = 4,
-    dpi = 2500
-  )
+  width = 5.5,
+  height = 4,
+  units = "in",
+  dpi = 2500,
+  bg = "transparent",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Mutation_Rate_Quantile_Regression_Plot.png"
+    ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5.5,
+  height = 4,
+  bg = "transparent"
+)
+print(p2)
+grDevices::dev.off()
   
   # ----------------------------
   # Plot 3: GAM
@@ -741,19 +836,38 @@ ggsave(
     ) +
     scale_x_continuous(n.breaks = 10) +
     scale_y_continuous(n.breaks = 10) +
-    theme_classic()
-  
-  ggsave(
-    plot = p3,
-    filename = paste0(
+    theme(
+      plot.title = element_text(size = BASE_SIZE - 6),
+      plot.subtitle = element_text(size = BASE_SIZE - 7)
+    )
+
+  ggplot2::ggsave(
+  plot = p3,
+  filename = paste0(
       R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
       name, "_dNdS_vs_Mutation_Rate_GAM_Plot.png"
     ),
-    bg = "transparent",
-    width = 4,
-    height = 4,
-    dpi = 2500
-  )
+  width = 4,
+  height = 4,
+  units = "in",
+  dpi = 2500,
+  bg = "transparent",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Mutation_Rate_GAM_Plot.png"
+    ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 4,
+  height = 4,
+  bg = "transparent"
+)
+print(p3)
+grDevices::dev.off()
   
   list(p1 = p1, p2 = p2, p3 = p3)
     
@@ -818,16 +932,36 @@ MutatedOnly_Genewise_MutationRate_by_dNdS_Plots <- Map(
       caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)") +
     
   scale_x_continuous(n.breaks = 10) +
-  scale_y_continuous(n.breaks = 10)
+  scale_y_continuous(n.breaks = 10) +
+  theme(
+    plot.title = element_text(size = BASE_SIZE - 6),
+    plot.subtitle = element_text(size = BASE_SIZE - 7)
+  )
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p1,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p1,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_Mutation_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 4,
-      height = 4,
-      dpi = 2500)
+  width = 4,
+  height = 4,
+  units = "in",
+  dpi = 2500,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_Mutation_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 4,
+  height = 4,
+  bg = "white"
+)
+print(p1)
+grDevices::dev.off()
 
   },
   Annotated_VCFs_PC_Gene_Body_Variants,
@@ -879,22 +1013,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       ptxt <- paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3))
 
       p1 <- ggplot(ess_df, aes(x = Essential, y = mutationRate, fill = Essential, colour = Essential)) +
-        geom_boxplot(width = 0.7, outlier.shape = NA, alpha = .2) +
+        geom_boxplot(colour = "black", width = 0.7, outlier.shape = NA, alpha = .2, whisker.linetype = "dashed", staplewidth = 0.35) +
         annotate("segment", x = 1, xend = 2, y = y_line, yend = y_line, linewidth = 0.4) +
         annotate("text", x = 1.5, y = y_text, label = ptxt, size = 3) +
         coord_cartesian(ylim = c(0, y_lim), clip = "off") +
-        theme(
+                theme(
           plot.subtitle = element_text(size = 3),
           plot.title = element_text(size = 3),
-          legend.position = "none"
+          legend.position = "none",
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()
         ) +
         scale_x_discrete(labels = c(
           "Non-Essential" = paste0("Non-Essential\nn = ", n1),
           "Essential" = paste0("Essential\nn = ", n2)
         )) +
-        scale_color_manual(values = c("black", "orange")) +
-        scale_fill_manual(values = c(alpha("black", alpha = .2),
-                                     alpha("orange", alpha = .2))) +
+        scale_color_manual(values = c("#5A189A", "#FFB703")) +
+        scale_fill_manual(values = c(alpha("#5A189A", alpha = .2),
+                                     alpha("#FFB703", alpha = .2))) +
         labs(
           title = paste0(species, " Essential Genes"),
           subtitle = "Wilcoxon test on raw mutation rates",
@@ -902,13 +1039,30 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           y = "Mutation rate"
         )
 
-      ggsave(
-        plot = p1,
-        filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+      
+ggplot2::ggsave(
+  plot = p1,
+  filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                           element_name, "_Essential_Boxplot.png"),
-        width = 2.5, height = 5,
-        background = "transparent"
-      )
+  width = 2.5,
+  height = 5,
+  units = "in",
+  dpi = 300,
+  bg = "transparent",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "_Essential_Boxplot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 2.5,
+  height = 5,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
     }
   }
 
@@ -945,22 +1099,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       ptxt <- paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3))
 
       p2 <- ggplot(hk_df, aes(x = HouseKeeping, y = mutationRate, fill = HouseKeeping, colour = HouseKeeping)) +
-        geom_boxplot(width = 0.7, outlier.shape = NA, alpha = .2) +
+        geom_boxplot(colour = "black", width = 0.7, outlier.shape = NA, alpha = .2, whisker.linetype = "dashed", staplewidth = 0.35) +
         annotate("segment", x = 1, xend = 2, y = y_line, yend = y_line, linewidth = 0.4) +
         annotate("text", x = 1.5, y = y_text, label = ptxt, size = 3) +
         coord_cartesian(ylim = c(0, y_lim), clip = "off") +
-        theme(
+                theme(
           plot.subtitle = element_text(size = 3),
           plot.title = element_text(size = 3),
-          legend.position = "none"
+          legend.position = "none",
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()
         ) +
         scale_x_discrete(labels = c(
           "Non-HouseKeeping" = paste0("Non-HouseKeeping\nn = ", n1),
           "HouseKeeping" = paste0("HouseKeeping\nn = ", n2)
         )) +
-        scale_color_manual(values = c("black", "orange")) +
-        scale_fill_manual(values = c(alpha("black", alpha = .2),
-                                     alpha("orange", alpha = .2))) +
+        scale_color_manual(values = c("#5A189A", "#FFB703")) +
+        scale_fill_manual(values = c(alpha("#5A189A", alpha = .2),
+                                     alpha("#FFB703", alpha = .2))) +
         labs(
           title = paste0(species, " HouseKeeping Genes"),
           subtitle = "Wilcoxon test on raw mutation rates",
@@ -968,13 +1125,30 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           y = "Mutation rate"
         )
 
-      ggsave(
-        plot = p2,
-        filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+      
+ggplot2::ggsave(
+  plot = p2,
+  filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                           element_name, "_HouseKeeping_Boxplot.png"),
-        width = 2.5, height = 4,
-        background = "transparent"
-      )
+  width = 2.5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "transparent",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "_HouseKeeping_Boxplot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 2.5,
+  height = 4,
+  bg = "transparent"
+)
+print(p2)
+grDevices::dev.off()
     }
   }
 
@@ -1040,7 +1214,7 @@ p1 <-
       fill = Overall_dNdS_Group
     )
   ) +
-  geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+  geom_boxplot(outliers = FALSE, colour = "black", whisker.linetype = "dashed", staplewidth = 0.35) +  # keep box borders black
   labs(
     y = "Gene Body Mutation Rate",
     title = paste(
@@ -1052,51 +1226,71 @@ p1 <-
     ),
     subtitle = paste(
       "Cuzick test =",
-      cuzickTest(
-        df$UniqueVariantsPlusOne,
+      PMCMRplus::cuzickTest(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
-      cuzickTest(
-        df$UniqueVariantsPlusOne,
+      PMCMRplus::cuzickTest(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$p.value %>% round(3), "\n",
       "Jonckheere test =",
-      jonckheere.test(
-        df$UniqueVariantsPlusOne,
+      clinfun::jonckheere.test(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
-      jonckheere.test(
-        df$UniqueVariantsPlusOne,
+      clinfun::jonckheere.test(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$p.value %>% round(3)
     )
   ) +  
-  theme(plot.title = element_text(size = BASE_SIZE - 6),
+    theme(plot.title = element_text(size = BASE_SIZE - 6),
         axis.title.x = element_text(size = BASE_SIZE -4),
         plot.subtitle = element_text(size = BASE_SIZE - 6),
-        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3)) +
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()) +
   scale_y_continuous(n.breaks = 10) +
-  scale_fill_manual(values = c("#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801")) +
+  scale_fill_manual(values = colorRampPalette(c("#5A189A", "#FFB703"))(5)) +
   guides(fill = "none")
 
 # Save the plot — transparent background, keep borders
-ggsave(
+
+ggplot2::ggsave(
   plot = p1,
   filename = paste0(
     R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
     name, "_Binned_dNdS_vs_Mutation_Rate_Plot.png"
   ),
-  bg = "transparent",   # ensure transparent PNG background
   width = 2,
   height = 4,
-  dpi = 2500
+  units = "in",
+  dpi = 2500,
+  bg = "transparent",
+  create.dir = TRUE
 )
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_Binned_dNdS_vs_Mutation_Rate_Plot.png"
+  ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 2,
+  height = 4,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
 
 
 # Plot Association of dNdS Bins with MutationsPlusOnePerBP 
@@ -1109,7 +1303,7 @@ p2 <-
       fill = Overall_dNdS_Group_More
     )
   ) +
-  geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
+  geom_boxplot(outliers = FALSE, colour = "black", size = 0.5, whisker.linetype = "dashed", staplewidth = 0.35) +  # keep box borders black
   labs(
     y = "Gene Body Mutation Rate",
     title = paste(
@@ -1121,51 +1315,71 @@ p2 <-
     ),
     subtitle = paste(
       "Cuzick test =",
-      cuzickTest(
-        df$UniqueVariantsPlusOne,
+      PMCMRplus::cuzickTest(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
-      cuzickTest(
-        df$UniqueVariantsPlusOne,
+      PMCMRplus::cuzickTest(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$p.value %>% round(3), "\n",
       "Jonckheere test =",
-      jonckheere.test(
-        df$UniqueVariantsPlusOne,
+      clinfun::jonckheere.test(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
-      jonckheere.test(
-        df$UniqueVariantsPlusOne,
+      clinfun::jonckheere.test(
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$p.value %>% round(3)
     )
   ) +
-  theme(plot.title = element_text(size = BASE_SIZE - 6),
+    theme(plot.title = element_text(size = BASE_SIZE - 6),
         axis.title.x = element_text(size = BASE_SIZE -4),
         plot.subtitle = element_text(size = BASE_SIZE - 6),
-        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1)) +  
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()) +  
   scale_y_continuous(n.breaks = 10) +
-  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_dNdS_Group_More)))) +
+  scale_fill_manual(values = colorRampPalette(c("#5A189A", "#FFB703"))(length(unique(df$Overall_dNdS_Group_More)))) +
   guides(fill = "none")
 
 # Save the plot — transparent background, keep borders
-ggsave(
+
+ggplot2::ggsave(
   plot = p2,
   filename = paste0(
     R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
     name, "_More_Binned_dNdS_vs_Mutation_Rate_Plot.png"
   ),
-  bg = "transparent",   # ensure transparent PNG background
   width = 2,
   height = 4,
-  dpi = 2500
+  units = "in",
+  dpi = 2500,
+  bg = "transparent",
+  create.dir = TRUE
 )
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_More_Binned_dNdS_vs_Mutation_Rate_Plot.png"
+  ))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 2,
+  height = 4,
+  bg = "transparent"
+)
+print(p2)
+grDevices::dev.off()
       
   },
   Annotated_VCFs_PC_Gene_Body_Variants,
@@ -1293,13 +1507,29 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p_TtoA_or_AtoT,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p_TtoA_or_AtoT,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoA_or_AtoT_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 5,
-      height = 4,
-      dpi = 300)
+  width = 5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoA_or_AtoT_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_TtoA_or_AtoT)
+grDevices::dev.off()
       
       
         
@@ -1330,13 +1560,29 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p_CtoG_or_GtoC,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p_CtoG_or_GtoC,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoG_or_GtoC_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 5,
-      height = 4,
-      dpi = 300)
+  width = 5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoG_or_GtoC_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_CtoG_or_GtoC)
+grDevices::dev.off()
       
       
       
@@ -1367,13 +1613,29 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p_CtoT_or_GtoA,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p_CtoT_or_GtoA,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoT_or_GtoA_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 5,
-      height = 4,
-      dpi = 300)
+  width = 5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoT_or_GtoA_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_CtoT_or_GtoA)
+grDevices::dev.off()
       
       
       
@@ -1404,13 +1666,29 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p_CtoA_or_GtoT,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p_CtoA_or_GtoT,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_CtoA_or_GtoT_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 5,
-      height = 4,
-      dpi = 300)
+  width = 5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoA_or_GtoT_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_CtoA_or_GtoT)
+grDevices::dev.off()
       
       
       
@@ -1441,13 +1719,29 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p_TtoG_or_AtoC,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p_TtoG_or_AtoC,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoG_or_AtoC_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 5,
-      height = 4,
-      dpi = 300)
+  width = 5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoG_or_AtoC_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_TtoG_or_AtoC)
+grDevices::dev.off()
       
       
       
@@ -1478,13 +1772,29 @@ Genewise_MutationRate_by_dNdS_by_Category_Plots <- Map(
           scale_y_continuous(n.breaks = 10)
   
     # Save the plot — change width/height as needed
-      ggsave(plot = p_TtoC_or_AtoG,
-      filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      ggplot2::ggsave(
+  plot = p_TtoC_or_AtoG,
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
                        name, "_dNdS_vs_TtoC_or_AtoG_Rate_MutatedOnly_Plot.png"),
-      create.dir = TRUE,
-      width = 5,
-      height = 4,
-      dpi = 300)
+  width = 5,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white",
+  create.dir = TRUE
+)
+
+svg_filename <- sub("\\.[^.]+$", ".svg", paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoC_or_AtoG_Rate_MutatedOnly_Plot.png"))
+dir.create(dirname(svg_filename), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = svg_filename,
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_TtoC_or_AtoG)
+grDevices::dev.off()
 
   },
   Annotated_VCFs_PC_Gene_Body_Variants,
@@ -1531,3 +1841,4 @@ save(Species_dNdS_TtoG_or_AtoC_Rate_Pearson_Tests, file = paste0(R_Data,"Species
 save(Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests, file = paste0(R_Data,"Species_dNdS_TtoC_or_AtoG_Rate_Spearman_Tests")) 
 save(Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests, file = paste0(R_Data,"Species_dNdS_TtoC_or_AtoG_Rate_Pearson_Tests")) 
 ```
+

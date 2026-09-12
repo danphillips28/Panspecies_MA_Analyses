@@ -23,10 +23,13 @@ scripts=(
 #"17_Downloading_C_elegans_H3K9me2_Replicates_and_Merging.sh"
 #"17_Downloading_C_elegans_H3K9me3_Replicates_and_Merging.sh"
 #"17_Downloading_C_elegans_HPL2_Replicates_and_Merging.sh"
+"17_Downloading_C_elegans_Replication_Timing_and_liftOver.sh"
+"17_Downloading_C_elegans_Recombination_Rates.sh"
 	# Downloading D melanogaster Covariates
 #"17_Downloading_Dmelanogaster_Epigenetics_Covariates_Data.sh"
 #"17_Downloading_D_melanogaster_TimeSeries_Expression.sh"
 #"17_Downloading_D_melanogaster_XRseq_Replicates_and_Merging.sh"
+"17_Downloading_D_melanogaster_Recombination_Rates.sh"
 	# Downloading P pacificus Covariates
 "17_Downloading_Ppacificus_Epigenetics_Covariates_Data.sh"
 "17_Downloading_P_pacificus_TimeSeries_Expression_Submitter.sh"

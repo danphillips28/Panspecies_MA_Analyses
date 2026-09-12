@@ -26,11 +26,11 @@ library(seqinr)
 ```
 
 ```{r Setting Paths}
-#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
 
-R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
-Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
 source(paste0(R_Data, "plotting.themes.R"))
 # Choose theme once per session/script
@@ -145,6 +145,35 @@ df$MutationType <- factor(df$MutationType,
                                      "CtoT_GtoA",
                                      "CtoA_GtoT"))
 
+# Labels for facet strips: show species names rather than dataset identifiers
+species_labels <- c(
+  "Assaf_2017_MA_Dmelanogaster_BDGP6" = "D. melanogaster",
+  "SaxenaKonrad_2019_MA_Celegans_WS235" = "C. elegans",
+  "WellerWang_20142026_MA_Ppacificus_Elpaco" = "P. pacificus"
+)
+
+# Publication-facing mutation-rate labels used in figures
+mutation_type_labels <- c(
+  "All" = "Overall Mutation Rate",
+  "Mutated" = "Overall Mutation Rate (Mutated Only)",
+  "All_Synonymous" = "Synonymous Mutation Rate",
+  "Mutated_Synonymous" = "Synonymous Mutation Rate (Mutated Only)",
+  "All_Intronic" = "Intronic Mutation Rate",
+  "Mutated_Intronic" = "Intronic Mutation Rate (Mutated Only)",
+  "TtoA_AtoT" = "T>A / A>T Mutation Rate",
+  "TtoG_AtoC" = "T>G / A>C Mutation Rate",
+  "TtoC_AtoG" = "T>C / A>G Mutation Rate",
+  "CtoG_GtoC" = "C>G / G>C Mutation Rate",
+  "CtoT_GtoA" = "C>T / G>A Mutation Rate",
+  "CtoA_GtoT" = "C>A / G>T Mutation Rate"
+)
+
+boxplot_mutation_labels <- c(
+  "UniqueVariantsPlusOnePerBP" = "Overall Mutation Rate",
+  "UniqueSynonymousVariantsPlusOnePerBP" = "Synonymous Mutation Rate",
+  "UniqueIntronicVariantsPlusOnePerBP" = "Intronic Mutation Rate"
+)
+
 # Calculate adjusted p Value
 df$adj.p <- p.adjust(df$Pvalue, method = "BH", n = length(df$Pvalue))
 # Determine if test is significant or not
@@ -152,119 +181,171 @@ df <- df %>% mutate(signif = ifelse(adj.p < .05, "Adj. p Value < 0.5", "Adj. p V
 
 test <-
 ggplot(subset(df, MutationType != "Mutated_Synonymous" & Species != "WellerWang_20142026_MA_Ppacificus_Elpaco"),
-              aes(y = MutationType, x = Rho, fill = signif, group = MutationType, size = -log10(adj.p))) +
+              aes(y = MutationType, x = Rho, fill = abs(Rho), group = MutationType, size = -log10(adj.p))) +
   #geom_segment( aes(x=0, xend=Rho, y=MutationType, yend=MutationType), color="grey") + 
-  geom_point(linewidth = 1, 
+  geom_point(size = 3, 
              position = position_dodge2(width = 0.5, preserve = "single"),
-             width = 0.2,
              shape = 21,
              alpha = .8,
              colour = "black") +
-  scale_fill_manual(values = c("Adj. p Value < 0.5" = "orange", 
-                               "Adj. p Value > 0.5" = "grey"), guide = "none") +
+  scale_fill_gradient(low = "#5A189A", high = "#FFB703", name = expression(abs(rho))) +
   theme_bw() +
   labs(
     #title = "Spearman Correlations of dN/dS vs Mutation Rates",
-    x = "Spearman Rho [Mutation Rate vs dN\\dS]",
+    x = expression("Spearman " * rho * " [Mutation Rate vs dN/dS]"),
     y = "Species"
   ) +
   geom_hline(yintercept = 0, color = "black")  +
   scale_x_continuous(n.breaks = 20) +
-  scale_y_discrete(expand = expansion(mult = 0.12)) +
-  guides(colour = "none",
-         fill = guide_legend(title.position = "top"),
-         alpha = guide_legend(title.position = "top")) +
+  scale_y_discrete(labels = mutation_type_labels, expand = expansion(mult = 0.12)) +
+  guides(colour = "none") +
   geom_vline(xintercept = 0, linetype = 2) +
   #facet_grid(rows = vars(Species), scales = "free_y", ncol = 1) +
-  facet_wrap(~ Species, ncol = 1) +
+  facet_wrap(~ Species, ncol = 1, labeller = as_labeller(species_labels)) +
   theme(
-    legend.margin=margin(0, 0, -10, 0),
-    legend.position = "top",
+    legend.margin = margin(0, 0, 0, 0),
+    legend.position = "right",
     legend.box = "vertical",
-    legend.title.position = "left",
-    legend.key.width = unit(0.4, "cm"),
-    legend.spacing.x = unit(0.1, "cm"),
-    legend.text = element_text(size = BASE_SIZE-4),
-    legend.title = element_text(size = BASE_SIZE-3),
-    axis.text.x = element_text(size = BASE_SIZE-4.5),
-    axis.text.y = element_text(size = BASE_SIZE-2),
-    axis.title = element_text(size = BASE_SIZE-2),
+    legend.direction = "vertical",
+    legend.text = element_text(colour = "black", size = BASE_SIZE - 4),
+    legend.title = element_text(colour = "black", size = BASE_SIZE - 3),
+    axis.text.x = element_text(colour = "black", size = BASE_SIZE - 4.5),
+    axis.text.y = element_text(colour = "black", size = BASE_SIZE - 2),
+    axis.title.x = element_text(colour = "black", size = BASE_SIZE - 2),
     axis.title.y = element_blank(),
-    strip.text = element_text(size = BASE_SIZE-2)) +
+    strip.text = element_text(size = BASE_SIZE - 2, colour = "black"),
+    strip.background = element_blank(),
+    text = element_text(colour = "black")
+  ) +
   guides(
-  fill = guide_legend(title.position = "left", direction = "horizontal"),
-  size = guide_legend(title.position = "left", direction = "horizontal", override.aes = list(fill = "orange")))
+    fill = guide_colourbar(
+      title.position = "top",
+      direction = "vertical",
+      barwidth = unit(0.28, "cm"),
+      barheight = unit(2.2, "cm")
+    ),
+    size = "none"
+  )
 
 # Save the plot — change width/height as needed
       ggsave(plot = test,
       filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                        "Species_Mutation_Category_vs_dNdS_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 5,
       height = 4,
       dpi = 1800,
       device = ragg::agg_png)
+
+# Vector publication output
+ggsave(plot = test,
+      filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       "Species_Mutation_Category_vs_dNdS_Plot.svg"),
+      create.dir = TRUE,
+      width = 5,
+      height = 4,
+  device = grDevices::svg
+)
       
 
 testPpa <-
 ggplot(subset(df, MutationType != "Mutated_Synonymous" & Species == "WellerWang_20142026_MA_Ppacificus_Elpaco"),
-              aes(y = MutationType, x = Rho, fill = signif, group = MutationType, size = -log10(adj.p))) +
+              aes(y = MutationType, x = Rho, fill = abs(Rho), group = MutationType, size = -log10(adj.p))) +
   #geom_segment( aes(x=0, xend=Rho, y=MutationType, yend=MutationType), color="grey") + 
-  geom_point(linewidth = 1, 
+  geom_point(size = 3, 
              position = position_dodge2(width = 0.5, preserve = "single"),
-             width = 0.2,
              shape = 21,
              alpha = .8,
              colour = "black") +
-  scale_fill_manual(values = c("Adj. p Value < 0.5" = "orange", 
-                               "Adj. p Value > 0.5" = "grey"), guide = "none") +
+  scale_fill_gradient(low = "#5A189A", high = "#FFB703", name = expression(abs(rho))) +
   theme_bw() +
   labs(
     #title = "Spearman Correlations of dN/dS vs Mutation Rates",
-    x = "Spearman Rho [Mutation Rate vs dN\\dS]",
+    x = expression("Spearman " * rho * " [Mutation Rate vs dN/dS]"),
     y = "Species"
   ) +
   geom_hline(yintercept = 0, color = "black")  +
   scale_x_continuous(n.breaks = 20) +
-  scale_y_discrete(expand = expansion(mult = 0.12)) +
-  guides(colour = "none",
-         fill = guide_legend(title.position = "top"),
-         alpha = guide_legend(title.position = "top")) +
+  scale_y_discrete(labels = mutation_type_labels, expand = expansion(mult = 0.12)) +
+  guides(colour = "none") +
   geom_vline(xintercept = 0, linetype = 2) +
   #facet_grid(rows = vars(Species), scales = "free_y", ncol = 1) +
-  facet_wrap(~ Species, ncol = 1) +
+  facet_wrap(~ Species, ncol = 1, labeller = as_labeller(species_labels)) +
   theme(
-    legend.margin=margin(0, 0, -10, 0),
-    legend.position = "top",
+    legend.margin = margin(0, 0, 0, 0),
+    legend.position = "right",
     legend.box = "vertical",
-    legend.title.position = "left",
-    legend.key.width = unit(0.4, "cm"),
-    legend.spacing.x = unit(0.1, "cm"),
-    legend.text = element_text(size = BASE_SIZE-4),
-    legend.title = element_text(size = BASE_SIZE-3),
-    axis.text.x = element_text(size = BASE_SIZE-4.5),
-    axis.text.y = element_text(size = BASE_SIZE-2),
-    axis.title = element_text(size = BASE_SIZE-2),
+    legend.direction = "vertical",
+    legend.text = element_text(colour = "black", size = BASE_SIZE - 4),
+    legend.title = element_text(colour = "black", size = BASE_SIZE - 3),
+    axis.text.x = element_text(colour = "black", size = BASE_SIZE - 4.5),
+    axis.text.y = element_text(colour = "black", size = BASE_SIZE - 2),
+    axis.title.x = element_text(colour = "black", size = BASE_SIZE - 2),
     axis.title.y = element_blank(),
-    strip.text = element_text(size = BASE_SIZE-2)) +
+    strip.text = element_text(size = BASE_SIZE - 2, colour = "black"),
+    strip.background = element_blank(),
+    text = element_text(colour = "black")
+  ) +
   guides(
-  fill = guide_legend(title.position = "left", direction = "horizontal"),
-  size = guide_legend(title.position = "left", direction = "horizontal", override.aes = list(fill = "orange")))
+    fill = guide_colourbar(
+      title.position = "top",
+      direction = "vertical",
+      barwidth = unit(0.28, "cm"),
+      barheight = unit(2.2, "cm")
+    ),
+    size = "none"
+  )
 
 # Save the plot — change width/height as needed
       ggsave(plot = testPpa,
       filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                        "Ppacificus_Mutation_Category_vs_dNdS_Plot.png"),
       create.dir = TRUE,
-      width = 4,
+      width = 6,
       height = 3,
       dpi = 1800,
       device = ragg::agg_png)
+
+# Vector publication output
+ggsave(plot = testPpa,
+      filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       "Ppacificus_Mutation_Category_vs_dNdS_Plot.svg"),
+      create.dir = TRUE,
+      width = 6,
+      height = 3,
+  device = grDevices::svg
+)
 
 ```
 
 ```{r Merging Synonymous with Non-Synonymous Data}
 library(dplyr)
+
+# Keep only dataset names that are present in all three lists.
+# Exclude unnamed (NA) and NULL list elements before merging.
+valid_list_names <- function(x) {
+  nms <- names(x)
+  nms[!is.na(nms) & !vapply(x, is.null, logical(1))]
+}
+
+shared_names <- Reduce(
+  intersect,
+  list(
+    valid_list_names(Annotated_VCFs_PC_Gene_Body_Variants),
+    valid_list_names(Annotated_VCFs_PC_Gene_Body_Synonymous_Variants),
+    valid_list_names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)
+  )
+)
+
+Annotated_VCFs_PC_Gene_Body_Variants <-
+  Annotated_VCFs_PC_Gene_Body_Variants[shared_names]
+
+Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <-
+  Annotated_VCFs_PC_Gene_Body_Synonymous_Variants[shared_names]
+
+Annotated_VCFs_PC_Gene_Body_Intronic_Variants <-
+  Annotated_VCFs_PC_Gene_Body_Intronic_Variants[shared_names]
+
 # ============================================================
 # SYNONYMOUS
 # ============================================================
@@ -294,9 +375,11 @@ Annotated_VCFs_PC_Gene_Body_Synonymous_Variants <- lapply(
 )
 
 cols_to_remove <- c(
+  "UniqueSynonymousVariantsPlusOnePerBP",
   "UniqueSynonymousVariantsPlusOnePerBP.x",
-  "UniqueIntronicVariantsPlusOnePerBP.x",
   "UniqueSynonymousVariantsPlusOnePerBP.y",
+  "UniqueIntronicVariantsPlusOnePerBP",
+  "UniqueIntronicVariantsPlusOnePerBP.x",
   "UniqueIntronicVariantsPlusOnePerBP.y"
 )
 
@@ -380,8 +463,12 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
 
-  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
-    str_replace(., "^(.)(.*)$", "\\1_\\2")
+  species <- dplyr::case_when(
+    str_detect(element_name, "Dmelanogaster") ~ "D_melanogaster",
+    str_detect(element_name, "Celegans|C_elegans") ~ "C_elegans",
+    str_detect(element_name, "Ppacificus") ~ "P_pacificus",
+    TRUE ~ element_name
+  )
 
   df <- df %>% dplyr::distinct(GENE_ID, .keep_all = TRUE)
 
@@ -476,7 +563,7 @@ label_df <- plot_df %>%
 
 p_essential <-
   ggplot(plot_df, aes(x = Essential, y = mutationRate, fill = Essential, colour = Essential)) +
-  geom_boxplot(width = 0.7, outliers = FALSE, alpha = 0.2) +
+  geom_boxplot(width = 0.7, outliers = FALSE, alpha = 0.2, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
   geom_segment(
     data = label_df,
     aes(x = 1, xend = 2, y = y_line, yend = y_line),
@@ -492,7 +579,7 @@ p_essential <-
   facet_wrap(
     ~ Species + MutationType,
     scales = "free_y",
-    labeller = labeller(MutationType = as_labeller(c("UniqueVariantsPlusOnePerBP" = "Variants", "UniqueSynonymousVariantsPlusOnePerBP" = "Synonymous", "UniqueIntronicVariantsPlusOnePerBP" = "Intronic")))
+    labeller = labeller(MutationType = as_labeller(boxplot_mutation_labels))
   ) +
   scale_x_discrete(labels = c(
     "Non-Essential" = "Non-\nEssential",
@@ -500,10 +587,10 @@ p_essential <-
   )) +
   scale_y_continuous(expand = expansion(mult = c(0.05, 0.18)),
                      n.breaks = 10) +
-  scale_color_manual(values = c("black", "orange")) +
+  scale_color_manual(values = c("Non-Essential" = "black", "Essential" = "#5A189A")) +
   scale_fill_manual(values = c(
-    alpha("black", alpha = .2),
-    alpha("orange", alpha = .2)
+    "Non-Essential" = alpha("black", alpha = .2),
+    "Essential" = alpha("#5A189A", alpha = .2)
   )) +
   labs(
     x = NULL,
@@ -512,9 +599,14 @@ p_essential <-
   theme_bw() +
   theme(
     legend.position = "none",
-    strip.text = element_text(size = BASE_SIZE - 4),
-    axis.text.x = element_text(size = BASE_SIZE - 5),
-    axis.text.y = element_text(size = BASE_SIZE - 5)
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = BASE_SIZE - 6, colour = "black"),
+    strip.background = element_blank(),
+    axis.text.x = element_text(size = BASE_SIZE - 5, colour = "black"),
+    axis.text.y = element_text(size = BASE_SIZE - 5, colour = "black"),
+    axis.title = element_text(colour = "black"),
+    text = element_text(colour = "black")
   )
 
 ggsave(
@@ -525,10 +617,24 @@ ggsave(
     "Species_Essential_Mutation_Rate_Boxplots.png"
   ),
   create.dir = TRUE,
-  width = 3,
+  width = 2.8,
   height = 4,
   dpi = 1800,
   device = ragg::agg_png
+)
+
+# Vector publication output
+ggsave(
+  plot = p_essential,
+  filename = paste0(
+    R_Data,
+    "Plots/3_Mutation_and_dNdS_Association_Plots/",
+    "Species_Essential_Mutation_Rate_Boxplots.svg"
+  ),
+  create.dir = TRUE,
+  width = 2.8,
+  height = 4,
+  device = grDevices::svg
 )
 ```
 
@@ -544,8 +650,12 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
   df <- Annotated_VCFs_PC_Gene_Body_Variants[[element_name]]
 
-  species <- str_split(element_name, "_", simplify = TRUE)[,4] %>%
-    str_replace(., "^(.)(.*)$", "\\1_\\2")
+  species <- dplyr::case_when(
+    str_detect(element_name, "Dmelanogaster") ~ "D_melanogaster",
+    str_detect(element_name, "Celegans|C_elegans") ~ "C_elegans",
+    str_detect(element_name, "Ppacificus") ~ "P_pacificus",
+    TRUE ~ element_name
+  )
 
   df <- df %>% dplyr::distinct(GENE_ID, .keep_all = TRUE)
 
@@ -643,7 +753,7 @@ label_df <- plot_df %>%
 
 p_housekeeping <-
   ggplot(plot_df, aes(x = HouseKeeping, y = mutationRate, fill = HouseKeeping, colour = HouseKeeping)) +
-  geom_boxplot(width = 0.7, outliers = FALSE, alpha = 0.2) +
+  geom_boxplot(width = 0.7, outliers = FALSE, alpha = 0.2, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
   geom_segment(
     data = label_df,
     aes(x = 1, xend = 2, y = y_line, yend = y_line),
@@ -659,7 +769,7 @@ p_housekeeping <-
   facet_wrap(
     ~ Species + MutationType,
     scales = "free_y",
-    labeller = labeller(MutationType = as_labeller(c("UniqueVariantsPlusOnePerBP" = "Variants", "UniqueSynonymousVariantsPlusOnePerBP" = "Synonymous", "UniqueIntronicVariantsPlusOnePerBP" = "Intronic")))
+    labeller = labeller(MutationType = as_labeller(boxplot_mutation_labels))
   ) +
   scale_x_discrete(labels = c(
     "Non-HouseKeeping" = "Non-\nHouseKeeping",
@@ -667,21 +777,26 @@ p_housekeeping <-
   )) +
   scale_y_continuous(expand = expansion(mult = c(0.05, 0.18)),
                      n.breaks = 10) +
-  scale_color_manual(values = c("black", "orange")) +
+  scale_color_manual(values = c("Non-HouseKeeping" = "black", "HouseKeeping" = "#FF9100")) +
   scale_fill_manual(values = c(
-    alpha("black", alpha = .2),
-    alpha("orange", alpha = .2)
+    "Non-HouseKeeping" = alpha("black", alpha = .2),
+    "HouseKeeping" = alpha("#FF9100", alpha = .2)
   )) +
   labs(
     x = NULL,
-    y = "Mutation rate"
+    y = "Mutation Rate"
   ) +
   theme_bw() +
   theme(
     legend.position = "none",
-    strip.text = element_text(size = BASE_SIZE - 2),
-    axis.text.x = element_text(size = BASE_SIZE - 3),
-    axis.text.y = element_text(size = BASE_SIZE - 3)
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(size = BASE_SIZE - 5.5, colour = "black"),
+    strip.background = element_blank(),
+    axis.text.x = element_text(size = BASE_SIZE - 5, colour = "black"),
+    axis.text.y = element_text(size = BASE_SIZE - 5, colour = "black"),
+    axis.title = element_text(colour = "black"),
+    text = element_text(colour = "black")
   )
 
 ggsave(
@@ -692,10 +807,24 @@ ggsave(
     "Species_HouseKeeping_Mutation_Rate_Boxplots.png"
   ),
   create.dir = TRUE,
-  width = 4,
-  height = 4,
+  width = 3.7,
+  height = 3,
   dpi = 1800,
   device = ragg::agg_png
+)
+
+# Vector publication output
+ggsave(
+  plot = p_housekeeping,
+  filename = paste0(
+    R_Data,
+    "Plots/3_Mutation_and_dNdS_Association_Plots/",
+    "Species_HouseKeeping_Mutation_Rate_Boxplots.svg"
+  ),
+  create.dir = TRUE,
+  width = 3.7,
+  height = 3,
+  device = grDevices::svg
 )
 ```
 

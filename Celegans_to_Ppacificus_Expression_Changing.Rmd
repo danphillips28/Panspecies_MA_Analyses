@@ -23,6 +23,12 @@ library(grid)
 library(stringr)
 library(dplyr)
 
+# Box plots: no panel grid, dashed whiskers, and end ticks/staples.
+no_grid_theme <- theme(
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank()
+)
+
 `%ni%` <- Negate(`%in%`)
 ```
 
@@ -35,7 +41,8 @@ Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # F
 results_dir <- file.path(R_Data, "Plots/7_From_Ppacificus_to_Celegans")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
 
-delta_phrase <- "in Ppa relative to Cel"
+delta_phrase <- "in P. pacificus"
+delta_mut_label <- paste0("Δ Mutation Percentile (", delta_phrase, ")")
 ```
 
 ```{r Loading Data}
@@ -44,6 +51,24 @@ load(file = paste0(R_Data, "CelegansPpacificus_dNdS_Table"))
 source(paste0(R_Data, "plotting.themes.R"))
 # Choose theme once per session/script
 set_my_theme("light")   # or "dark"
+
+# Force non-data plot ink to black: all text, axes, ticks, borders, facet outlines and legend text.
+# Data-mapped fills/colours remain unchanged.
+all_black_plot_theme <- theme(
+  text = element_text(colour = "black"),
+  axis.text = element_text(colour = "black"),
+  axis.title = element_text(colour = "black"),
+  axis.ticks = element_line(colour = "black"),
+  axis.line = element_line(colour = "black"),
+  panel.border = element_rect(colour = "black", fill = NA),
+  strip.text = element_text(colour = "black"),
+  strip.background = element_rect(colour = "black", fill = NA),
+  legend.text = element_text(colour = "black"),
+  legend.title = element_text(colour = "black"),
+  plot.title = element_text(colour = "black"),
+  plot.subtitle = element_text(colour = "black"),
+  plot.caption = element_text(colour = "black")
+)
 ```
 
 ```{r Wrangle Orthologs}
@@ -161,6 +186,78 @@ Orthologs <- merge(
 )
 ```
 
+```{r Recalculate Expression Groups Within Ortholog Set}
+# Recalculate the inherited expression quantiles using ONLY the orthologs
+# retained in this script.  This preserves the original 0-5 structure:
+#   0 = zero expression
+#   1-5 = quintiles of positive expression values.
+# The recalculation is performed separately within each species.
+
+Orthologs <- Orthologs %>%
+  mutate(
+    Celegans_Overall_Expression_Group = {
+      x <- Celegans_log2_Expression_Plus_One
+      out <- rep(NA_character_, length(x))
+      zero <- !is.na(x) & x == 0
+      pos  <- !is.na(x) & x > 0
+      out[zero] <- "0"
+      if (sum(pos) > 0) {
+        out[pos] <- as.character(dplyr::ntile(x[pos], 5))
+      }
+      factor(out, levels = as.character(0:5), ordered = TRUE)
+    },
+    Ppacificus_Overall_Expression_Group = {
+      x <- Ppacificus_log2_Expression_Plus_One
+      out <- rep(NA_character_, length(x))
+      zero <- !is.na(x) & x == 0
+      pos  <- !is.na(x) & x > 0
+      out[zero] <- "0"
+      if (sum(pos) > 0) {
+        out[pos] <- as.character(dplyr::ntile(x[pos], 5))
+      }
+      factor(out, levels = as.character(0:5), ordered = TRUE)
+    }
+  )
+
+```
+
+```{r Calculate Shared Feature Quantiles Within Ortholog Set}
+# For EVERY shared feature, assign an independent quintile within each species
+# using only the orthologs shared between C. elegans and P. pacificus.
+# Each ortholog therefore receives one 1-5 quantile value for every feature
+# in each species, provided that feature is non-missing in that ortholog.
+for (feat in shared_features) {
+  ce_col <- paste0("Celegans_", feat)
+  pp_col <- paste0("Ppacificus_", feat)
+
+  if (ce_col %in% names(Orthologs) && pp_col %in% names(Orthologs)) {
+    Orthologs[[paste0(ce_col, "_Quantile")]] <-
+      dplyr::ntile(Orthologs[[ce_col]], 5)
+
+    Orthologs[[paste0(pp_col, "_Quantile")]] <-
+      dplyr::ntile(Orthologs[[pp_col]], 5)
+  }
+}
+
+# Export a compact ortholog-by-feature quantile table for inspection.
+quantile_cols <- unlist(lapply(shared_features, function(feat) {
+  c(
+    paste0("Celegans_", feat, "_Quantile"),
+    paste0("Ppacificus_", feat, "_Quantile")
+  )
+}))
+
+quantile_cols <- quantile_cols[quantile_cols %in% names(Orthologs)]
+
+fwrite(
+  as.data.table(Orthologs)[,
+    c("Celegans_orthologR", "Ppacificus_orthologR", quantile_cols),
+    with = FALSE
+  ],
+  file.path(results_dir, "shared_ortholog_feature_quantiles.csv")
+)
+```
+
 ```{r Codify Overall_Expression_Group into Ordered Numbers}
 Orthologs <- Orthologs %>%
   mutate(
@@ -265,7 +362,25 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
   }
 
   save_plot <- function(p, file, w, h) {
-    if (!is.null(p)) ggsave(file, plot = p, width = w, height = h, dpi = 300)
+    if (!is.null(p)) {
+      p <- p + all_black_plot_theme
+      ggsave(
+        file,
+        plot = p,
+        width = w,
+        height = h,
+        dpi = 1800
+      )
+
+      svg_file <- sub("\\.png$", ".svg", file)
+      ggsave(
+        svg_file,
+        plot = p,
+        width = w,
+        height = h,
+        device = grDevices::svg
+      )
+    }
   }
 
   # ------------------------------------------------------------
@@ -291,6 +406,28 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
     delta_mut     = mut_pct_pp - mut_pct_ce
   )]
 
+  # Assign feature quintiles within the complete ortholog set for this feature.
+  # 1 = lowest fifth; 5 = highest fifth.
+  DT[, `:=`(
+    feature_quantile_ce = dplyr::ntile(get(ce_col), 5),
+    feature_quantile_pp = dplyr::ntile(get(pp_col), 5)
+  )]
+
+  DT[, feature_quantile_change := fifelse(
+    feature_quantile_pp > feature_quantile_ce,
+    "Increased",
+    fifelse(
+      feature_quantile_pp < feature_quantile_ce,
+      "Decreased",
+      "Stable"
+    )
+  )]
+
+  DT[, feature_quantile_change := factor(
+    feature_quantile_change,
+    levels = c("Decreased", "Stable", "Increased")
+  )]
+
   # ------------------------------------------------------------
   # Scatter plot + Spearman correlation
   # ------------------------------------------------------------
@@ -300,14 +437,12 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
   p_scatter <-
     ggplot(DT, aes(x = delta_feature, y = delta_mut)) +
-    geom_hline(yintercept = 0, linetype = "dashed") +
-    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+    geom_vline(xintercept = 0, linetype = "dashed", colour = "black") +
     geom_point(
       size = 2.5,
-      colour = "white",
-      fill = "black",
-      shape = 21,
-      stroke = 0.4,
+      colour = "black",
+      shape = 16,
       alpha = 0.9
     ) +
     geom_smooth(method = "loess", color = "purple", fill = "orange") +
@@ -315,7 +450,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
     scale_y_continuous(n.breaks = 10) +
     labs(
       x = paste0("Delta ", feature_name, " percentile (", delta_phrase, ")"),
-      y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+      y = delta_mut_label,
       title = paste0(
         "Spearman rho = ",
         round(as.numeric(cor_test$estimate), 3),
@@ -353,14 +488,14 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
     p_bins <-
       ggplot(bin_summary, aes(x = feature_bin, y = mean_delta_mut, group = 1)) +
-      geom_point(size = 3) +
-      geom_line() +
-      geom_hline(yintercept = 0, linetype = "dashed") +
+      geom_point(size = 3, colour = "black") +
+      geom_line(colour = "black") +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
       theme_minimal() +
       scale_x_discrete(labels = bin_labels) +
       labs(
         x = paste0("Binned delta ", feature_name, " percentile (", delta_phrase, ")"),
-        y = paste0("Mean delta mutation percentile (", delta_phrase, ")"),
+        y = paste0("Mean ", delta_mut_label),
         title = paste0("Binned relationship: ", feature_name)
       ) + 
       theme(axis.text.x = element_text(size = BASE_SIZE - 3))
@@ -387,39 +522,51 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
     extreme_df <- rbindlist(list(
       low_group[, .(group = "Most\nDown", delta_mut = delta_mut)],
-      middle_group[, .(group = "Stable\n[<20% Δfeature]", delta_mut = delta_mut)],
+      middle_group[, .(group = "Stable\n[<20% Δ]", delta_mut = delta_mut)],
       high_group[, .(group = "Most\nUp", delta_mut = delta_mut)]
     ))
 
     extreme_df[, group := factor(
       group,
-      levels = c("Most\nDown", "Stable\n[<20% Δfeature]", "Most\nUp")
+      levels = c("Most\nDown", "Stable\n[<20% Δ]", "Most\nUp")
     )]
 
     extreme_labels <- make_count_labels(extreme_df, "group")
 
     p_extreme <-
       ggplot(extreme_df, aes(x = group, y = delta_mut, fill = group)) +
-      geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.75) +
-      geom_hline(yintercept = 0, linetype = "dashed") +
+      geom_boxplot(colour = "black", width = 0.6, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
       scale_y_continuous(n.breaks = 10) +
       scale_x_discrete(labels = extreme_labels) +
       scale_fill_manual(values = c(
         "Most\nDown" = alpha("orange", 0.4),
-        "Stable\n[<20% Δfeature]" = alpha("grey40", 0.4),
+        "Stable\n[<20% Δ]" = alpha("grey40", 0.4),
         "Most\nUp" = alpha("purple", 0.4)
       )) +
       guides(fill = "none") +
       labs(
         x = "",
-        y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+        y = delta_mut_label,
         title = paste0(
           "Down vs middle p = ", signif(wilcox_low_vs_middle$p.value, 3),
           "\nUp vs middle p = ", signif(wilcox_high_vs_middle$p.value, 3)
         )
       ) +
-      theme(axis.text.x = element_text(size = BASE_SIZE - 3),
-            plot.title = element_text(size = BASE_SIZE - 2))
+      theme(axis.title.y = element_text(size = BASE_SIZE),
+            axis.text.x = element_text(size = BASE_SIZE - 4),
+            plot.title = element_text(size = BASE_SIZE - 4))
   }
 
   # ------------------------------------------------------------
@@ -428,6 +575,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
   n_bins <- min(5, length(unique(DT$delta_feature)))
 
   p_binned <- NULL
+  p_quantile_change <- NULL
   jt <- NULL
 
   if (n_bins >= 2) {
@@ -461,8 +609,26 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
     p_binned <-
       ggplot(DT, aes(x = Feature_Change_Group, y = delta_mut, fill = Feature_Change_Group)) +
-      geom_boxplot(outlier.shape = NA) +
+      geom_boxplot(colour = "black", 
+        width = 0.6,
+        outlier.shape = NA,
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
+      ) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
       labs(
+        y = delta_mut_label,
         title = paste0(
           "Jonckheere = ",
           round(jt$statistic, 3),
@@ -476,10 +642,73 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
       )(length(unique(DT$Feature_Change_Group)))) +
       guides(fill = "none") +
-      theme(axis.text.x = element_text(size = BASE_SIZE -3))
+      theme(
+        plot.title = element_text(size = BASE_SIZE - 5),
+        axis.text.x = element_text(size = BASE_SIZE - 8, colour = "black"),
+        axis.text.y = element_text(size = BASE_SIZE + 2),
+        axis.title.y = element_text(size = BASE_SIZE)
+      )
   }
 
     # ------------------------------------------------------------
+  # Three-way boxplot: increased / stable / decreased feature quantile
+  # ------------------------------------------------------------
+  quantile_change_counts <- DT[, .N, by = feature_quantile_change]
+  quantile_change_labels <- make_count_labels(DT, "feature_quantile_change")
+
+  if (uniqueN(DT$feature_quantile_change) >= 2) {
+    quantile_change_test <- tryCatch(
+      kruskal.test(delta_mut ~ feature_quantile_change, data = DT),
+      error = function(e) NULL
+    )
+
+    p_quantile_change <-
+      ggplot(
+        DT,
+        aes(x = feature_quantile_change, y = delta_mut, fill = feature_quantile_change)
+      ) +
+      geom_boxplot(colour = "black", 
+        width = 0.6,
+        outlier.shape = NA,
+        alpha = 0.75,
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
+      ) +
+      theme_bw() +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = BASE_SIZE - 3, colour = "black"),
+        axis.text.y = element_text(size = BASE_SIZE + 2, colour = "black"),
+        axis.title = element_text(colour = "black"),
+        text = element_text(colour = "black")
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+      scale_x_discrete(labels = quantile_change_labels) +
+      scale_y_continuous(n.breaks = 10) +
+      scale_fill_manual(values = c(
+        "Decreased" = alpha("orange", 0.4),
+        "Stable" = alpha("grey40", 0.4),
+        "Increased" = alpha("purple", 0.4)
+      )) +
+      guides(fill = "none") +
+      labs(
+        x = paste0(feature_name, " quantile change (Ppa vs Cel)"),
+        y = delta_mut_label,
+        title = paste0(
+          feature_name, ": mutation-rate change by feature-quantile change",
+          if (!is.null(quantile_change_test)) {
+            paste0("\nKruskal-Wallis p = ", signif(quantile_change_test$p.value, 3))
+          } else {
+            ""
+          }
+        )
+      )
+  }
+
+  # ------------------------------------------------------------
   # Expression-specific analysis
   # ------------------------------------------------------------
   cross_group_change_test <- NULL
@@ -598,12 +827,26 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       y = delta_mut,
       fill = expr_state_type
     )) +
-      geom_boxplot(
+      geom_boxplot(colour = "black", 
         width = 0.55,
         outlier.shape = NA,
-        alpha = 0.75
+        alpha = 0.75,
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
       ) +
-      geom_hline(yintercept = 0, linetype = "dashed") +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
       facet_wrap(
         ~ expr_state_q,
         nrow = 1,
@@ -621,7 +864,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       guides(fill = "none") +
       labs(
         x = "",
-        y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+        y = delta_mut_label,
         title = plot_title,
         subtitle = subtitle_text,
         caption = state_caption
@@ -755,12 +998,26 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       y = delta_mut,
       fill = expr_state_type
     )) +
-      geom_boxplot(
+      geom_boxplot(colour = "black", 
         width = 0.55,
         outlier.shape = NA,
-        alpha = 0.75
+        alpha = 0.75,
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
       ) +
-      geom_hline(yintercept = 0, linetype = "dashed") +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
       facet_wrap(
         ~ expr_state_q,
         nrow = 1,
@@ -780,7 +1037,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
       guides(fill = "none") +
       labs(
         x = "",
-        y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+        y = delta_mut_label,
         title = plot_title,
         subtitle = subtitle_text,
         caption = state_caption
@@ -845,8 +1102,19 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
       p_up_same_down <-
         ggplot(DT_plot1, aes(x = expr_group, y = delta_mut, fill = expr_group)) +
-        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
         scale_y_continuous(n.breaks = 10) +
         scale_x_discrete(labels = updown_labels) +
         scale_fill_manual(values = c(
@@ -857,7 +1125,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         guides(fill = "none") +
         labs(
           x = "Expression quantile change",
-          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          y = delta_mut_label,
           title = paste0(
             "Up vs Stable, p = ",
             ifelse(is.null(wilcox_up_vs_same), NA, signif(wilcox_up_vs_same$p.value, 3)),
@@ -867,6 +1135,8 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         ) +
         theme(
           axis.text.x = element_text(size = BASE_SIZE - 3),
+          axis.text.y = element_text(size = BASE_SIZE + 2),
+          axis.title.y = element_text(size = BASE_SIZE + 1),
           plot.title = element_text(size = BASE_SIZE - 2)
         )
     }
@@ -896,8 +1166,19 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
           y = delta_mut,
           fill = expr_change_grp
         )) +
-        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
         scale_y_continuous(n.breaks = 10) +
         scale_x_discrete(labels = change_labels) +
         scale_fill_manual(values = colorRampPalette(
@@ -906,11 +1187,16 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         guides(fill = "none") +
         labs(
           x = "Expression group change (Ppa - Cel)",
-          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          y = delta_mut_label,
           title = paste0(
             "Jonckheere p = ", signif(jt_change$p.value, 3),
             "\nKruskal-Wallis p = ", signif(cross_group_change_test$p.value, 3)
           )
+        ) +
+        theme(
+          axis.text.x = element_text(size = BASE_SIZE - 3),
+          axis.text.y = element_text(size = BASE_SIZE + 2),
+          axis.title.y = element_text(size = BASE_SIZE + 1)
         )
     }
 
@@ -961,8 +1247,19 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
       p_terminal_0 <-
         ggplot(DT0_plot, aes(x = expr_group, y = delta_mut, fill = expr_group)) +
-        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
         scale_y_continuous(n.breaks = 10) +
         scale_x_discrete(labels = zero_labels) +
         scale_fill_manual(values = c(
@@ -973,7 +1270,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         guides(fill = "none") +
         labs(
           x = "",
-          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          y = delta_mut_label,
           title = paste0(
             "Ppa=0 vs control p = ",
             ifelse(is.null(wilcox_terminal_0_pp), NA, signif(wilcox_terminal_0_pp$p.value, 3)),
@@ -1034,8 +1331,19 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
 
       p_terminal_5 <-
         ggplot(DT5_plot, aes(x = expr_group, y = delta_mut, fill = expr_group)) +
-        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
         scale_y_continuous(n.breaks = 10) +
         scale_x_discrete(labels = five_labels) +
         scale_fill_manual(values = c(
@@ -1046,7 +1354,7 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
         guides(fill = "none") +
         labs(
           x = "",
-          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          y = delta_mut_label,
           title = paste0(
             "Ppa=5 vs control p = ",
             ifelse(is.null(wilcox_terminal_5_pp), NA, signif(wilcox_terminal_5_pp$p.value, 3)),
@@ -1162,8 +1470,8 @@ n = ", cont_summary_df$n
           colour = Cel_start_q,
           fill = Cel_start_q
         )) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
-        geom_vline(xintercept = 0, linetype = "dashed") +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+        geom_vline(xintercept = 0, linetype = "dashed", colour = "black") +
         geom_point(
           size = 1.4,
           alpha = 0.25
@@ -1191,7 +1499,7 @@ n = ", cont_summary_df$n
             signif(continuous_interaction_p, 3)
           ),
           x = paste0("Delta expression percentile (", delta_phrase, ")"),
-          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          y = delta_mut_label,
           caption = "Facet labels show Spearman rho, p, and n within each starting quantile."
         ) +
         theme(
@@ -1260,8 +1568,8 @@ n = ", step_summary_df$n
           colour = Cel_start_q,
           fill = Cel_start_q
         )) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
-        geom_vline(xintercept = 0, linetype = "dashed") +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+        geom_vline(xintercept = 0, linetype = "dashed", colour = "black") +
         geom_point(
           size = 1.4,
           alpha = 0.25
@@ -1289,7 +1597,7 @@ n = ", step_summary_df$n
             signif(step_interaction_p, 3)
           ),
           x = paste0("Expression group change (Ppa - Cel; steps; ", delta_phrase, ")"),
-          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          y = delta_mut_label,
           caption = "Facet labels show Spearman rho, p, and n within each starting quantile."
         ) +
         theme(
@@ -1319,8 +1627,19 @@ n = ", step_summary_df$n
 
       p_validation_abs_delta_expression <-
         ggplot(DT_validation_abs, aes(x = start_q, y = abs_delta_feature, fill = start_q)) +
-        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
         scale_x_discrete(labels = abs_labels) +
         scale_fill_manual(values = cont_palette) +
         guides(fill = "none") +
@@ -1369,8 +1688,19 @@ n = ", step_summary_df$n
 
       p_validation_q5_step_expression <-
         ggplot(DT_q5_step, aes(x = step_label, y = delta_feature, fill = step_label)) +
-        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
         scale_x_discrete(labels = q5_step_labels) +
         scale_fill_manual(values = q5_step_palette) +
         guides(fill = "none") +
@@ -1450,8 +1780,19 @@ n = ", step_summary_df$n
               fill = step_factor
             )
           ) +
-          geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-          geom_hline(yintercept = 0, linetype = "dashed") +
+          geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+          geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
           scale_x_discrete(labels = transition_labels_all) +
           scale_fill_manual(values = step_all_palette) +
           guides(fill = "none") +
@@ -1515,8 +1856,19 @@ n = ", step_summary_df$n
 
         p_validation_q5_residuals <-
           ggplot(DT_q5_resid, aes(x = step_label, y = resid_mut, fill = step_label)) +
-          geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-          geom_hline(yintercept = 0, linetype = "dashed") +
+          geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+          geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
           scale_x_discrete(labels = q5_resid_labels) +
           scale_fill_manual(values = q5_resid_palette) +
           guides(fill = "none") +
@@ -1602,8 +1954,19 @@ n = ", step_summary_df$n
               fill = step_factor
             )
           ) +
-          geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
-          geom_hline(yintercept = 0, linetype = "dashed") +
+          geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme_bw() +
+
+        theme(
+
+          panel.grid.major = element_blank(),
+
+          panel.grid.minor = element_blank(),
+
+          panel.grid = element_blank()
+
+        ) +
+          geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
           scale_x_discrete(labels = transition_labels) +
           scale_fill_manual(values = resid_all_palette) +
           guides(fill = "none") +
@@ -1672,11 +2035,20 @@ n = ", step_summary_df$n
   }
 
   if (!is.null(p_extreme)) {
-    save_plot(p_extreme, paste0(prefix, "_extremes.png"), 2, 5.0)
+    save_plot(p_extreme, paste0(prefix, "_extremes.png"), 1.5, 3.0)
   }
 
   if (!is.null(p_binned)) {
-    save_plot(p_binned, paste0(prefix, "_ordered_bins.png"), 4.0, 5.5)
+    save_plot(p_binned, paste0(prefix, "_ordered_bins.png"), 1.5, 3)
+  }
+
+  if (!is.null(p_quantile_change)) {
+    save_plot(
+      p_quantile_change,
+      paste0(prefix, "_quantile_change_three_way_boxplot.png"),
+      4.5,
+      4.5
+    )
   }
 
   if (!is.null(p_up_same_down)) {
@@ -1832,6 +2204,7 @@ n = ", step_summary_df$n
     wilcox_test = wilcox_test,
     p_extreme = p_extreme,
     p_binned = p_binned,
+    p_quantile_change = p_quantile_change,
     p_up_same_down = p_up_same_down,
     p_cross_group_change = p_cross_group_change,
     p_expression_state_ppa = p_expression_state_ppa,
@@ -1894,6 +2267,7 @@ for (feat in shared_features) {
     if (!is.null(res$p_bins)) print(res$p_bins)
     if (!is.null(res$p_extreme)) print(res$p_extreme)
     if (!is.null(res$p_binned)) print(res$p_binned)
+    if (!is.null(res$p_quantile_change)) print(res$p_quantile_change)
     if (!is.null(res$p_up_same_down)) print(res$p_up_same_down)
     if (!is.null(res$p_cross_group_change)) print(res$p_cross_group_change)
     if (!is.null(res$p_expression_state_ppa)) print(res$p_expression_state_ppa)
@@ -2064,84 +2438,62 @@ lasso_plot_df <- lasso_plot_df %>% filter(variable %in% common_vars)
 spearman_plot_df <- spearman_plot_df %>% filter(variable %in% common_vars)
 
 # ----------------------------
-# Normalise coefficients (within each test)
-# ----------------------------
-lasso_plot_df <- lasso_plot_df %>%
-  group_by(test) %>%
-  mutate(coef_norm = coefficient / max(abs(coefficient), na.rm = TRUE)) %>%
-  ungroup()
-
-spearman_plot_df <- spearman_plot_df %>%
-  group_by(test) %>%
-  mutate(coef_norm = coefficient / max(abs(coefficient), na.rm = TRUE)) %>%
-  ungroup()
-
-# ----------------------------
 # Order EVERYTHING by Spearman coefficient
 # ----------------------------
 var_levels <- spearman_plot_df %>%
   arrange(coefficient) %>%
   pull(variable)
 
+# ----------------------------
+# Combine for plotting
+# ----------------------------
 lasso_plot_df$variable <- factor(lasso_plot_df$variable, levels = var_levels)
 spearman_plot_df$variable <- factor(spearman_plot_df$variable, levels = var_levels)
 
-# ----------------------------
-# Combine
-# ----------------------------
 combined_df <- bind_rows(
-  lasso_plot_df %>% select(variable, coefficient, coef_norm, p_value, logp, sign, test),
-  spearman_plot_df %>% select(variable, coefficient, coef_norm, p_value, logp, sign, test)
+  lasso_plot_df %>% select(variable, coefficient, p_value, logp, sign, test),
+  spearman_plot_df %>% select(variable, coefficient, p_value, logp, sign, test)
 )
 
 # Ensure facet order: Spearman on the left, LASSO on the right
 combined_df$test <- factor(combined_df$test, levels = c("Spearman", "LASSO"))
 
 # ----------------------------
-# Plot
+# Plot - styled to match the manuscript LASSO plots
 # ----------------------------
 lasso_plot <-
-  ggplot(combined_df, aes(x = variable, y = coef_norm)) +
-
-  geom_col(
-    data = subset(combined_df, sign == "neg"),
-    aes(fill = logp),
-    colour = "black"
-  ) +
-  scale_fill_gradient(
-    low = "orange",
-    high = "#ff1f00",
-    name = expression(-log[10](p)),
-    guide = guide_colourbar(
-    barheight = unit(2, "cm"),
-    barwidth = unit(0.3, "cm")
-  )) +
-
-  ggnewscale::new_scale_fill() +
-
-  geom_col(
-    data = subset(combined_df, sign == "pos"),
-    aes(fill = logp),
-    colour = "black"
-  ) +
-  scale_fill_gradient(
-    low = "#a6d96a",
-    high = "#006837",
-    name = expression(-log[10](p)),
-    guide = guide_colourbar(
-    barheight = unit(2, "cm"),
-    barwidth = unit(0.3, "cm"))) +
-
+  ggplot(combined_df, aes(x = variable, y = coefficient, fill = coefficient)) +
+  geom_col(colour = "black", linewidth = 0.3) +
   coord_flip() +
-  facet_grid(~test, scales = "free_y") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_gradient2(
+    low = "#315D45",
+    mid = "white",
+    high = "#5A189A",
+    midpoint = 0,
+    guide = "none"
+  ) +
+  facet_grid(~test, scales = "free") +
   labs(
     title = "Drivers of Delta Mutation Percentile",
-    subtitle = paste0("Test R² = ", round(test_R2, 4), " | RMSE = ", round(test_RMSE, 4), " | Delta features are oriented ", delta_phrase),
-    x = "Feature (ordered by Spearman)",
-    y = "Normalised coefficient (within test)"
+    subtitle = paste0(
+      "Test R² = ", round(test_R2, 4),
+      " | RMSE = ", round(test_RMSE, 4),
+      " | Delta features are oriented ", delta_phrase
+    ),
+    x = "Predictor variable",
+    y = NULL
   ) +
-  scale_y_continuous(n.breaks = 10)
+  scale_y_continuous(n.breaks = 7) +
+  theme(
+    axis.text.x = element_text(size = BASE_SIZE - 2, colour = "black"),
+    axis.text.y = element_text(size = BASE_SIZE + 3, colour = "black"),
+    axis.title.y = element_blank(),
+    strip.text = element_text(size = BASE_SIZE - 2, colour = "black"),
+    strip.background = element_blank(),
+    axis.title.x = element_text(size = BASE_SIZE - 2, colour = "black"),
+    text = element_text(colour = "black")
+  ) +
+  all_black_plot_theme
 
 lasso_plot
 
@@ -2151,9 +2503,18 @@ lasso_plot
 ggsave(
   filename = file.path(results_dir, "delta_LASSO_Spearman_ordered_by_spearman.png"),
   plot = lasso_plot,
-  width = 7,
-  height = 3,
-  dpi = 2000,
+  width = 8.5,
+  height = 3.4,
+  dpi = 1800,
+  bg = "transparent"
+)
+
+ggsave(
+  filename = file.path(results_dir, "delta_LASSO_Spearman_ordered_by_spearman.svg"),
+  plot = lasso_plot,
+  width = 8.5,
+  height = 3.4,
+  device = grDevices::svg,
   bg = "transparent"
 )
 ```

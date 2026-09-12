@@ -4,6 +4,7 @@
 #SBATCH --output=/home/ocdm0351/DPhil/logs/%x_%j.out
 #SBATCH --error=/home/ocdm0351/DPhil/logs/%x_%j.err
 #SBATCH --partition=himem-gen
+#SBATCH --mem=128G
 
 module load Anaconda3
 source activate pandoc_env

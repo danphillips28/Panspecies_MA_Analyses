@@ -18,6 +18,40 @@ library(clinfun)
 library(data.table)
 library(caret)
 library(glmnet)
+# Save plots using the file extension to select the device.
+# SVG output uses base R's grDevices::svg and therefore does not require svglite.
+save_plot <- function(plot, filename, ...) {
+  if (grepl("\\.svg$", filename, ignore.case = TRUE)) {
+    ggsave(plot = plot, filename = filename, device = grDevices::svg, ...)
+  } else {
+    ggsave(plot = plot, filename = filename, ...)
+  }
+}
+
+# Grid removal is specified directly inside each affected ggplot() below.
+
+# Shared mutation-rate quantile palette used across the manuscript
+mutation_quantile_palette <- colorRampPalette(c("green", "orange", "purple"))(5)
+
+# Robust manual palette for discrete mutation/expression groups.
+# Some input objects contain 6 groups, while others contain 5.
+# Generate exactly as many colours as the mapped variable contains.
+make_mutation_quantile_palette <- function(x) {
+  lev <- if (is.factor(x)) levels(droplevels(x)) else sort(unique(as.character(x[!is.na(x)])))
+  lev <- lev[!is.na(lev) & nzchar(lev)]
+  setNames(colorRampPalette(c("green", "orange", "purple"))(length(lev)), lev)
+}
+
+# Expression-group plots use the same adaptive green-orange-purple discrete palette.
+# Keep a separate named helper because those plot calls refer to expression groups.
+make_expression_quantile_palette <- function(x) {
+  lev <- if (is.factor(x)) levels(droplevels(x)) else sort(unique(as.character(x[!is.na(x)])))
+  lev <- lev[!is.na(lev) & nzchar(lev)]
+  setNames(colorRampPalette(c("green", "orange", "purple"))(length(lev)), lev)
+}
+
+# Continuous predictor-level gradient for mutation-rate boxplots
+predictor_quantile_gradient <- c("#2E8B57", "#6A3D9A")
 ```
 
 ```{r Setting Paths}
@@ -212,20 +246,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         ExprDensities %>% filter(!is.na(expr_group)),
         aes(x = position, y = mean_score, color = expr_group, fill = expr_group)
       ) +
-      geom_line(size = .5) +
+      geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
       geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
                   alpha = 0.2, color = NA) +
       geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      scale_colour_manual(values = make_expression_quantile_palette(ExprDensities$expr_group)) +
+      scale_fill_manual(values = make_expression_quantile_palette(ExprDensities$expr_group)) +
       labs(
         title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
         subtitle = "Grouped by expression group",
-        x = "Windows",
+        x = NULL,
         y = paste("Mean", mark_name_nospecies),
         color = "Expression Group",
         fill = "Expression Group"
       ) +
-      scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+      scale_x_continuous(
+        breaks = c(1, start, end, length(avg)),
+        labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+      ) +
+      scale_y_continuous(n.breaks = 12) +
       theme(
         legend.title = element_text(size = 7),
         legend.text = element_text(size = 6),
@@ -234,14 +273,20 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         legend.direction = "horizontal",
         plot.title = element_text(size = BASE_SIZE - 5),
         plot.subtitle = element_text(size = BASE_SIZE - 4),
-        axis.title.y = element_text(size = BASE_SIZE - 3)
+        axis.title.y = element_text(size = BASE_SIZE - 3),
+        axis.text.x = element_text(size = BASE_SIZE - 1.5)
       ) +
       guides(
         fill = guide_legend(nrow = 1, byrow = TRUE),
         colour = guide_legend(nrow = 1, byrow = TRUE)
+      ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
       )
 
-    ggsave(
+ggsave(
       plot = ExprDensityPlot,
       filename = paste0(
         R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -257,6 +302,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       create.dir = TRUE,
       dpi = 2000
     )
+
+    # Vector copy for publication/editing
+    save_plot(
+      plot = ExprDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_ExprGroup_", element_name, ".svg"
+      ),
+      bg = "transparent",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE
+    )
+
 
     # ------------------------------------------------------------------
     # Gene-body profile split by mutation-rate group
@@ -285,20 +347,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         MutationDensities,
         aes(x = position, y = mean_score, color = mut_group, fill = mut_group)
       ) +
-      geom_line(size = .5) +
+      geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
       geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
                   alpha = 0.2, color = NA) +
       geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      scale_colour_manual(values = make_mutation_quantile_palette(MutationDensities$mut_group)) +
+      scale_fill_manual(values = make_mutation_quantile_palette(MutationDensities$mut_group)) +
       labs(
         title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
         subtitle = "Grouped by mutation rate group",
-        x = "Windows",
+        x = NULL,
         y = paste("Mean", mark_name_nospecies),
         color = "Mutation Rate Quantile",
         fill = "Mutation Rate Quantile"
       ) +
-      scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+      scale_x_continuous(
+        breaks = c(1, start, end, length(avg)),
+        labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+      ) +
+      scale_y_continuous(n.breaks = 12) +
       theme(
         legend.title = element_text(size = 7),
         legend.text = element_text(size = 6),
@@ -307,14 +374,20 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         legend.direction = "horizontal",
         plot.title = element_text(size = BASE_SIZE - 5),
         plot.subtitle = element_text(size = BASE_SIZE - 4),
-        axis.title.y = element_text(size = BASE_SIZE - 2)
+        axis.title.y = element_text(size = BASE_SIZE - 3),
+        axis.text.x = element_text(size = BASE_SIZE - 1.5)
       ) +
       guides(
         fill = guide_legend(nrow = 1, byrow = TRUE),
         colour = guide_legend(nrow = 1, byrow = TRUE)
+      ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
       )
 
-    ggsave(
+ggsave(
       plot = MutationDensityPlot,
       filename = paste0(
         R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -330,6 +403,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       create.dir = TRUE,
       dpi = 2000
     )
+
+    # Vector copy for publication/editing
+    save_plot(
+      plot = MutationDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_MutGroup_", element_name, ".svg"
+      ),
+      bg = "transparent",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE
+    )
+
 
     # ------------------------------------------------------------------
     # Downstream gene-level correlations and boxplots for this mark
@@ -377,6 +467,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       geom_point() +
       geom_smooth(method = "lm", se = TRUE) +
       labs(
+        y = "Overall Mutation Rate",
         title = paste(
           mean_mark_name, "\n",
           plot_vcf_df$GENE_ID %>% unique() %>% length(),
@@ -404,7 +495,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
       ) +
       scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 12) +
       theme(
         plot.title = element_text(size = BASE_SIZE - 5),
         plot.subtitle = element_text(size = BASE_SIZE - 4)
@@ -425,6 +516,22 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       dpi = 300
     )
 
+    # Vector copy for publication/editing
+    save_plot(
+      plot = p1,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_Scatter_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_versus_MutationRate", "_", element_name, ".svg"
+      ),
+      create.dir = TRUE,
+      width = 5,
+      height = 4
+    )
+
+
     plot_df <- plot_vcf_df %>%
       filter(!is.na(.data[[mean_mark_name]])) %>%
       filter(!is.na(.data[["UniqueVariantsPlusOnePerBP"]]))
@@ -435,11 +542,18 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         aes(
           x = Overall_Mark_Group,
           y = UniqueVariantsPlusOnePerBP,
-          fill = Overall_Mark_Group
+          fill = as.numeric(Overall_Mark_Group)
         )
       ) +
-      geom_boxplot(outliers = FALSE) +
+      geom_boxplot(
+        outliers = FALSE,
+        colour = "black",
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
+      ) +
       labs(
+        y = "Overall Mutation Rate",
         title = paste0(
           species_prefix, "\n",
           plot_df %>%
@@ -464,19 +578,21 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           )$p.value %>% round(3)
         )
       ) +
-      scale_y_continuous(n.breaks = 10) +
-      scale_fill_manual(
-        values = colorRampPalette(
-          c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
-        )(length(unique(plot_df$Overall_Mark_Group)))
-      ) +
+      scale_y_continuous(n.breaks = 12) +
+      scale_fill_gradient(low = predictor_quantile_gradient[1], high = predictor_quantile_gradient[2]) +
       guides(fill = "none") +
       theme(
         plot.title = element_text(size = BASE_SIZE - 5),
-        plot.subtitle = element_text(size = BASE_SIZE - 4)
+        plot.subtitle = element_text(size = BASE_SIZE - 4),
+        axis.title = element_text(size = BASE_SIZE - 3)
+      ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
       )
 
-    ggsave(
+ggsave(
       plot = p2,
       filename = paste0(
         R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -491,6 +607,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       height = 3,
       dpi = 300
     )
+
+    # Vector copy for publication/editing
+    save_plot(
+      plot = p2,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_JK_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_Bins_versus_MutationRate", "_", element_name, ".svg"
+      ),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2,
+      height = 3
+    )
+
   }
 
   # ------------------------------------------------------------------
@@ -619,20 +752,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           TCR_ExprDensities %>% filter(!is.na(expr_group)),
           aes(x = position, y = mean_score, color = expr_group, fill = expr_group)
         ) +
-        geom_line(size = .5) +
+        geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
         geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
                     alpha = 0.2, color = NA) +
         geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+        scale_colour_manual(values = make_expression_quantile_palette(TCR_ExprDensities$expr_group)) +
+        scale_fill_manual(values = make_expression_quantile_palette(TCR_ExprDensities$expr_group)) +
         labs(
           title = paste("TCR Across", species_name, "Gene Bodies"),
           subtitle = "Grouped by expression group",
-          x = "Windows",
+          x = NULL,
           y = "Mean log2(template / non-template)",
           color = "Expression Group",
           fill = "Expression Group"
         ) +
-        scale_x_continuous(n.breaks = 10) +
-        scale_y_continuous(n.breaks = 10) +
+        scale_x_continuous(
+          breaks = c(1, start_tcr, end_tcr, length(avg)),
+          labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+        ) +
+        scale_y_continuous(n.breaks = 12) +
         theme(
           legend.title = element_text(size = 7),
           legend.text = element_text(size = 6),
@@ -641,14 +779,20 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           legend.direction = "horizontal",
           plot.title = element_text(size = BASE_SIZE - 5),
           plot.subtitle = element_text(size = BASE_SIZE - 4),
-          axis.title.y = element_text(size = BASE_SIZE - 3)
+          axis.title.y = element_text(size = BASE_SIZE - 3),
+          axis.text.x = element_text(size = BASE_SIZE - 1.5)
         ) +
         guides(
           fill = guide_legend(nrow = 1, byrow = TRUE),
           colour = guide_legend(nrow = 1, byrow = TRUE)
-        )
+        ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-      ggsave(
+save_plot(
         plot = TCR_ExprGroupPlot,
         filename = paste0(
           R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -664,6 +808,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         create.dir = TRUE,
         dpi = 2000
       )
+
+    # Vector copy for publication/editing
+    save_plot(
+        plot = TCR_ExprGroupPlot,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_Plots/",
+          species_prefix,
+          "/TCR_", tcr_id, "_ExprGroup_", element_name, ".svg"
+        ),
+        bg = "transparent",
+        units = "cm",
+        height = 6,
+        width = 8,
+        create.dir = TRUE
+      )
+
 
       # ----------------------------------------------------------------
       # TCR gene-body profile split by mutation-rate group
@@ -690,20 +851,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           TCR_MutDensities,
           aes(x = position, y = mean_score, color = mut_group, fill = mut_group)
         ) +
-        geom_line(size = .5) +
+        geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
         geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
                     alpha = 0.2, color = NA) +
         geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+        scale_colour_manual(values = make_mutation_quantile_palette(TCR_MutDensities$mut_group)) +
+        scale_fill_manual(values = make_mutation_quantile_palette(TCR_MutDensities$mut_group)) +
         labs(
           title = paste("TCR Across", species_name, "Gene Bodies"),
           subtitle = "Grouped by mutation rate group",
-          x = "Windows",
+          x = NULL,
           y = "Mean log2(template / non-template)",
           color = "Mutation Rate Quantile",
           fill = "Mutation Rate Quantile"
         ) +
-        scale_x_continuous(n.breaks = 10) +
-        scale_y_continuous(n.breaks = 10) +
+        scale_x_continuous(
+          breaks = c(1, start_tcr, end_tcr, length(avg)),
+          labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+        ) +
+        scale_y_continuous(n.breaks = 12) +
         theme(
           legend.title = element_text(size = 7),
           legend.text = element_text(size = 6),
@@ -712,14 +878,20 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           legend.direction = "horizontal",
           plot.title = element_text(size = BASE_SIZE - 5),
           plot.subtitle = element_text(size = BASE_SIZE - 4),
-        axis.title.y = element_text(size = BASE_SIZE - 2)
+        axis.title.y = element_text(size = BASE_SIZE - 3),
+        axis.text.x = element_text(size = BASE_SIZE - 1.5)
       ) +
       guides(
           fill = guide_legend(nrow = 1, byrow = TRUE),
           colour = guide_legend(nrow = 1, byrow = TRUE)
-        )
+        ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-      ggsave(
+save_plot(
         plot = TCR_MutGroupPlot,
         filename = paste0(
           R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -735,6 +907,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         create.dir = TRUE,
         dpi = 2000
       )
+
+    # Vector copy for publication/editing
+    save_plot(
+        plot = TCR_MutGroupPlot,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_Plots/",
+          species_prefix,
+          "/TCR_", tcr_id, "_MutGroup_", element_name, ".svg"
+        ),
+        bg = "transparent",
+        units = "cm",
+        height = 6,
+        width = 8,
+        create.dir = TRUE
+      )
+
 
       # ----------------------------------------------------------------
       # TCR scatter plot and boxplot using one value per gene
@@ -777,6 +966,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         geom_point() +
         geom_smooth(method = "lm", se = TRUE) +
         labs(
+          y = "Overall Mutation Rate",
           title = paste(
             tcr_gene_col, "\n",
             tcr_plot_df$GENE_ID %>% unique() %>% length(),
@@ -793,13 +983,13 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
         ) +
         scale_x_continuous(n.breaks = 10) +
-        scale_y_continuous(n.breaks = 10) +
+        scale_y_continuous(n.breaks = 12) +
         theme(
           plot.title = element_text(size = BASE_SIZE - 5),
           plot.subtitle = element_text(size = BASE_SIZE - 4)
         )
 
-      ggsave(
+      save_plot(
         plot = tcr_p1,
         filename = paste0(
           R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -812,6 +1002,21 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         height = 4,
         dpi = 300
       )
+
+    # Vector copy for publication/editing
+    save_plot(
+        plot = tcr_p1,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_Scatter_Plots/",
+          species_prefix, "/",
+          species_prefix, "_", tcr_id, "_TCR_versus_MutationRate_", element_name, ".svg"
+        ),
+        create.dir = TRUE,
+        width = 5,
+        height = 4
+      )
+
 
       tcr_box_df <- tcr_plot_df %>%
         filter(!is.na(.data[[tcr_gene_col]]), !is.na(UniqueVariantsPlusOnePerBP)) %>%
@@ -830,11 +1035,18 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           aes(
             x = Overall_TCR_Group,
             y = UniqueVariantsPlusOnePerBP,
-            fill = Overall_TCR_Group
+            fill = as.numeric(Overall_TCR_Group)
           )
         ) +
-        geom_boxplot(outliers = FALSE) +
+        geom_boxplot(
+        outliers = FALSE,
+        colour = "black",
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
+      ) +
         labs(
+        y = "Overall Mutation Rate",
           title = paste0(
             species_prefix, "\n",
             tcr_box_df %>%
@@ -858,21 +1070,22 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
             )$p.value %>% round(3)
           ),
           x = "TCR Quantile",
-          y = "Mutation Rate"
+          y = "Overall Mutation Rate"
         ) +
-        scale_y_continuous(n.breaks = 10) +
-        scale_fill_manual(
-          values = colorRampPalette(
-            c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
-          )(length(unique(tcr_box_df$Overall_TCR_Group)))
-        ) +
+        scale_y_continuous(n.breaks = 12) +
+        scale_fill_gradient(low = predictor_quantile_gradient[1], high = predictor_quantile_gradient[2]) +
         guides(fill = "none") +
         theme(
           plot.title = element_text(size = BASE_SIZE - 5),
           plot.subtitle = element_text(size = BASE_SIZE - 4)
-        )
+        ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-      ggsave(
+save_plot(
         plot = tcr_p2,
         filename = paste0(
           R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -886,6 +1099,22 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         height = 3,
         dpi = 300
       )
+
+    # Vector copy for publication/editing
+    save_plot(
+        plot = tcr_p2,
+        filename = paste0(
+          R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+          "Epigenetic_TCR_JK_Plots/",
+          species_prefix, "/",
+          species_prefix, "_", tcr_id, "_TCR_Bins_versus_MutationRate_", element_name, ".svg"
+        ),
+        bg = "transparent",
+        create.dir = TRUE,
+        width = 2,
+        height = 3
+      )
+
     }
   }
 
@@ -930,6 +1159,9 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
 
 ```{r LASSO Hybrid Version}
 
+LASSO_grobs <- list()
+LASSO_filenames <- list()
+
 for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   
   # 1️⃣ Get the VCF-like data for this species
@@ -951,6 +1183,8 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                  #"cDNA_length",
                  #"plus$",
                  #"minus$",
+                 "Recombination",
+                 "replication",
                  "mean_replication")))
   
   # Working with complete cases for now
@@ -972,17 +1206,28 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                  scale  = attr(X_train, "scaled:scale"))  # use same scaling!
 
   # 3️⃣ Cross-validated LASSO on training set
-  cv_fit <- cv.glmnet(X_train, y_train, alpha = 1, nfolds = 10)
+  # X_train/X_test are already standardized using the training-set means/SDs,
+  # so do not standardize again inside glmnet.
+  cv_fit <- cv.glmnet(
+    X_train,
+    y_train,
+    alpha = 1,
+    nfolds = 10,
+    standardize = FALSE,
+    type.measure = "mse"
+  )
 
-  # 4️⃣ Evaluate on test set
-  pred_test <- predict(cv_fit, s = "lambda.min", newx = X_test)
-  test_R2 <- cor(pred_test, y_test)^2
+  lambda_min <- cv_fit$lambda.min
+
+  # 4️⃣ Evaluate once on the held-out test set
+  pred_test <- as.numeric(predict(cv_fit, s = "lambda.min", newx = X_test))
+  test_R2 <- 1 - sum((y_test - pred_test)^2) / sum((y_test - mean(y_test))^2)
   test_RMSE <- sqrt(mean((y_test - pred_test)^2))
 
   test_R2
   test_RMSE
 
-  # 5️⃣ Extract coefficients for interpretation
+  # 5️⃣ Extract coefficients for interpretation at lambda.min
   coef_df <- as.data.frame(as.matrix(coef(cv_fit, s = "lambda.min")))
   coef_df$variable <- rownames(coef_df)
   colnames(coef_df)[1] <- "coefficient"
@@ -991,9 +1236,26 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   coef_df$p_value <- ""
   coef_df$test <- "LASSO"
 
+  # Rescale LASSO coefficients for plotting only so the axis is readable.
+  # The underlying coefficients remain unchanged for interpretation/reporting.
+  max_abs_lasso <- max(abs(coef_df$coefficient), na.rm = TRUE)
+  if (is.finite(max_abs_lasso) && max_abs_lasso > 0) {
+    lasso_axis_exp <- floor(log10(max_abs_lasso))
+  } else {
+    lasso_axis_exp <- 0
+  }
+  lasso_axis_multiplier <- 10^lasso_axis_exp
+  coef_df$plot_coefficient <- coef_df$coefficient / lasso_axis_multiplier
+
+  lasso_axis_title <- if (lasso_axis_exp == 0) {
+    "LASSO coefficient (per SD predictor)"
+  } else {
+    paste0("LASSO coefficient (per SD predictor; \u00d7 10^", lasso_axis_exp, ")")
+  }
+
   # Plot LASSO Coefficients
   LASSO_Coefficients_Plot <-
-  ggplot(coef_df, aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient > 0)) +
+  ggplot(coef_df, aes(x = reorder(variable, plot_coefficient), y = plot_coefficient, fill = coefficient > 0)) +
   geom_col() +
   coord_flip() +
   scale_fill_manual(
@@ -1001,11 +1263,12 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     labels = c("Negative", "Positive")) +
   labs(
     title = "LASSO Variable Importance for Mutation Rate",
-    subtitle = paste0("Cross-validated LASSO (λ = ", round(test_R2, 5), ")"),
+    subtitle = paste0("10-fold CV; λmin = ", signif(lambda_min, 4), "; held-out test R² = ", round(test_R2, 3)),
     x = "Predictor variable",
-    y = "Standardized coefficient",
+    y = lasso_axis_title,
     fill = "Effect direction") +
   
+  scale_y_continuous(labels = scales::label_number(accuracy = 0.1, trim = TRUE)) +
   theme(
     legend.position = "top")
 
@@ -1020,16 +1283,47 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   })
     
     # Combine Simple Correlation and LASSO Results
-    combined_results <- 
-      rbind(
-      species_dfs[[species_prefix]],
-      coef_df)
+    # Combine Simple Correlation and LASSO Results using the shared reporting columns only.
+    # coef_df also contains plot_coefficient, which is a LASSO-only plotting helper and
+    # must not be included in the row bind. Recreate plot_coefficient after combining.
+    spearman_results <- species_dfs[[species_prefix]] %>%
+      dplyr::select(variable, coefficient, p_value, test) %>%
+      dplyr::mutate(p_value = as.numeric(p_value))
+
+    lasso_results <- coef_df %>%
+      dplyr::select(variable, coefficient, p_value, test) %>%
+      dplyr::mutate(p_value = as.numeric(NA))
+
+    combined_results <- dplyr::bind_rows(
+      spearman_results,
+      lasso_results
+    )
     # Set Test type as Factor to set ordering in plot
     combined_results$test <- factor(combined_results$test,
                                     levels = c("Spearman","LASSO"))
     
     # Rename cDNA_length to gene_width
     combined_results$variable <- gsub("cDNA_length","gene_width", combined_results$variable)
+
+    # Clean predictor labels for display only. Keep them concise and consistent
+    # so the flipped y-axis remains readable in compact publication plots.
+    combined_results$variable <- dplyr::case_when(
+      combined_results$variable == "log2_Expression_Plus_One" ~ "Expression",
+      combined_results$variable == "GC_Percentage" ~ "GC content",
+      combined_results$variable == "mean_WBcel235_oocyte_Recombination" ~ "Oocyte recombination",
+      combined_results$variable == "mean_WBcel235_spermatocyte_Recombination" ~ "Spermatocyte recombination",
+      combined_results$variable == "mean_WBcel235_replication_timing_Early_minus_Late" ~ "Replication timing",
+      combined_results$variable == "mean_female_Recombination_Rate" ~ "Female recombination",
+      combined_results$variable == "mean_replication_timing" ~ "Replication timing",
+      TRUE ~ combined_results$variable
+    )
+    combined_results$variable <- gsub("^mean_", "", combined_results$variable)
+    combined_results$variable <- gsub("_", " ", combined_results$variable)
+    combined_results$variable <- stringr::str_replace_all(combined_results$variable, "H3K27me3", "H3K27me3")
+
+    combined_results$plot_coefficient <- combined_results$coefficient
+    combined_results$plot_coefficient[combined_results$test == "LASSO"] <-
+      combined_results$coefficient[combined_results$test == "LASSO"] / lasso_axis_multiplier
   
      
     # Plot Facetable Bar Plot
@@ -1038,8 +1332,8 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   # The Spearman Plot
   geom_col(data = subset(combined_results,
                          test == "Spearman" &
-                         variable %in% c(coef_df$variable)),
-  aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
+                         variable %in% combined_results$variable[combined_results$test == "LASSO"]),
+  aes(x = reorder(variable, plot_coefficient), y = plot_coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
   scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
@@ -1049,8 +1343,8 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   # The LASSO Plot
   geom_col(data = subset(combined_results,
                          test == "LASSO" &
-                         variable %in% c(coef_df$variable)),
-  aes(x = reorder(variable, coefficient), y = coefficient, fill = coefficient),
+                         variable %in% combined_results$variable[combined_results$test == "LASSO"]),
+  aes(x = reorder(variable, plot_coefficient), y = plot_coefficient, fill = coefficient),
   colour = "black") +
   coord_flip() +
   scale_fill_gradient2(low = "#003300", mid = "white", high = "orange", midpoint = 0) +
@@ -1059,25 +1353,71 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   facet_grid(~test, scales = "free") +
   labs(
     title = paste(species_prefix, "\n", "LASSO Variable Importance for Mutation Rate"),
-    subtitle = paste0("Cross-validated LASSO (λ = ", round(test_R2, 5), ")"),
-    x = "Predictor variable",
-    y = "Standardized coefficient"
+    subtitle = paste0("10-fold CV; λmin = ", signif(lambda_min, 4), "; held-out test R² = ", round(test_R2, 3)),
+    x = NULL,
+    y = if (lasso_axis_exp == 0) {
+      "Coefficient (LASSO per SD predictor; Spearman \u03c1)"
+    } else {
+      paste0("Coefficient (LASSO per SD predictor; \u00d7 10^", lasso_axis_exp, "; Spearman \u03c1)")
+    }
   ) +
-    scale_y_continuous(n.breaks = 16) +
-    theme(axis.text.x = element_text(size = BASE_SIZE-4, angle = 90))
+    scale_y_continuous(n.breaks = 7, labels = scales::label_number(accuracy = 0.1, trim = TRUE)) +
+    theme(
+      axis.text.x = element_text(size = BASE_SIZE + 2),
+      axis.text.y = element_text(size = BASE_SIZE - 1, lineheight = 0.9, hjust = 1),
+      axis.title.x = element_text(size = BASE_SIZE),
+      plot.margin = margin(8, 10, 14, 8),
+      strip.background = element_blank(),
+      strip.text = element_text(size = BASE_SIZE + 2)
+    )
 
-  # Save the plot — change width/height as needed
-    ggsave(plot = LASSO_Spearman_Coefficients_Plot,
-       filename = paste0(R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/", 
-                               "Expression_Methylation_LASSO_Plots/",
-                               element_name, "_",
-                               "_LASSO_Model_Plot",".png"),
+  # Store grob for aligned output so species with different predictor-name
+  # lengths have the same plotting area in the final images.
+  LASSO_grobs[[element_name]] <- ggplotGrob(LASSO_Spearman_Coefficients_Plot)
+  LASSO_filenames[[element_name]] <- paste0(
+    R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+    "Expression_Methylation_LASSO_Plots/",
+    element_name, "_LASSO_Model_Plot.png"
+  )
+  
+}
+
+# Align all corresponding gtable columns across species before saving.
+# This keeps the actual plotting panel the same width even when predictor names differ in length.
+if (length(LASSO_grobs) > 0) {
+  common_widths <- lapply(seq_along(LASSO_grobs[[1]]$widths), function(i) {
+    do.call(
+      grid::unit.pmax,
+      lapply(LASSO_grobs, function(g) g$widths[i])
+    )
+  })
+
+  for (nm in names(LASSO_grobs)) {
+    for (i in seq_along(common_widths)) {
+      LASSO_grobs[[nm]]$widths[i] <- common_widths[[i]]
+    }
+  }
+
+  for (nm in names(LASSO_grobs)) {
+    ggsave(
+      plot = LASSO_grobs[[nm]],
+      filename = LASSO_filenames[[nm]],
       bg = "transparent",
       create.dir = TRUE,
-      width = 12.0,
-      height = 3.4,
-      dpi = 1000)
-  
+      width = 9.0,
+      height = 3.2,
+      dpi = 1000
+    )
+
+    save_plot(
+      plot = LASSO_grobs[[nm]],
+      filename = sub("\\.png$", ".svg", LASSO_filenames[[nm]]),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 9.0,
+      height = 3.2
+    )
+  }
 }
 
 ```
@@ -1328,20 +1668,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         ExprDensities %>% subset(., is.na(expr_group) == FALSE),
         aes(x = position, y = mean_score, color = expr_group, fill = expr_group)
       ) +
-      geom_line(size = .5) +
+      geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
       geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
                   alpha = 0.2, color = NA) +
       geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      scale_colour_manual(values = make_expression_quantile_palette(ExprDensities$expr_group)) +
+      scale_fill_manual(values = make_expression_quantile_palette(ExprDensities$expr_group)) +
       labs(
         title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
         subtitle = "Grouped by expression group",
-        x = "Windows",
+        x = NULL,
         y = paste("Mean", mark_name_nospecies),
         color = "Expression Group",
         fill = "Expression Group"
       ) +
-      scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+      scale_x_continuous(
+        breaks = c(1, start, end, length(avg)),
+        labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+      ) +
+      scale_y_continuous(n.breaks = 12) +
       theme(
   legend.title = element_text(size = 7),
   legend.text = element_text(size = 6),
@@ -1354,10 +1699,16 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     legend.position = "bottom",
     legend.direction = "horizontal",
     plot.title = element_text(size = BASE_SIZE - 5),
-    plot.subtitle = element_text(size = BASE_SIZE - 4)
-  )
+    plot.subtitle = element_text(size = BASE_SIZE - 4),
+    axis.text.x = element_text(size = BASE_SIZE - 1.5)
+  ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-    ggsave(
+ggsave(
       plot = ExprDensityPlot,
       filename = paste0(
         R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -1373,6 +1724,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       create.dir = TRUE,
       dpi = 2000
     )
+
+    # Vector copy for publication/editing
+    save_plot(
+      plot = ExprDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_ExprGroup_", element_name, ".svg"
+      ),
+      bg = "transparent",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE
+    )
+
 
     # ------------------------------------------------------------------
     # Gene-body profile split by mutation-rate group
@@ -1403,20 +1771,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         MutationDensities,
         aes(x = position, y = mean_score, color = mut_group, fill = mut_group)
       ) +
-      geom_line(size = .5) +
+      geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
       geom_ribbon(aes(ymin = mean_score - se, ymax = mean_score + se),
                   alpha = 0.2, color = NA) +
       geom_vline(xintercept = c(start, end), linetype = "dotted") +
+      scale_colour_manual(values = make_mutation_quantile_palette(MutationDensities$mut_group)) +
+      scale_fill_manual(values = make_mutation_quantile_palette(MutationDensities$mut_group)) +
       labs(
         title = paste("Enrichment of", mark_name_nospecies, "Across", species_name, "Gene Bodies"),
         subtitle = "Grouped by mutation rate group",
-        x = "Windows",
+        x = NULL,
         y = paste("Mean", mark_name_nospecies),
         color = "Mutation Rate Quantile",
         fill = "Mutation Rate Quantile"
       ) +
-      scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+      scale_x_continuous(
+        breaks = c(1, start, end, length(avg)),
+        labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+      ) +
+      scale_y_continuous(n.breaks = 12) +
       theme(
   legend.title = element_text(size = 7),
   legend.text = element_text(size = 6),
@@ -1433,11 +1806,16 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     legend.position = "bottom",
     legend.direction = "horizontal",
     plot.title = element_text(size = BASE_SIZE - 5),
-    plot.subtitle = element_text(size = BASE_SIZE - 4)
-  )
-      
+    plot.subtitle = element_text(size = BASE_SIZE - 4),
+    axis.text.x = element_text(size = BASE_SIZE - 1.5)
+  ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-    ggsave(
+ggsave(
       plot = MutationDensityPlot,
       filename = paste0(
         R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -1453,6 +1831,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       create.dir = TRUE,
       dpi = 2000
     )
+
+    # Vector copy for publication/editing
+    save_plot(
+      plot = MutationDensityPlot,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_EnrichedHeatmaps/",
+        species_prefix,
+        "/GeneBody_Enrichment_of_", mark_name_nospecies, "_MutGroup_", element_name, ".svg"
+      ),
+      bg = "transparent",
+      units = "cm",
+      height = 6,
+      width = 8,
+      create.dir = TRUE
+    )
+
 
     # ------------------------------------------------------------------
     # NEW: proper TCR gene-body profile
@@ -1567,24 +1962,30 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
               tcr_expr_df %>% subset(., is.na(expr_group) == FALSE),
               aes(x = position, y = strand_bias, color = expr_group, fill = expr_group)
             ) +
-            geom_line(size = .5) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
             geom_ribbon(
               aes(ymin = strand_bias - bias_se, ymax = strand_bias + bias_se),
               alpha = 0.2,
               color = NA
             ) +
             geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
-            theme_bw() +
-            labs(
+            scale_colour_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            scale_fill_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+                  labs(
               title = paste("Enrichment of TCR Across", species_name, "Gene Bodies"),
               subtitle = "Grouped by expression group",
-              x = "Windows",
+              x = NULL,
               y = "Mean log2(template / non-template)",
               color = "Expression Group",
               fill = "Expression Group"
             ) +
-            scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+      scale_y_continuous(n.breaks = 12) +
+      scale_colour_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+      scale_fill_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
       theme(
   legend.title = element_text(size = 7),
   legend.text = element_text(size = 6),
@@ -1602,10 +2003,16 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     legend.position = "bottom",
     legend.direction = "horizontal",
     plot.title = element_text(size = BASE_SIZE - 5),
-    plot.subtitle = element_text(size = BASE_SIZE - 4)
-  )
-          
-          ggsave(
+    plot.subtitle = element_text(size = BASE_SIZE - 4),
+    axis.text.x = element_text(size = BASE_SIZE - 1.5)
+  ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
+
+save_plot(
             plot = TCR_ExprGroupPlot,
             filename = paste0(
               R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -1621,6 +2028,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
             create.dir = TRUE,
             dpi = 2000
           )
+
+    # Vector copy for publication/editing
+    save_plot(
+            plot = TCR_ExprGroupPlot,
+            filename = paste0(
+              R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+              "Epigenetic_TCR_Plots/",
+              species_prefix,
+              "/TCR_", mark_name_nospecies, "_ExprGroup_", element_name, ".svg"
+            ),
+            bg = "transparent",
+            units = "cm",
+            height = 6,
+            width = 8,
+            create.dir = TRUE
+          )
+
 
           # ==============================================================
           # TCR profile split by mutation-rate group
@@ -1673,24 +2097,28 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
               tcr_mut_df,
               aes(x = position, y = strand_bias, color = mut_group, fill = mut_group)
             ) +
-            geom_line(size = .5) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
             geom_ribbon(
               aes(ymin = strand_bias - bias_se, ymax = strand_bias + bias_se),
               alpha = 0.2,
               color = NA
             ) +
             geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
-            theme_bw() +
-            labs(
+            scale_colour_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            scale_fill_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+                  labs(
               title = paste("Enrichment of TCR Across", species_name, "Gene Bodies"),
               subtitle = "Grouped by mutation rate group",
-              x = "Windows",
+              x = NULL,
               y = "Mean log2(template / non-template)",
               color = "Mutation Rate Quantile",
               fill = "Mutation Rate Quantile"
             ) +
-            scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+      scale_y_continuous(n.breaks = 12) +
       theme(
   legend.title = element_text(size = 7),
   legend.text = element_text(size = 6),
@@ -1707,10 +2135,16 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
     legend.position = "bottom",
     legend.direction = "horizontal",
     plot.title = element_text(size = BASE_SIZE - 5),
-    plot.subtitle = element_text(size = BASE_SIZE - 4)
-  )
+    plot.subtitle = element_text(size = BASE_SIZE - 4),
+    axis.text.x = element_text(size = BASE_SIZE - 1.5)
+  ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-          ggsave(
+save_plot(
             plot = TCR_MutGroupPlot,
             filename = paste0(
               R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -1727,6 +2161,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
             dpi = 2000
           )
 
+    # Vector copy for publication/editing
+    save_plot(
+            plot = TCR_MutGroupPlot,
+            filename = paste0(
+              R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+              "Epigenetic_TCR_Plots/",
+              species_prefix,
+              "/TCR_", mark_name_nospecies, "_MutGroup_", element_name, ".svg"
+            ),
+            bg = "transparent",
+            units = "cm",
+            height = 5,
+            width = 8,
+            create.dir = TRUE
+          )
+
+
           # TCR binned plot stays mutation-rate based
           tcr_bin_df <- tcr_mut_df %>%
             filter(!is.na(strand_bias), !is.na(mut_group))
@@ -1736,7 +2187,13 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
               tcr_bin_df,
               aes(x = mut_group, y = strand_bias, fill = mut_group)
             ) +
-            geom_boxplot(outliers = FALSE) +
+            geom_boxplot(
+        outliers = FALSE,
+        colour = "black",
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
+      ) +
             labs(
               title = paste0(
                 species_prefix, "\n",
@@ -1747,19 +2204,20 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
                 " Mutation Rate Groups\nwith XR TCR"
               ),
               subtitle = "TCR is log2(template / non-template)",
-              x = "Mutation \n Rate \n Quantile",
-              y = "TCR strand bias"
+              x = "Mutation Rate Quantile",
+              y = "TCR Strand Bias"
             ) +
-            scale_y_continuous(n.breaks = 10) +
-            scale_fill_manual(
-              values = colorRampPalette(
-                c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
-              )(length(unique(tcr_bin_df$mut_group)))
-            ) +
+            scale_y_continuous(n.breaks = 12) +
+            scale_fill_manual(values = make_mutation_quantile_palette(tcr_bin_df$mut_group)) +
       theme(plot.title = element_text(size = BASE_SIZE -5),
-            plot.subtitle = element_text(size = BASE_SIZE-4))
+            plot.subtitle = element_text(size = BASE_SIZE-4)) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
 
-          ggsave(
+save_plot(
             plot = TCR_BinnedPlot,
             filename = paste0(
               R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -1773,6 +2231,22 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
             height = 3,
             dpi = 300
           )
+
+    # Vector copy for publication/editing
+    save_plot(
+            plot = TCR_BinnedPlot,
+            filename = paste0(
+              R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+              "Epigenetic_TCR_Plots/",
+              species_prefix,
+              "/TCR_", mark_name_nospecies, "_Binned_", element_name, ".svg"
+            ),
+            bg = "transparent",
+            create.dir = TRUE,
+            width = 2,
+            height = 3
+          )
+
         }
       }
     }
@@ -1849,6 +2323,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       geom_point() +
       geom_smooth(method = "lm", se = TRUE) +
       labs(
+        y = "Overall Mutation Rate",
         title = paste(
           mean_mark_name, "\n",
           vcf_df$GENE_ID %>%
@@ -1878,7 +2353,7 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         caption = "Line of best fit represents linear regression line produced using: geom_smooth(method = 'lm', se = TRUE)"
       ) +
       scale_x_continuous(n.breaks = 10) +
-      scale_y_continuous(n.breaks = 10) +
+      scale_y_continuous(n.breaks = 12) +
       theme(plot.title = element_text(size = BASE_SIZE -5),
             plot.subtitle = element_text(size = BASE_SIZE-4))
 
@@ -1898,6 +2373,22 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       dpi = 300
     )
 
+    # Vector copy for publication/editing
+    save_plot(
+      plot = p1,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_Scatter_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_versus_MutationRate", "_", element_name, ".svg"
+      ),
+      create.dir = TRUE,
+      width = 5,
+      height = 4
+    )
+
+
     # filter properly first — cleaner than putting subset() inside ggplot()
     plot_df <- vcf_df %>%
       filter(!is.na(.data[[mean_mark_name]])) %>%
@@ -1909,11 +2400,18 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
         aes(
           x = Overall_Mark_Group,
           y = UniqueVariantsPlusOnePerBP,
-          fill = Overall_Mark_Group
+          fill = as.numeric(Overall_Mark_Group)
         )
       ) +
-      geom_boxplot(outliers = FALSE) +
+      geom_boxplot(
+        outliers = FALSE,
+        colour = "black",
+        linewidth = 0.3,
+        whisker.linetype = "dashed",
+        staplewidth = 0.3
+      ) +
       labs(
+        y = "Overall Mutation Rate",
         title = paste0(
           species_prefix, "\n",
           plot_df %>%
@@ -1939,18 +2437,25 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
           )$p.value %>% round(3)
         )
       ) +
-      scale_y_continuous(n.breaks = 10) +
-      scale_fill_manual(
-        values = colorRampPalette(
-          c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
-        )(length(unique(plot_df$Overall_Mark_Group)))
-      ) +
+      scale_y_continuous(n.breaks = 12) +
+      scale_fill_gradient(low = predictor_quantile_gradient[1], high = predictor_quantile_gradient[2]) +
       guides(fill = "none") +
       theme(plot.title = element_text(size = BASE_SIZE -5),
-            plot.subtitle = element_text(size = BASE_SIZE-4))
+            plot.subtitle = element_text(size = BASE_SIZE-4),
+            axis.title.y = element_text(size = BASE_SIZE - 3)) +
 
     # Save the plot
-    ggsave(
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()
+      ) +
+      theme(
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid = element_blank()
+      )
+
+ggsave(
       plot = p2,
       filename = paste0(
         R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
@@ -1965,6 +2470,23 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
       height = 3,
       dpi = 300
     )
+
+    # Vector copy for publication/editing
+    save_plot(
+      plot = p2,
+      filename = paste0(
+        R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+        "Epigenetic_MutationRate_JK_Plots/",
+        species_prefix, "/",
+        species_prefix, "_",
+        mark_name_nospecies, "_Bins_versus_MutationRate", "_", element_name, ".svg"
+      ),
+      bg = "transparent",
+      create.dir = TRUE,
+      width = 2,
+      height = 3
+    )
+
   }
 
   # Add GC_percentage column if doesn't exist
@@ -2007,3 +2529,4 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Variants)) {
   message("Processed: ", element_name, " (species: ", species_name, ")")
 }
 ```
+

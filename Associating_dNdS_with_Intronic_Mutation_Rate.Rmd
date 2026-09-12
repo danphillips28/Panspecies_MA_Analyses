@@ -322,7 +322,7 @@ Annotated_VCFs_Gene_Body_Intronic_Variants <- lapply(
     df %>%
       group_by(GENE_ID) %>%
       mutate(UniqueVariants = n_distinct(Variant_ID[!is.na(Variant_ID)])) %>%
-      mutate(UniqueVariantsPlusOne = UniqueVariants+.5) %>%      
+      mutate(UniqueVariantsPlusOne = UniqueVariants+1) %>%      
       mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/Intron_Length) %>%
       ungroup()
   }
@@ -338,17 +338,17 @@ df %>%
   group_by(GENE_ID) %>%
   mutate(
     TtoA_or_AtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>A | A>T"]) %>% as.numeric,
-        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+.5)/as.numeric(Intron_AT_Length),
+        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+1)/as.numeric(Intron_AT_Length),
     CtoG_or_GtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>G | G>C"]) %>% as.numeric,
-        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+.5)/as.numeric(Intron_GC_Length),
+        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+1)/as.numeric(Intron_GC_Length),
     CtoT_or_GtoA_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>T | G>A"]) %>% as.numeric,
-        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+.5)/as.numeric(Intron_GC_Length),
+        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+1)/as.numeric(Intron_GC_Length),
     CtoA_or_GtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>A | G>T"]) %>% as.numeric,
-        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+.5)/as.numeric(Intron_GC_Length),
+        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+1)/as.numeric(Intron_GC_Length),
     TtoG_or_AtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>G | A>C"]) %>% as.numeric,
-        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+.5)/as.numeric(Intron_AT_Length),
+        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+1)/as.numeric(Intron_AT_Length),
     TtoC_or_AtoG_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>C | A>G"]) %>% as.numeric,
-        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+.5)/as.numeric(Intron_AT_Length)) %>%
+        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+1)/as.numeric(Intron_AT_Length)) %>%
   ungroup()
   })
 
@@ -399,6 +399,24 @@ Genewise_Body_Intronic_Mutation_Counts_Plots <- Map(
       create.dir = TRUE
     )
 
+# Vector publication output
+dir.create(dirname(paste0(
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+        name, "_Intronic_Mutation_Count_Distribution_Plot.svg"
+      )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+        name, "_Intronic_Mutation_Count_Distribution_Plot.svg"
+      ),
+  width = (14) / 2.54,
+  height = (10) / 2.54,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
+
+
     # --- Return plot for patchwork ---
     p1
   },
@@ -434,6 +452,20 @@ Genewise_Body_Intronic_Mutation_Rate_Plots <- Map(
              width = 25,
       dpi = 300
     )
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Intronic_Mutation_Rate_Distribution_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_Intronic_Mutation_Rate_Distribution_Plot.svg"),
+  width = (25) / 2.54,
+  height = (10) / 2.54,
+  bg = "white"
+)
+print(p1)
+grDevices::dev.off()
+
   },
   Annotated_VCFs_Gene_Body_Intronic_Variants,
   names(Annotated_VCFs_Gene_Body_Intronic_Variants)
@@ -473,6 +505,24 @@ Genewise_Protein_Body_Intronic_Mutation_Rate_Plots <- Map(
       dpi = 2000,
       bg = "transparent"  # <--- preserve transparency on export
     )
+
+# Vector publication output
+dir.create(dirname(paste0(
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+        name, "_Protein_Intronic_Mutation_Rate_Distribution_Plot.svg"
+      )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+        R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+        name, "_Protein_Intronic_Mutation_Rate_Distribution_Plot.svg"
+      ),
+  width = (20) / 2.54,
+  height = (10) / 2.54,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
+
 
     return(p1)
   },
@@ -578,6 +628,24 @@ ggsave(
   dpi = 2500
 )
 
+# Vector publication output
+dir.create(dirname(paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_dNdS_vs_Intronic_Mutation_Rate_Plot.svg"
+  )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_dNdS_vs_Intronic_Mutation_Rate_Plot.svg"
+  ),
+  width = 4,
+  height = 4,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
+
+
   # ----------------------------
   # Plot 2: quantile regression lines
   # ----------------------------
@@ -678,6 +746,24 @@ ggsave(
     height = 4,
     dpi = 2500
   )
+
+# Vector publication output
+dir.create(dirname(paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Intronic_Mutation_Rate_Quantile_Regression_Plot.svg"
+    )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Intronic_Mutation_Rate_Quantile_Regression_Plot.svg"
+    ),
+  width = 5.5,
+  height = 4,
+  bg = "transparent"
+)
+print(p2)
+grDevices::dev.off()
+
   
   # ----------------------------
   # Plot 3: GAM
@@ -734,6 +820,24 @@ ggsave(
     height = 4,
     dpi = 2500
   )
+
+# Vector publication output
+dir.create(dirname(paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Intronic_Mutation_Rate_GAM_Plot.svg"
+    )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+      R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+      name, "_dNdS_vs_Intronic_Mutation_Rate_GAM_Plot.svg"
+    ),
+  width = 4,
+  height = 4,
+  bg = "transparent"
+)
+print(p3)
+grDevices::dev.off()
+
   
   list(p1 = p1, p2 = p2, p3 = p3)
     
@@ -814,6 +918,20 @@ MutatedOnly_Genewise_Intronic_MutationRate_by_dNdS_Plots <- Map(
       height = 4,
       dpi = 2500)
 
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_Intronic_Mutation_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_Intronic_Mutation_Rate_MutatedOnly_Plot.svg"),
+  width = 4,
+  height = 4,
+  bg = "white"
+)
+print(p1)
+grDevices::dev.off()
+
+
   },
   Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
   names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)
@@ -864,22 +982,30 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)) {
       ptxt <- paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3))
 
       p1 <- ggplot(ess_df, aes(x = Essential, y = mutationRate, fill = Essential, colour = Essential)) +
-        geom_boxplot(width = 0.7, outlier.shape = NA, alpha = .2) +
+        geom_boxplot(colour = "black", width = 0.7, outlier.shape = NA, alpha = .2, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme(
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()
+        ) +
         annotate("segment", x = 1, xend = 2, y = y_line, yend = y_line, linewidth = 0.4) +
         annotate("text", x = 1.5, y = y_text, label = ptxt, size = 3) +
         coord_cartesian(ylim = c(0, y_lim), clip = "off") +
         theme(
           plot.subtitle = element_text(size = 3),
           plot.title = element_text(size = 3),
-          legend.position = "none"
+          legend.position = "none",
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()
         ) +
         scale_x_discrete(labels = c(
           "Non-Essential" = paste0("Non-Essential\nn = ", n1),
           "Essential" = paste0("Essential\nn = ", n2)
         )) +
-        scale_color_manual(values = c("black", "orange")) +
-        scale_fill_manual(values = c(alpha("black", alpha = .2),
-                                     alpha("orange", alpha = .2))) +
+        scale_color_manual(values = c("#5A189A", "#FFB703")) +
+        scale_fill_manual(values = c(alpha("#5A189A", alpha = .2),
+                                     alpha("#FFB703", alpha = .2))) +
         labs(
           title = paste0(species, " Essential Genes"),
           subtitle = "Wilcoxon test on raw mutation rates",
@@ -887,13 +1013,34 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)) {
           y = "Intronic Mutation Rate"
         )
 
-      ggsave(
+      
+
+    p1 <- p1 + theme(
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.grid = element_blank()
+)
+ggsave(
         plot = p1,
         filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                           element_name, "Intronic_Essential_Boxplot.png"),
         width = 2.5, height = 5,
         background = "transparent"
       )
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "Intronic_Essential_Boxplot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "Intronic_Essential_Boxplot.svg"),
+  width = 2.5,
+  height = 5,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
+
     }
   }
 
@@ -930,22 +1077,30 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)) {
       ptxt <- paste0("p = ", format.pval(pval, digits = 2, eps = 1e-3))
 
       p2 <- ggplot(hk_df, aes(x = HouseKeeping, y = mutationRate, fill = HouseKeeping, colour = HouseKeeping)) +
-        geom_boxplot(width = 0.7, outlier.shape = NA, alpha = .2) +
+        geom_boxplot(colour = "black", width = 0.7, outlier.shape = NA, alpha = .2, linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        theme(
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()
+        ) +
         annotate("segment", x = 1, xend = 2, y = y_line, yend = y_line, linewidth = 0.4) +
         annotate("text", x = 1.5, y = y_text, label = ptxt, size = 3) +
         coord_cartesian(ylim = c(0, y_lim), clip = "off") +
         theme(
           plot.subtitle = element_text(size = 3),
           plot.title = element_text(size = 3),
-          legend.position = "none"
+          legend.position = "none",
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()
         ) +
         scale_x_discrete(labels = c(
           "Non-HouseKeeping" = paste0("Non-HouseKeeping\nn = ", n1),
           "HouseKeeping" = paste0("HouseKeeping\nn = ", n2)
         )) +
-        scale_color_manual(values = c("black", "orange")) +
-        scale_fill_manual(values = c(alpha("black", alpha = .2),
-                                     alpha("orange", alpha = .2))) +
+        scale_color_manual(values = c("#5A189A", "#FFB703")) +
+        scale_fill_manual(values = c(alpha("#5A189A", alpha = .2),
+                                     alpha("#FFB703", alpha = .2))) +
         labs(
           title = paste0(species, " HouseKeeping Genes"),
           subtitle = "Wilcoxon test on raw mutation rates",
@@ -953,13 +1108,34 @@ for (element_name in names(Annotated_VCFs_PC_Gene_Body_Intronic_Variants)) {
           y = "Intronic Mutation Rate"
         )
 
-      ggsave(
+      
+
+    p2 <- p2 + theme(
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.grid = element_blank()
+)
+ggsave(
         plot = p2,
         filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
                           element_name, "Intronic_HouseKeeping_Boxplot.png"),
         width = 2.5, height = 4,
         background = "transparent"
       )
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "Intronic_HouseKeeping_Boxplot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data, "Plots/3_Mutation_and_dNdS_Association_Plots/",
+                          element_name, "Intronic_HouseKeeping_Boxplot.svg"),
+  width = 2.5,
+  height = 4,
+  bg = "transparent"
+)
+print(p2)
+grDevices::dev.off()
+
     }
   }
 
@@ -1055,7 +1231,12 @@ p1 <-
       fill = Overall_dNdS_Group
     )
   ) +
-  geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
+  geom_boxplot(outliers = FALSE, colour = "black", linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +  # keep box borders black
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid = element_blank()
+  ) +
   labs(
     y = "Gene Body Intronic Mutation Rate",
     title = paste(
@@ -1068,25 +1249,25 @@ p1 <-
     subtitle = paste(
       "Cuzick test =",
       cuzickTest(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
       cuzickTest(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$p.value %>% round(3), "\n",
       "Jonckheere test =",
       jonckheere.test(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
       jonckheere.test(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group,
         alternative = "two.sided"
       )$p.value %>% round(3)
@@ -1095,12 +1276,22 @@ p1 <-
   theme(plot.title = element_text(size = BASE_SIZE - 6),
         axis.title.x = element_text(size = BASE_SIZE -4),
         plot.subtitle = element_text(size = BASE_SIZE - 6),
-        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3)) +
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 3),
+        panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()) +
   scale_y_continuous(n.breaks = 10) +
-  scale_fill_manual(values = c("#FFB703", "#FB8500", "#E3670E", "#D63B09", "#B21801")) +
+  scale_fill_manual(values = colorRampPalette(c("#5A189A", "#FFB703"))(5)) +
   guides(fill = "none")
 
 # Save the plot — transparent background, keep borders
+
+
+    p1 <- p1 + theme(
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.grid = element_blank()
+)
 ggsave(
   plot = p1,
   filename = paste0(
@@ -1113,6 +1304,24 @@ ggsave(
   dpi = 2500
 )
 
+# Vector publication output
+dir.create(dirname(paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_Binned_dNdS_vs_Intronic_Mutation_Rate_Plot.svg"
+  )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_Binned_dNdS_vs_Intronic_Mutation_Rate_Plot.svg"
+  ),
+  width = 2,
+  height = 4,
+  bg = "transparent"
+)
+print(p1)
+grDevices::dev.off()
+
+
 
 # Plot Association of dNdS Bins with MutationsPlusOnePerBP 
 p2 <-
@@ -1124,7 +1333,12 @@ p2 <-
       fill = Overall_dNdS_Group_More
     )
   ) +
-  geom_boxplot(outliers = FALSE, colour = "black", size = 0.5) +  # keep box borders black
+  geom_boxplot(outliers = FALSE, colour = "black", linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +  # keep box borders black
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid = element_blank()
+  ) +
   labs(
     y = "Gene Body Intronic Mutation Rate",
     title = paste(
@@ -1137,25 +1351,25 @@ p2 <-
     subtitle = paste(
       "Cuzick test =",
       cuzickTest(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
       cuzickTest(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$p.value %>% round(3), "\n",
       "Jonckheere test =",
       jonckheere.test(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$statistic %>% round(3),
       "p =",
       jonckheere.test(
-        df$UniqueVariantsPlusOne,
+        df$UniqueVariantsPlusOnePerBP,
         df$Overall_dNdS_Group_More,
         alternative = "two.sided"
       )$p.value %>% round(3)
@@ -1164,12 +1378,22 @@ p2 <-
   theme(plot.title = element_text(size = BASE_SIZE - 6),
         axis.title.x = element_text(size = BASE_SIZE -4),
         plot.subtitle = element_text(size = BASE_SIZE - 6),
-        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1)) +  
+        axis.text.x = element_text(angle = 90, size = BASE_SIZE - 1),
+        panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.grid = element_blank()) +  
   scale_y_continuous(n.breaks = 10) +
-  scale_fill_manual(values = colorRampPalette(c("#FFB703", "#B21801"))(length(unique(df$Overall_dNdS_Group_More)))) +
+  scale_fill_manual(values = colorRampPalette(c("#5A189A", "#FFB703"))(length(unique(df$Overall_dNdS_Group_More)))) +
   guides(fill = "none")
 
 # Save the plot — transparent background, keep borders
+
+
+    p2 <- p2 + theme(
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  panel.grid = element_blank()
+)
 ggsave(
   plot = p2,
   filename = paste0(
@@ -1181,6 +1405,24 @@ ggsave(
   height = 4,
   dpi = 2500
 )
+
+# Vector publication output
+dir.create(dirname(paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_More_Binned_dNdS_vs_Intronic_Mutation_Rate_Plot.svg"
+  )), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(
+    R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+    name, "_More_Binned_dNdS_vs_Intronic_Mutation_Rate_Plot.svg"
+  ),
+  width = 2,
+  height = 4,
+  bg = "transparent"
+)
+print(p2)
+grDevices::dev.off()
+
       
   },
   Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
@@ -1315,6 +1557,20 @@ Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
       width = 5,
       height = 4,
       dpi = 300)
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoA_or_AtoT_Intronic_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoA_or_AtoT_Intronic_Rate_MutatedOnly_Plot.svg"),
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_TtoA_or_AtoT)
+grDevices::dev.off()
+
       
       
         
@@ -1352,6 +1608,20 @@ Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
       width = 5,
       height = 4,
       dpi = 300)
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoG_or_GtoC_Intronic_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoG_or_GtoC_Intronic_Rate_MutatedOnly_Plot.svg"),
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_CtoG_or_GtoC)
+grDevices::dev.off()
+
       
       
       
@@ -1389,6 +1659,20 @@ Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
       width = 5,
       height = 4,
       dpi = 300)
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoT_or_GtoA_Intronic_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoT_or_GtoA_Intronic_Rate_MutatedOnly_Plot.svg"),
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_CtoT_or_GtoA)
+grDevices::dev.off()
+
       
       
       
@@ -1426,6 +1710,20 @@ Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
       width = 5,
       height = 4,
       dpi = 300)
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoA_or_GtoT_Intronic_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_CtoA_or_GtoT_Intronic_Rate_MutatedOnly_Plot.svg"),
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_CtoA_or_GtoT)
+grDevices::dev.off()
+
       
       
       
@@ -1463,6 +1761,20 @@ Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
       width = 5,
       height = 4,
       dpi = 300)
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoG_or_AtoC_Intronic_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoG_or_AtoC_Intronic_Rate_MutatedOnly_Plot.svg"),
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_TtoG_or_AtoC)
+grDevices::dev.off()
+
       
       
       
@@ -1500,6 +1812,20 @@ Genewise_Intronic_MutationRate_by_dNdS_by_Category_Plots <- Map(
       width = 5,
       height = 4,
       dpi = 300)
+
+# Vector publication output
+dir.create(dirname(paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoC_or_AtoG_Intronic_Rate_MutatedOnly_Plot.svg")), recursive = TRUE, showWarnings = FALSE)
+grDevices::svg(
+  filename = paste0(R_Data,"Plots/3_Mutation_and_dNdS_Association_Plots/",
+                       name, "_dNdS_vs_TtoC_or_AtoG_Intronic_Rate_MutatedOnly_Plot.svg"),
+  width = 5,
+  height = 4,
+  bg = "white"
+)
+print(p_TtoC_or_AtoG)
+grDevices::dev.off()
+
 
   },
   Annotated_VCFs_PC_Gene_Body_Intronic_Variants,
