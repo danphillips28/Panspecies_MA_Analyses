@@ -29,7 +29,7 @@ theme_my_light <- function() {
       # Panel
       panel.grid = element_blank(),
       panel.background = element_rect(fill = "white", color = "black"),
-      panel.grid.minor.y = element_line(color = "black", linewidth = 0.25),
+      #panel.grid.minor.y = element_line(color = "black", linewidth = 0.25),
       
       # Plot
       plot.background = element_rect(fill = "white", color = NA),

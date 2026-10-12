@@ -1944,6 +1944,8 @@ ggsave(
           ) %>%
             mutate(
               strand_bias = log2((mean_score_template + pc) / (mean_score_nontemplate + pc)),
+              template_excess = mean_score_template - mean_score_nontemplate,
+              template_excess_se = sqrt(se_template^2 + se_nontemplate^2),
               bias_se = sqrt(
                 (se_template / ((mean_score_template + pc) * log(2)))^2 +
                   (se_nontemplate / ((mean_score_nontemplate + pc) * log(2)))^2
@@ -2046,6 +2048,184 @@ save_plot(
           )
 
 
+
+
+          # ==============================================================
+          # NEW: absolute template/non-template XR repair profiles
+          # These complement strand bias: absolute signal asks how much repair
+          # occurs on each oriented strand, while strand bias asks how asymmetric
+          # that repair is. Template excess (template - non-template) is also
+          # plotted as an additive measure of template-specific repair.
+          # ==============================================================
+
+          Template_ExprGroupPlot <-
+            ggplot(
+              tcr_expr_df %>% filter(!is.na(expr_group)),
+              aes(x = position, y = mean_score_template, color = expr_group, fill = expr_group)
+            ) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
+            geom_ribbon(
+              aes(ymin = mean_score_template - se_template,
+                  ymax = mean_score_template + se_template),
+              alpha = 0.2, color = NA
+            ) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            scale_colour_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            scale_fill_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            labs(
+              title = paste("Template-Strand XR Repair Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by expression group",
+              x = NULL,
+              y = "Mean template-strand XR signal",
+              color = "Expression Group",
+              fill = "Expression Group"
+            ) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+            scale_y_continuous(n.breaks = 12) +
+            guides(
+              fill = guide_legend(nrow = 1, byrow = TRUE),
+              colour = guide_legend(nrow = 1, byrow = TRUE)
+            ) +
+            theme(
+              legend.position = "bottom",
+              legend.direction = "horizontal",
+              legend.title = element_text(size = 7),
+              legend.text = element_text(size = 6),
+              legend.key.size = unit(0.3, "cm"),
+              plot.title = element_text(size = BASE_SIZE - 5),
+              plot.subtitle = element_text(size = BASE_SIZE - 4),
+              axis.text.x = element_text(size = BASE_SIZE - 1.5),
+              axis.text.y = element_text(size = BASE_SIZE - 4),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.grid = element_blank()
+            )
+
+          Nontemplate_ExprGroupPlot <-
+            ggplot(
+              tcr_expr_df %>% filter(!is.na(expr_group)),
+              aes(x = position, y = mean_score_nontemplate, color = expr_group, fill = expr_group)
+            ) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
+            geom_ribbon(
+              aes(ymin = mean_score_nontemplate - se_nontemplate,
+                  ymax = mean_score_nontemplate + se_nontemplate),
+              alpha = 0.2, color = NA
+            ) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            scale_colour_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            scale_fill_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            labs(
+              title = paste("Non-Template-Strand XR Repair Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by expression group",
+              x = NULL,
+              y = "Mean non-template-strand XR signal",
+              color = "Expression Group",
+              fill = "Expression Group"
+            ) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+            scale_y_continuous(n.breaks = 12) +
+            guides(
+              fill = guide_legend(nrow = 1, byrow = TRUE),
+              colour = guide_legend(nrow = 1, byrow = TRUE)
+            ) +
+            theme(
+              legend.position = "bottom",
+              legend.direction = "horizontal",
+              legend.title = element_text(size = 7),
+              legend.text = element_text(size = 6),
+              legend.key.size = unit(0.3, "cm"),
+              plot.title = element_text(size = BASE_SIZE - 5),
+              plot.subtitle = element_text(size = BASE_SIZE - 4),
+              axis.text.x = element_text(size = BASE_SIZE - 1.5),
+              axis.text.y = element_text(size = BASE_SIZE - 4),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.grid = element_blank()
+            )
+
+          TemplateExcess_ExprGroupPlot <-
+            ggplot(
+              tcr_expr_df %>% filter(!is.na(expr_group)),
+              aes(x = position, y = template_excess, color = expr_group, fill = expr_group)
+            ) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
+            geom_ribbon(
+              aes(ymin = template_excess - template_excess_se,
+                  ymax = template_excess + template_excess_se),
+              alpha = 0.2, color = NA
+            ) +
+            geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.3) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            scale_colour_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            scale_fill_manual(values = make_expression_quantile_palette(tcr_expr_df$expr_group)) +
+            labs(
+              title = paste("Template-Excess XR Repair Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by expression group",
+              x = NULL,
+              y = "Mean template - non-template XR signal",
+              color = "Expression Group",
+              fill = "Expression Group"
+            ) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+            scale_y_continuous(n.breaks = 12) +
+            guides(
+              fill = guide_legend(nrow = 1, byrow = TRUE),
+              colour = guide_legend(nrow = 1, byrow = TRUE)
+            ) +
+            theme(
+              legend.position = "bottom",
+              legend.direction = "horizontal",
+              legend.title = element_text(size = 7),
+              legend.text = element_text(size = 6),
+              legend.key.size = unit(0.3, "cm"),
+              plot.title = element_text(size = BASE_SIZE - 5),
+              plot.subtitle = element_text(size = BASE_SIZE - 4),
+              axis.text.x = element_text(size = BASE_SIZE - 1.5),
+              axis.text.y = element_text(size = BASE_SIZE - 4),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.grid = element_blank()
+            )
+
+          # Save absolute/template-excess plots as PNG and SVG
+          for (plot_info in list(
+            list(plot = Template_ExprGroupPlot, stem = "XR_Template"),
+            list(plot = Nontemplate_ExprGroupPlot, stem = "XR_Nontemplate"),
+            list(plot = TemplateExcess_ExprGroupPlot, stem = "XR_TemplateExcess")
+          )) {
+            save_plot(
+              plot = plot_info$plot,
+              filename = paste0(
+                R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+                "Epigenetic_TCR_Plots/", species_prefix, "/",
+                plot_info$stem, "_", mark_name_nospecies, "_ExprGroup_", element_name, ".png"
+              ),
+              bg = "transparent", type = "cairo", units = "cm",
+              height = 6, width = 8, create.dir = TRUE, dpi = 2000
+            )
+            save_plot(
+              plot = plot_info$plot,
+              filename = paste0(
+                R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+                "Epigenetic_TCR_Plots/", species_prefix, "/",
+                plot_info$stem, "_", mark_name_nospecies, "_ExprGroup_", element_name, ".svg"
+              ),
+              bg = "transparent", units = "cm",
+              height = 6, width = 8, create.dir = TRUE
+            )
+          }
+
+
           # ==============================================================
           # TCR profile split by mutation-rate group
           # ==============================================================
@@ -2083,6 +2263,8 @@ save_plot(
           ) %>%
             mutate(
               strand_bias = log2((mean_score_template + pc) / (mean_score_nontemplate + pc)),
+              template_excess = mean_score_template - mean_score_nontemplate,
+              template_excess_se = sqrt(se_template^2 + se_nontemplate^2),
               bias_se = sqrt(
                 (se_template / ((mean_score_template + pc) * log(2)))^2 +
                   (se_nontemplate / ((mean_score_nontemplate + pc) * log(2)))^2
@@ -2176,6 +2358,184 @@ save_plot(
             width = 8,
             create.dir = TRUE
           )
+
+
+
+
+          # ==============================================================
+          # NEW: absolute template/non-template XR repair profiles
+          # These complement strand bias: absolute signal asks how much repair
+          # occurs on each oriented strand, while strand bias asks how asymmetric
+          # that repair is. Template excess (template - non-template) is also
+          # plotted as an additive measure of template-specific repair.
+          # ==============================================================
+
+          Template_MutGroupPlot <-
+            ggplot(
+              tcr_mut_df %>% filter(!is.na(mut_group)),
+              aes(x = position, y = mean_score_template, color = mut_group, fill = mut_group)
+            ) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
+            geom_ribbon(
+              aes(ymin = mean_score_template - se_template,
+                  ymax = mean_score_template + se_template),
+              alpha = 0.2, color = NA
+            ) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            scale_colour_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            scale_fill_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            labs(
+              title = paste("Template-Strand XR Repair Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by mutation rate group",
+              x = NULL,
+              y = "Mean template-strand XR signal",
+              color = "Mutation Rate Quantile",
+              fill = "Mutation Rate Quantile"
+            ) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+            scale_y_continuous(n.breaks = 12) +
+            guides(
+              fill = guide_legend(nrow = 1, byrow = TRUE),
+              colour = guide_legend(nrow = 1, byrow = TRUE)
+            ) +
+            theme(
+              legend.position = "bottom",
+              legend.direction = "horizontal",
+              legend.title = element_text(size = 7),
+              legend.text = element_text(size = 6),
+              legend.key.size = unit(0.3, "cm"),
+              plot.title = element_text(size = BASE_SIZE - 5),
+              plot.subtitle = element_text(size = BASE_SIZE - 4),
+              axis.text.x = element_text(size = BASE_SIZE - 1.5),
+              axis.text.y = element_text(size = BASE_SIZE - 4),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.grid = element_blank()
+            )
+
+          Nontemplate_MutGroupPlot <-
+            ggplot(
+              tcr_mut_df %>% filter(!is.na(mut_group)),
+              aes(x = position, y = mean_score_nontemplate, color = mut_group, fill = mut_group)
+            ) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
+            geom_ribbon(
+              aes(ymin = mean_score_nontemplate - se_nontemplate,
+                  ymax = mean_score_nontemplate + se_nontemplate),
+              alpha = 0.2, color = NA
+            ) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            scale_colour_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            scale_fill_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            labs(
+              title = paste("Non-Template-Strand XR Repair Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by mutation rate group",
+              x = NULL,
+              y = "Mean non-template-strand XR signal",
+              color = "Mutation Rate Quantile",
+              fill = "Mutation Rate Quantile"
+            ) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+            scale_y_continuous(n.breaks = 12) +
+            guides(
+              fill = guide_legend(nrow = 1, byrow = TRUE),
+              colour = guide_legend(nrow = 1, byrow = TRUE)
+            ) +
+            theme(
+              legend.position = "bottom",
+              legend.direction = "horizontal",
+              legend.title = element_text(size = 7),
+              legend.text = element_text(size = 6),
+              legend.key.size = unit(0.3, "cm"),
+              plot.title = element_text(size = BASE_SIZE - 5),
+              plot.subtitle = element_text(size = BASE_SIZE - 4),
+              axis.text.x = element_text(size = BASE_SIZE - 1.5),
+              axis.text.y = element_text(size = BASE_SIZE - 4),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.grid = element_blank()
+            )
+
+          TemplateExcess_MutGroupPlot <-
+            ggplot(
+              tcr_mut_df %>% filter(!is.na(mut_group)),
+              aes(x = position, y = template_excess, color = mut_group, fill = mut_group)
+            ) +
+            geom_smooth(method = "loess", se = FALSE, span = 0.12, linewidth = 0.7) +
+            geom_ribbon(
+              aes(ymin = template_excess - template_excess_se,
+                  ymax = template_excess + template_excess_se),
+              alpha = 0.2, color = NA
+            ) +
+            geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.3) +
+            geom_vline(xintercept = c(start_tcr, end_tcr), linetype = "dotted") +
+            scale_colour_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            scale_fill_manual(values = make_mutation_quantile_palette(tcr_mut_df$mut_group)) +
+            labs(
+              title = paste("Template-Excess XR Repair Across", species_name, "Gene Bodies"),
+              subtitle = "Grouped by mutation rate group",
+              x = NULL,
+              y = "Mean template - non-template XR signal",
+              color = "Mutation Rate Quantile",
+              fill = "Mutation Rate Quantile"
+            ) +
+            scale_x_continuous(
+              breaks = c(1, start_tcr, end_tcr, length(avg_tcr)),
+              labels = c("-1 kb", "Gene\nStart", "Gene\nEnd", "+1 kb")
+            ) +
+            scale_y_continuous(n.breaks = 12) +
+            guides(
+              fill = guide_legend(nrow = 1, byrow = TRUE),
+              colour = guide_legend(nrow = 1, byrow = TRUE)
+            ) +
+            theme(
+              legend.position = "bottom",
+              legend.direction = "horizontal",
+              legend.title = element_text(size = 7),
+              legend.text = element_text(size = 6),
+              legend.key.size = unit(0.3, "cm"),
+              plot.title = element_text(size = BASE_SIZE - 5),
+              plot.subtitle = element_text(size = BASE_SIZE - 4),
+              axis.text.x = element_text(size = BASE_SIZE - 1.5),
+              axis.text.y = element_text(size = BASE_SIZE - 4),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.grid = element_blank()
+            )
+
+          # Save absolute/template-excess plots as PNG and SVG
+          for (plot_info in list(
+            list(plot = Template_MutGroupPlot, stem = "XR_Template"),
+            list(plot = Nontemplate_MutGroupPlot, stem = "XR_Nontemplate"),
+            list(plot = TemplateExcess_MutGroupPlot, stem = "XR_TemplateExcess")
+          )) {
+            save_plot(
+              plot = plot_info$plot,
+              filename = paste0(
+                R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+                "Epigenetic_TCR_Plots/", species_prefix, "/",
+                plot_info$stem, "_", mark_name_nospecies, "_MutGroup_", element_name, ".png"
+              ),
+              bg = "transparent", type = "cairo", units = "cm",
+              height = 5, width = 8, create.dir = TRUE, dpi = 2000
+            )
+            save_plot(
+              plot = plot_info$plot,
+              filename = paste0(
+                R_Data, "Plots/5_Mutation_and_Methylation_Association_Plots/",
+                "Epigenetic_TCR_Plots/", species_prefix, "/",
+                plot_info$stem, "_", mark_name_nospecies, "_MutGroup_", element_name, ".svg"
+              ),
+              bg = "transparent", units = "cm",
+              height = 5, width = 8, create.dir = TRUE
+            )
+          }
 
 
           # TCR binned plot stays mutation-rate based

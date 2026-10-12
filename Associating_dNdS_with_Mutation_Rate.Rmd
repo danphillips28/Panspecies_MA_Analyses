@@ -74,7 +74,6 @@ Annotated_VCFs_Raw <- lapply(Annotated_VCFs_Raw, function(df) {
 ```
 
 ```{r Summarising Variants in a Table}
-
 excluded_effects <- c(
   "upstream_gene_variant",
   "downstream_gene_variant",
@@ -103,41 +102,82 @@ summary_table <- imap_dfr(Annotated_VCFs_Raw, function(df, nm) {
   )
 })
 
+# ---- Keep Assaf and Saxena datasets only ----
 summary_table_subset <- summary_table %>%
   filter(str_detect(element_name, "Assaf|Saxena"))
 
+# ---- Format table ----
 table_df <- summary_table_subset %>%
   transmute(
-    Sample = element_name,
-    `Total variants` = format(total_unique_variants, big.mark = ",", scientific = FALSE),
+    Sample = case_when(
+      str_detect(element_name, "Assaf") ~
+        "D. melanogaster\nAssaf et al., 2017",
+
+      str_detect(element_name, "Saxena") ~
+        "C. elegans\nSaxena et al., 2019\nKonrad et al., 2019",
+
+      TRUE ~ element_name
+    ),
+
+    `Total variants` = format(
+      total_unique_variants,
+      big.mark = ",",
+      scientific = FALSE
+    ),
+
     `Coding gene body` = format(
       unique_variants_hit_at_least_one_protein_coding_gene_body,
-      big.mark = ",", scientific = FALSE
+      big.mark = ",",
+      scientific = FALSE
     ),
+
     Intergenic = format(
       unique_variants_never_hit_a_protein_coding_gene_body,
-      big.mark = ",", scientific = FALSE
+      big.mark = ",",
+      scientific = FALSE
     )
   )
 
+# ---- Create table grob ----
 tg <- gridExtra::tableGrob(
   table_df,
   rows = NULL,
   theme = gridExtra::ttheme_default(
     base_size = 12,
+
     core = list(
-      fg_params = list(hjust = 0.5, x = 0.5),
-      bg_params = list(fill = "white", col = "grey70", lwd = 0.8)
+      fg_params = list(
+        hjust = 0.5,
+        x = 0.5
+      ),
+      bg_params = list(
+        fill = "white",
+        col = "grey70",
+        lwd = 0.8
+      )
     ),
+
     colhead = list(
-      fg_params = list(fontface = "bold", hjust = 0.5, x = 0.5),
-      bg_params = list(fill = "grey95", col = "grey70", lwd = 1)
+      fg_params = list(
+        fontface = "bold",
+        hjust = 0.5,
+        x = 0.5
+      ),
+      bg_params = list(
+        fill = "grey95",
+        col = "grey70",
+        lwd = 1
+      )
     )
   )
 )
 
+# ---- PNG export ----
 ragg::agg_png(
-  filename = paste0(R_Data, "Plots/1_Summaries/Variant_Annotation_Summary.png"),
+  filename = paste0(
+    R_Data,
+    "Plots/1_Summaries/Variant_Annotation_Summary.png"
+  ),
   width = 2400,
   height = 900,
   res = 300
@@ -147,14 +187,19 @@ grid::grid.newpage()
 grid::grid.draw(tg)
 grDevices::dev.off()
 
-# Matching SVG export using base R (no svglite dependency).
-grid::grid.newpage()
+
+# ---- SVG export ----
 grDevices::svg(
-  filename = paste0(R_Data, "Plots/1_Summaries/Variant_Annotation_Summary.svg"),
+  filename = paste0(
+    R_Data,
+    "Plots/1_Summaries/Variant_Annotation_Summary.svg"
+  ),
   width = 8,
   height = 3,
   bg = "transparent"
 )
+
+grid::grid.newpage()
 grid::grid.draw(tg)
 grDevices::dev.off()
 ```

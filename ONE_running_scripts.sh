@@ -7,6 +7,7 @@
 rm -rf /home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/
 rm -rf /home/ocdm0351/DPhil/logs/
 rm -rf /home/ocdm0351/DPhil/R_Data/
+mkdir /home/ocdm0351/DPhil/R_Data/
 cp /home/ocdm0351/DPhil/scripts/misc/plotting.themes.R /home/ocdm0351/DPhil/R_Data/plotting.themes.R
 
 SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"

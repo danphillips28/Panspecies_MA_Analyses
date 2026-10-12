@@ -7,7 +7,6 @@ SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
 
 # List the scripts explicitly, in the order you want them submitted
 scripts=(
-"14_Associating_dNdS_with_Mutation_Rate_Submitter.sh"
 "18_Associating_TimeSeries_Expression_with_Mutation_Rate_Submitter.sh"
 "20_Associating_Epigenetics_and_Expression_etc_with_Mutation_Rate_Submitter.sh"
 "21_Calculating_CelegansPpacificus_dNdS_Submitter.sh"
