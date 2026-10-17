@@ -7,12 +7,12 @@ SCRIPT_DIR="/home/ocdm0351/DPhil/scripts"
 
 # List the scripts explicitly, in the order you want them submitted
 scripts=(
-"11_Creating_Sister_Species_Table.sh"
-"12_Renaming_References_for_OrthologR.sh"
-"13_Calculating_dNdS_Submitter.sh"
+#"11_Creating_Sister_Species_Table.sh"
+#"12_Renaming_References_for_OrthologR.sh"
+#"13_Calculating_dNdS_Submitter.sh"
 "14_Associating_dNdS_with_Mutation_Rate_Submitter.sh"
 	# Downloading Expression
-"15_Downloading_C_elegans_Expression_Submitter.sh"
+#"15_Downloading_C_elegans_Expression_Submitter.sh" # Delete permanently? 
 "15_Downloading_D_melanogaster_Expression.sh"
 "15_Downloading_P_pacificus_Expression_Submitter.sh"
 	# Functional Enrichment

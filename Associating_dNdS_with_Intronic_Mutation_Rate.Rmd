@@ -24,6 +24,7 @@ library(dplyr)
 library(seqinr)
 library(PMCMRplus)
 `%ni%` <- Negate(`%in%`)
+library(data.table)
 ```
 
 ```{r Setting Paths}
@@ -41,6 +42,16 @@ load(file = paste0(R_Data,"Species_dNdS_Ratios"))
 load(file = paste0(R_Data,"Species_Genes_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Transcripts_gtf"))
 load(file = paste0(R_Data,"Species_Canonical_Mappings"))
+
+Annotated_VCFs_Raw <- Annotated_VCFs_Raw[names(Annotated_VCFs_Raw) %like%
+                                                                      "Dmelanogaster" |
+                                                                     # names(Annotated_VCFs_PC_Gene_Body_Variants) %like%
+                                                                    #  "Hsapiens" |
+                                                                      names(Annotated_VCFs_Raw) %like%
+                                                                      "Celegans" |
+                                                                      names(Annotated_VCFs_Raw) %like%
+                                                                      "WellerWang"]
+
 
 source(paste0(R_Data, "plotting.themes.R"))
 # Choose theme once per session/script
@@ -322,7 +333,7 @@ Annotated_VCFs_Gene_Body_Intronic_Variants <- lapply(
     df %>%
       group_by(GENE_ID) %>%
       mutate(UniqueVariants = n_distinct(Variant_ID[!is.na(Variant_ID)])) %>%
-      mutate(UniqueVariantsPlusOne = UniqueVariants+1) %>%      
+      mutate(UniqueVariantsPlusOne = UniqueVariants+0.5) %>%      
       mutate(UniqueVariantsPlusOnePerBP = UniqueVariantsPlusOne/Intron_Length) %>%
       ungroup()
   }
@@ -338,17 +349,17 @@ df %>%
   group_by(GENE_ID) %>%
   mutate(
     TtoA_or_AtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>A | A>T"]) %>% as.numeric,
-        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+1)/as.numeric(Intron_AT_Length),
+        TtoA_or_AtoT_UniqueVariantsPlusOnePerBP = (TtoA_or_AtoT_UniqueVariants+0.5)/as.numeric(Intron_AT_Length),
     CtoG_or_GtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>G | G>C"]) %>% as.numeric,
-        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+1)/as.numeric(Intron_GC_Length),
+        CtoG_or_GtoC_UniqueVariantsPlusOnePerBP = (CtoG_or_GtoC_UniqueVariants+0.5)/as.numeric(Intron_GC_Length),
     CtoT_or_GtoA_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>T | G>A"]) %>% as.numeric,
-        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+1)/as.numeric(Intron_GC_Length),
+        CtoT_or_GtoA_UniqueVariantsPlusOnePerBP = (CtoT_or_GtoA_UniqueVariants+0.5)/as.numeric(Intron_GC_Length),
     CtoA_or_GtoT_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "C>A | G>T"]) %>% as.numeric,
-        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+1)/as.numeric(Intron_GC_Length),
+        CtoA_or_GtoT_UniqueVariantsPlusOnePerBP = (CtoA_or_GtoT_UniqueVariants+0.5)/as.numeric(Intron_GC_Length),
     TtoG_or_AtoC_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>G | A>C"]) %>% as.numeric,
-        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+1)/as.numeric(Intron_AT_Length),
+        TtoG_or_AtoC_UniqueVariantsPlusOnePerBP = (TtoG_or_AtoC_UniqueVariants+0.5)/as.numeric(Intron_AT_Length),
     TtoC_or_AtoG_UniqueVariants = n_distinct(Variant_ID[MutationalCategory %in% "T>C | A>G"]) %>% as.numeric,
-        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+1)/as.numeric(Intron_AT_Length)) %>%
+        TtoC_or_AtoG_UniqueVariantsPlusOnePerBP = (TtoC_or_AtoG_UniqueVariants+0.5)/as.numeric(Intron_AT_Length)) %>%
   ungroup()
   })
 

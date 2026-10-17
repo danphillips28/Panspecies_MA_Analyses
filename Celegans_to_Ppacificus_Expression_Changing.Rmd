@@ -33,10 +33,10 @@ no_grid_theme <- theme(
 ```
 
 ```{r Setting Paths}
-R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
-Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
-#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
 results_dir <- file.path(R_Data, "Plots/7_From_Ppacificus_to_Celegans")
 dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
@@ -131,6 +131,7 @@ ce_keep <- c(
   "transcript_id",
   "Overall_Expression_Group",
   "UniqueVariantsPlusOnePerBP",
+  "dNdS",
   shared_features[shared_features %in% names(ce_tbl)]
 )
 
@@ -144,6 +145,7 @@ setnames(
     "Celegans_orthologR",
     "Celegans_Overall_Expression_Group",
     "Celegans_UniqueVariantsPlusOnePerBP",
+    "Celegans_dNdS",
     paste0("Celegans_", shared_features[shared_features %in% names(ce_tbl)])
   )
 )
@@ -161,6 +163,7 @@ pp_keep <- c(
   "transcript_id",
   "Overall_Expression_Group",
   "UniqueVariantsPlusOnePerBP",
+  "dNdS",
   shared_features[shared_features %in% names(pp_tbl)]
 )
 
@@ -174,6 +177,7 @@ setnames(
     "Ppacificus_orthologR",
     "Ppacificus_Overall_Expression_Group",
     "Ppacificus_UniqueVariantsPlusOnePerBP",
+    "Ppacificus_dNdS",
     paste0("Ppacificus_", shared_features[shared_features %in% names(pp_tbl)])
   )
 )
@@ -405,6 +409,40 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
     delta_feature = feat_pct_pp - feat_pct_ce,
     delta_mut     = mut_pct_pp - mut_pct_ce
   )]
+
+  # ------------------------------------------------------------
+  # General matched dN/dS comparison dataset
+  # ------------------------------------------------------------
+  # For every shared feature, create a second analysis restricted to orthologs
+  # with valid dN/dS in BOTH species. Feature, mutation-rate and dN/dS
+  # percentiles are all recalculated WITHIN this same matched gene set.
+  # The original full-data mutation-rate analysis above remains unchanged.
+  valid_dnds <- is.finite(DT$Celegans_dNdS) &
+    is.finite(DT$Ppacificus_dNdS) &
+    DT$Celegans_dNdS >= 0 & DT$Ppacificus_dNdS >= 0
+
+  DT_matched_outcomes <- copy(DT[valid_dnds])
+  n_valid_dnds <- nrow(DT_matched_outcomes)
+
+  if (n_valid_dnds >= 10) {
+    DT_matched_outcomes[, `:=`(
+      matched_feat_pct_ce = rank(get(ce_col), ties.method = "average") / .N,
+      matched_feat_pct_pp = rank(get(pp_col), ties.method = "average") / .N,
+      matched_mut_pct_ce = rank(Celegans_UniqueVariantsPlusOnePerBP, ties.method = "average") / .N,
+      matched_mut_pct_pp = rank(Ppacificus_UniqueVariantsPlusOnePerBP, ties.method = "average") / .N,
+      matched_dNdS_pct_ce = rank(Celegans_dNdS, ties.method = "average") / .N,
+      matched_dNdS_pct_pp = rank(Ppacificus_dNdS, ties.method = "average") / .N
+    )]
+
+    DT_matched_outcomes[, `:=`(
+      matched_delta_feature = matched_feat_pct_pp - matched_feat_pct_ce,
+      matched_delta_mut = matched_mut_pct_pp - matched_mut_pct_ce,
+      matched_delta_dNdS = matched_dNdS_pct_pp - matched_dNdS_pct_ce
+    )]
+  }
+
+  message(feature_name, ": ", n_valid_dnds,
+          " orthologs have valid dN/dS in both species for matched analyses.")
 
   # Assign feature quintiles within the complete ortholog set for this feature.
   # 1 = lowest fifth; 5 = highest fifth.
@@ -1051,7 +1089,272 @@ run_feature_analysis <- function(DT_in, feature_name, results_dir) {
     list(plot = p, tests = state_tests, data = DT_state_plot)
   }
 
+  # ============================================================
+  # MATCHED FEATURE -> MUTATION RATE / dN/dS COMPARISON
+  # ============================================================
+  # Applies to EVERY shared feature. All matched deltas are recalculated
+  # within exactly the same dN/dS-complete ortholog set.
+  p_matched_scatter_combined <- NULL
+  p_matched_binned_mean_combined <- NULL
+  p_matched_ordered_bins_combined <- NULL
+  p_matched_extremes_combined <- NULL
+  p_matched_quantile_change_combined <- NULL
+  matched_mut_cor <- NULL
+  matched_dNdS_cor <- NULL
+  matched_bins_mut_jt <- NULL
+  matched_bins_dNdS_jt <- NULL
+  matched_extreme_mut_down <- NULL
+  matched_extreme_mut_up <- NULL
+  matched_extreme_dNdS_down <- NULL
+  matched_extreme_dNdS_up <- NULL
+  matched_quantile_mut_kw <- NULL
+  matched_quantile_dNdS_kw <- NULL
+  matched_bin_summary <- NULL
+
+  if (nrow(DT_matched_outcomes) >= 10) {
+    # Continuous matched scatter
+    matched_mut_cor <- suppressWarnings(cor.test(
+      DT_matched_outcomes$matched_delta_feature,
+      DT_matched_outcomes$matched_delta_mut,
+      method = "spearman", exact = FALSE
+    ))
+    matched_dNdS_cor <- suppressWarnings(cor.test(
+      DT_matched_outcomes$matched_delta_feature,
+      DT_matched_outcomes$matched_delta_dNdS,
+      method = "spearman", exact = FALSE
+    ))
+
+    DT_matched_scatter_long <- rbindlist(list(
+      DT_matched_outcomes[, .(Delta_Feature = matched_delta_feature, Outcome = "Mutation rate", Delta = matched_delta_mut)],
+      DT_matched_outcomes[, .(Delta_Feature = matched_delta_feature, Outcome = "dN/dS", Delta = matched_delta_dNdS)]
+    ))
+    DT_matched_scatter_long[, Outcome := factor(Outcome, levels = c("Mutation rate", "dN/dS"))]
+
+    matched_scatter_labels <- c(
+      "Mutation rate" = paste0("Mutation rate\nSpearman rho = ", round(as.numeric(matched_mut_cor$estimate), 3),
+                               ", p = ", signif(matched_mut_cor$p.value, 3), ", n = ", nrow(DT_matched_outcomes)),
+      "dN/dS" = paste0("dN/dS\nSpearman rho = ", round(as.numeric(matched_dNdS_cor$estimate), 3),
+                        ", p = ", signif(matched_dNdS_cor$p.value, 3), ", n = ", nrow(DT_matched_outcomes))
+    )
+
+    p_matched_scatter_combined <- ggplot(DT_matched_scatter_long, aes(x = Delta_Feature, y = Delta)) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+      geom_vline(xintercept = 0, linetype = "dashed", colour = "black") +
+      geom_point(size = 1.8, colour = "black", alpha = 0.45) +
+      geom_smooth(method = "loess", colour = "purple", fill = "orange") +
+      facet_grid(Outcome ~ ., labeller = labeller(Outcome = matched_scatter_labels)) +
+      scale_x_continuous(limits = c(-1, 1), n.breaks = 10) +
+      scale_y_continuous(limits = c(-1, 1), n.breaks = 10) +
+      labs(
+        x = paste0("Matched delta ", feature_name, " percentile (", delta_phrase, ")"),
+        y = paste0("Matched delta percentile (", delta_phrase, ")"),
+        title = paste0("Matched associations: ", feature_name),
+        subtitle = "Both panels use exactly the same dN/dS-complete orthologs"
+      ) + theme(strip.text = element_text(size = BASE_SIZE - 4))
+
+    # One set of five equal-sized matched feature-change bins for all panels
+    DT_matched_outcomes[, matched_feature_bin := factor(
+      dplyr::ntile(matched_delta_feature, 5), levels = 1:5, ordered = TRUE
+    )]
+
+    matched_bins_mut_jt <- clinfun::jonckheere.test(
+      DT_matched_outcomes$matched_delta_mut, DT_matched_outcomes$matched_feature_bin,
+      alternative = "two.sided"
+    )
+    matched_bins_dNdS_jt <- clinfun::jonckheere.test(
+      DT_matched_outcomes$matched_delta_dNdS, DT_matched_outcomes$matched_feature_bin,
+      alternative = "two.sided"
+    )
+
+    # Matched analogue of the existing binned_mean plot
+    matched_bin_summary <- rbindlist(list(
+      DT_matched_outcomes[, .(Mean_Delta = mean(matched_delta_mut, na.rm = TRUE), n = .N),
+                          by = .(Feature_Bin = matched_feature_bin)][, Outcome := "Mutation rate"],
+      DT_matched_outcomes[, .(Mean_Delta = mean(matched_delta_dNdS, na.rm = TRUE), n = .N),
+                          by = .(Feature_Bin = matched_feature_bin)][, Outcome := "dN/dS"]
+    ))
+    matched_bin_summary[, Outcome := factor(Outcome, levels = c("Mutation rate", "dN/dS"))]
+
+    # Use one common, symmetric y-axis for both binned-mean facets,
+    # scaled to the largest absolute observed mean rather than the full
+    # theoretical percentile-change range (-1 to 1). This preserves a
+    # fair visual comparison between mutation rate and dN/dS without
+    # compressing the mean trajectories into nearly flat lines.
+    matched_binned_max_abs <- max(abs(matched_bin_summary$Mean_Delta), na.rm = TRUE)
+    matched_binned_y_limit <- matched_binned_max_abs * 1.10
+
+    if (!is.finite(matched_binned_y_limit) || matched_binned_y_limit == 0) {
+      matched_binned_y_limit <- 0.05
+    }
+
+    p_matched_binned_mean_combined <- ggplot(
+      matched_bin_summary, aes(x = Feature_Bin, y = Mean_Delta, group = 1)
+    ) +
+      geom_point(size = 3, colour = "black") +
+      geom_line(colour = "black") +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+      facet_grid(Outcome ~ .) + theme_minimal() +
+      scale_y_continuous(
+        limits = c(-matched_binned_y_limit, matched_binned_y_limit),
+        n.breaks = 7
+      ) +
+      labs(
+        x = paste0("Matched binned delta ", feature_name, " percentile (", delta_phrase, ")"),
+        y = paste0("Mean matched delta percentile (", delta_phrase, ")"),
+        title = paste0("Matched binned means: ", feature_name),
+        caption = paste0("Mutation trend p = ", signif(matched_bins_mut_jt$p.value, 3),
+                         "; dN/dS trend p = ", signif(matched_bins_dNdS_jt$p.value, 3))
+      ) + theme(axis.text.x = element_text(size = BASE_SIZE - 3))
+
+    # Matched analogue of ordered_bins
+    DT_matched_bins_long <- rbindlist(list(
+      DT_matched_outcomes[, .(Feature_Bin = matched_feature_bin, Outcome = "Mutation rate", Delta = matched_delta_mut)],
+      DT_matched_outcomes[, .(Feature_Bin = matched_feature_bin, Outcome = "dN/dS", Delta = matched_delta_dNdS)]
+    ))
+    DT_matched_bins_long[, Outcome := factor(Outcome, levels = c("Mutation rate", "dN/dS"))]
+    p_matched_ordered_bins_combined <- ggplot(
+      DT_matched_bins_long, aes(x = Feature_Bin, y = Delta, fill = Feature_Bin)
+    ) +
+      geom_boxplot(colour = "black", width = 0.6, outlier.shape = NA, alpha = 0.75,
+                   linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+      facet_grid(Outcome ~ .) +
+      scale_y_continuous(limits = c(-1, 1), n.breaks = 10) +
+      scale_fill_manual(values = colorRampPalette(c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100"))(5)) +
+      guides(fill = "none") + theme_bw() + no_grid_theme +
+      labs(
+        x = paste0("Matched delta ", feature_name, " percentile bin"),
+        y = paste0("Matched delta percentile (", delta_phrase, ")"),
+        caption = paste0("Mutation trend p = ", signif(matched_bins_mut_jt$p.value, 3),
+                         "; dN/dS trend p = ", signif(matched_bins_dNdS_jt$p.value, 3))
+      )
+
+    # Matched extreme-change comparison, same sampled controls for both outcomes
+    matched_down <- DT_matched_outcomes[matched_delta_feature <= -0.6]
+    matched_up <- DT_matched_outcomes[matched_delta_feature >= 0.6]
+    matched_stable_pool <- DT_matched_outcomes[abs(matched_delta_feature) < 0.2]
+    matched_n_control <- max(nrow(matched_down), nrow(matched_up))
+    matched_stable <- sample_n_safe(matched_stable_pool, matched_n_control, seed = 69)
+
+    if (nrow(matched_down) > 0 && nrow(matched_up) > 0 && nrow(matched_stable) > 0) {
+      matched_extreme_mut_down <- wilcox.test(matched_down$matched_delta_mut, matched_stable$matched_delta_mut)
+      matched_extreme_mut_up <- wilcox.test(matched_up$matched_delta_mut, matched_stable$matched_delta_mut)
+      matched_extreme_dNdS_down <- wilcox.test(matched_down$matched_delta_dNdS, matched_stable$matched_delta_dNdS)
+      matched_extreme_dNdS_up <- wilcox.test(matched_up$matched_delta_dNdS, matched_stable$matched_delta_dNdS)
+
+      matched_extreme <- rbindlist(list(
+        matched_down[, .(Feature_Change = "Most Down", matched_delta_mut, matched_delta_dNdS)],
+        matched_stable[, .(Feature_Change = "Stable", matched_delta_mut, matched_delta_dNdS)],
+        matched_up[, .(Feature_Change = "Most Up", matched_delta_mut, matched_delta_dNdS)]
+      ))
+      matched_extreme[, Feature_Change := factor(Feature_Change, levels = c("Most Down", "Stable", "Most Up"))]
+      DT_matched_extreme_long <- rbindlist(list(
+        matched_extreme[, .(Feature_Change, Outcome = "Mutation rate", Delta = matched_delta_mut)],
+        matched_extreme[, .(Feature_Change, Outcome = "dN/dS", Delta = matched_delta_dNdS)]
+      ))
+      DT_matched_extreme_long[, Outcome := factor(Outcome, levels = c("Mutation rate", "dN/dS"))]
+      p_matched_extremes_combined <- ggplot(
+        DT_matched_extreme_long, aes(x = Feature_Change, y = Delta, fill = Feature_Change)
+      ) +
+        geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75,
+                     linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+        facet_grid(Outcome ~ .) + scale_y_continuous(limits = c(-1, 1), n.breaks = 10) +
+        scale_fill_manual(values = c("Most Down" = alpha("orange", 0.4),
+                                     "Stable" = alpha("grey40", 0.4),
+                                     "Most Up" = alpha("purple", 0.4))) +
+        guides(fill = "none") + theme_bw() + no_grid_theme +
+        labs(
+          x = paste0(feature_name, " change"), y = paste0("Matched delta percentile (", delta_phrase, ")"),
+          caption = paste0("Mutation: Down p=", signif(matched_extreme_mut_down$p.value, 3),
+                           ", Up p=", signif(matched_extreme_mut_up$p.value, 3),
+                           " | dN/dS: Down p=", signif(matched_extreme_dNdS_down$p.value, 3),
+                           ", Up p=", signif(matched_extreme_dNdS_up$p.value, 3))
+        )
+    }
+
+    # Matched feature-quantile-change comparison (Decreased / Stable / Increased)
+    DT_matched_outcomes[, `:=`(
+      matched_feature_quantile_ce = dplyr::ntile(get(ce_col), 5),
+      matched_feature_quantile_pp = dplyr::ntile(get(pp_col), 5)
+    )]
+    DT_matched_outcomes[, matched_feature_quantile_change := fifelse(
+      matched_feature_quantile_pp > matched_feature_quantile_ce, "Increased",
+      fifelse(matched_feature_quantile_pp < matched_feature_quantile_ce, "Decreased", "Stable")
+    )]
+    DT_matched_outcomes[, matched_feature_quantile_change := factor(
+      matched_feature_quantile_change, levels = c("Decreased", "Stable", "Increased")
+    )]
+
+    if (uniqueN(DT_matched_outcomes$matched_feature_quantile_change) >= 2) {
+      matched_quantile_mut_kw <- kruskal.test(matched_delta_mut ~ matched_feature_quantile_change, data = DT_matched_outcomes)
+      matched_quantile_dNdS_kw <- kruskal.test(matched_delta_dNdS ~ matched_feature_quantile_change, data = DT_matched_outcomes)
+      DT_matched_quantile_long <- rbindlist(list(
+        DT_matched_outcomes[, .(Feature_Quantile_Change = matched_feature_quantile_change,
+                                Outcome = "Mutation rate", Delta = matched_delta_mut)],
+        DT_matched_outcomes[, .(Feature_Quantile_Change = matched_feature_quantile_change,
+                                Outcome = "dN/dS", Delta = matched_delta_dNdS)]
+      ))
+      DT_matched_quantile_long[, Outcome := factor(Outcome, levels = c("Mutation rate", "dN/dS"))]
+      p_matched_quantile_change_combined <- ggplot(
+        DT_matched_quantile_long, aes(x = Feature_Quantile_Change, y = Delta, fill = Feature_Quantile_Change)
+      ) +
+        geom_boxplot(colour = "black", width = 0.6, outlier.shape = NA, alpha = 0.75,
+                     linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+        geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+        facet_grid(Outcome ~ .) + scale_y_continuous(limits = c(-1, 1), n.breaks = 10) +
+        scale_fill_manual(values = c("Decreased" = alpha("orange", 0.4),
+                                     "Stable" = alpha("grey40", 0.4),
+                                     "Increased" = alpha("purple", 0.4))) +
+        guides(fill = "none") + theme_bw() + no_grid_theme +
+        labs(
+          x = paste0(feature_name, " quantile change (Ppa vs Cel)"),
+          y = paste0("Matched delta percentile (", delta_phrase, ")"),
+          caption = paste0("Mutation Kruskal-Wallis p = ", signif(matched_quantile_mut_kw$p.value, 3),
+                           "; dN/dS p = ", signif(matched_quantile_dNdS_kw$p.value, 3))
+        )
+    }
+  }
+
   if (is_expression) {
+    # Expression-specific matched quantile-step analysis, layered on top of the
+    # general matched feature analyses above.
+    p_expression_steps_combined <- NULL
+    jt_mut_matched_steps <- NULL
+    jt_dnds_matched_steps <- NULL
+
+    if (nrow(DT_matched_outcomes) >= 10) {
+      DT_steps_matched <- DT_matched_outcomes[!is.na(CrossSpecies_Overall_Expression_Group_Change)]
+      if (nrow(DT_steps_matched) > 0 && uniqueN(DT_steps_matched$CrossSpecies_Overall_Expression_Group_Change) > 1) {
+        DT_steps_matched[, Expression_Step := ordered_int_factor(CrossSpecies_Overall_Expression_Group_Change)]
+        jt_mut_matched_steps <- clinfun::jonckheere.test(
+          DT_steps_matched$matched_delta_mut, DT_steps_matched$Expression_Step, alternative = "two.sided"
+        )
+        jt_dnds_matched_steps <- clinfun::jonckheere.test(
+          DT_steps_matched$matched_delta_dNdS, DT_steps_matched$Expression_Step, alternative = "two.sided"
+        )
+        DT_steps_long <- rbindlist(list(
+          DT_steps_matched[, .(Expression_Step, Outcome = "Mutation rate", Delta = matched_delta_mut)],
+          DT_steps_matched[, .(Expression_Step, Outcome = "dN/dS", Delta = matched_delta_dNdS)]
+        ))
+        DT_steps_long[, Outcome := factor(Outcome, levels = c("Mutation rate", "dN/dS"))]
+        p_expression_steps_combined <- ggplot(
+          DT_steps_long, aes(x = Expression_Step, y = Delta, fill = Expression_Step)
+        ) +
+          geom_boxplot(colour = "black", width = 0.55, outlier.shape = NA, alpha = 0.75,
+                       linewidth = 0.3, whisker.linetype = "dashed", staplewidth = 0.3) +
+          geom_hline(yintercept = 0, linetype = "dashed", colour = "black") +
+          facet_grid(Outcome ~ .) + scale_y_continuous(limits = c(-1, 1), n.breaks = 10) +
+          scale_fill_manual(values = colorRampPalette(c("#006837", "orange", "purple"))(nlevels(DT_steps_matched$Expression_Step))) +
+          guides(fill = "none") + theme_bw() + no_grid_theme +
+          labs(
+            x = "Expression quantile change (Ppa - Cel)",
+            y = paste0("Matched delta percentile (", delta_phrase, ")"),
+            caption = paste0("Matched genes. Mutation trend p = ", signif(jt_mut_matched_steps$p.value, 3),
+                             "; dN/dS trend p = ", signif(jt_dnds_matched_steps$p.value, 3))
+          )
+      }
+    }
 
     # (1) Up / Same / Down expression-group comparison
     DT_updown <- DT[
@@ -2063,6 +2366,26 @@ n = ", step_summary_df$n
     save_plot(p_terminal_0, paste0(prefix, "_expression_group_0_boxplot.png"), 2.0, 5.0)
   }
 
+  # Matched feature-change outcomes: mutation rate and dN/dS
+  if (!is.null(p_matched_scatter_combined)) {
+    save_plot(p_matched_scatter_combined, paste0(prefix, "_matched_scatter_mutation_dNdS.png"), 5.5, 7)
+  }
+  if (!is.null(p_matched_binned_mean_combined)) {
+    save_plot(p_matched_binned_mean_combined, paste0(prefix, "_matched_binned_mean_mutation_dNdS.png"), 5.5, 7)
+  }
+  if (!is.null(p_matched_ordered_bins_combined)) {
+    save_plot(p_matched_ordered_bins_combined, paste0(prefix, "_matched_ordered_bins_mutation_dNdS.png"), 5.5, 7)
+  }
+  if (!is.null(p_matched_extremes_combined)) {
+    save_plot(p_matched_extremes_combined, paste0(prefix, "_matched_extremes_mutation_dNdS.png"), 4, 7)
+  }
+  if (!is.null(p_matched_quantile_change_combined)) {
+    save_plot(p_matched_quantile_change_combined, paste0(prefix, "_matched_quantile_change_mutation_dNdS.png"), 5, 7)
+  }
+  if (is_expression && !is.null(p_expression_steps_combined)) {
+    save_plot(p_expression_steps_combined, paste0(prefix, "_matched_expression_steps_mutation_dNdS.png"), 5, 7)
+  }
+
   if (!is.null(p_terminal_5)) {
     save_plot(p_terminal_5, paste0(prefix, "_expression_group_5_boxplot.png"), 2.0, 5.0)
   }
@@ -2196,6 +2519,22 @@ n = ", step_summary_df$n
     wilcox_terminal_0_pp_p = if (!is.null(wilcox_terminal_0_pp)) wilcox_terminal_0_pp$p.value else NA_real_,
     wilcox_terminal_0_ce_p = if (!is.null(wilcox_terminal_0_ce)) wilcox_terminal_0_ce$p.value else NA_real_,
 
+    matched_dNdS_n = nrow(DT_matched_outcomes),
+    matched_mutation_spearman_rho = if (!is.null(matched_mut_cor)) as.numeric(matched_mut_cor$estimate) else NA_real_,
+    matched_mutation_spearman_p = if (!is.null(matched_mut_cor)) matched_mut_cor$p.value else NA_real_,
+    matched_dNdS_spearman_rho = if (!is.null(matched_dNdS_cor)) as.numeric(matched_dNdS_cor$estimate) else NA_real_,
+    matched_dNdS_spearman_p = if (!is.null(matched_dNdS_cor)) matched_dNdS_cor$p.value else NA_real_,
+    matched_bins_mutation_jt_p = if (!is.null(matched_bins_mut_jt)) matched_bins_mut_jt$p.value else NA_real_,
+    matched_bins_dNdS_jt_p = if (!is.null(matched_bins_dNdS_jt)) matched_bins_dNdS_jt$p.value else NA_real_,
+    matched_extreme_mut_down_p = if (!is.null(matched_extreme_mut_down)) matched_extreme_mut_down$p.value else NA_real_,
+    matched_extreme_mut_up_p = if (!is.null(matched_extreme_mut_up)) matched_extreme_mut_up$p.value else NA_real_,
+    matched_extreme_dNdS_down_p = if (!is.null(matched_extreme_dNdS_down)) matched_extreme_dNdS_down$p.value else NA_real_,
+    matched_extreme_dNdS_up_p = if (!is.null(matched_extreme_dNdS_up)) matched_extreme_dNdS_up$p.value else NA_real_,
+    matched_quantile_mutation_kw_p = if (!is.null(matched_quantile_mut_kw)) matched_quantile_mut_kw$p.value else NA_real_,
+    matched_quantile_dNdS_kw_p = if (!is.null(matched_quantile_dNdS_kw)) matched_quantile_dNdS_kw$p.value else NA_real_,
+    matched_steps_mutation_jt_p = if (is_expression && !is.null(jt_mut_matched_steps)) jt_mut_matched_steps$p.value else NA_real_,
+    matched_steps_dNdS_jt_p = if (is_expression && !is.null(jt_dnds_matched_steps)) jt_dnds_matched_steps$p.value else NA_real_,
+
     data = DT,
     cor_test = cor_test,
     p_scatter = p_scatter,
@@ -2259,7 +2598,22 @@ for (feat in shared_features) {
       validation_abs_p = res$validation_abs_p,
       validation_q5_step_p = res$validation_q5_step_p,
       validation_step_all_p = res$validation_step_all_p,
-      validation_q5_resid_p = res$validation_q5_resid_p
+      validation_q5_resid_p = res$validation_q5_resid_p,
+      matched_dNdS_n = res$matched_dNdS_n,
+      matched_mutation_spearman_rho = res$matched_mutation_spearman_rho,
+      matched_mutation_spearman_p = res$matched_mutation_spearman_p,
+      matched_dNdS_spearman_rho = res$matched_dNdS_spearman_rho,
+      matched_dNdS_spearman_p = res$matched_dNdS_spearman_p,
+      matched_bins_mutation_jt_p = res$matched_bins_mutation_jt_p,
+      matched_bins_dNdS_jt_p = res$matched_bins_dNdS_jt_p,
+      matched_extreme_mut_down_p = res$matched_extreme_mut_down_p,
+      matched_extreme_mut_up_p = res$matched_extreme_mut_up_p,
+      matched_extreme_dNdS_down_p = res$matched_extreme_dNdS_down_p,
+      matched_extreme_dNdS_up_p = res$matched_extreme_dNdS_up_p,
+      matched_quantile_mutation_kw_p = res$matched_quantile_mutation_kw_p,
+      matched_quantile_dNdS_kw_p = res$matched_quantile_dNdS_kw_p,
+      matched_steps_mutation_jt_p = res$matched_steps_mutation_jt_p,
+      matched_steps_dNdS_jt_p = res$matched_steps_dNdS_jt_p
     )
 
     print(res$cor_test)

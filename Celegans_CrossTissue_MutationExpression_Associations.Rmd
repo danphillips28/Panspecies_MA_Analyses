@@ -1,7 +1,7 @@
 ---
-title: "Dmelanogaster_CrossTissue_MutationExpression_Associations"
+title: "Celegans_CrossTissue_MutationExpression_Associations"
 output: html_document
-date: "2026-06-12"
+date: "2026-06-14"
 ---
 
 ```{r setup, include=FALSE}
@@ -18,15 +18,16 @@ library(ggpubr)
 library(clinfun)
 library(PMCMRplus)
 library(readxl)
+library(DESeq2)
 `%ni%` <- Negate(`%in%`)
 ```
 
 ```{r Setting Paths}
-R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
-#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+#R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
 
-Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
-#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+#Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
 
 source(paste0(R_Data, "plotting.themes.R"))
 # Choose theme once per session/script
@@ -37,67 +38,178 @@ set_my_theme("light")   # or "dark"
 load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
 ```
 
-```{r Download and Load Vedelek et al. 2018 Data}
-url <- "https://static-content.springer.com/esm/art%3A10.1186%2Fs12864-018-5085-z/MediaObjects/12864_2018_5085_MOESM2_ESM.xlsx"
+```{r Pulling in scRNA Seq of Spermatogenic Stages}
+load(file = paste0(R_Data, "Celegans_Spermatogenic_Stages_scRNASeq_Expression"))
+Celegans_Spermatogenic_Stages_scRNASeq_Expression <- expr_df
+# Add in wormbase IDs
+Celegans_Spermatogenic_Stages_scRNASeq_Expression <-
+  merge(Celegans_Spermatogenic_Stages_scRNASeq_Expression,
+        Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235[, c("GENE_ID","gene_name")],
+        by.x = "gene_name",
+        by.y = "gene_name",
+        all.x = TRUE) %>% unique()
+
+```
+
+```{r Downloading Ahringer Data} 
+Ahringer_Tissue_Expression <- 
+read.table(file = paste0(R_Data, "tissue-specific.RNA-seq.dataset.txt"),
+           header = TRUE)
+
+Ahringer_Tissue_Expression <- Ahringer_Tissue_Expression[, c("WormBaseID",
+                                                             "Germline",
+                                                             "Neurons",
+                                                             "Muscle",
+                                                             "Hypod.",
+                                                             "Intest.")]
+
+colnames(Ahringer_Tissue_Expression) <- c("GENE_ID","Germline","Neurons","Muscle","Hypodermis","Intestine")
+
+# log2(expression + 1) transform
+Ahringer_Tissue_Expression[, -(1)] <-
+  log2(Ahringer_Tissue_Expression[, -(1)] + 1)
+```
+
+```{r Loading Embryonic TimeSeries Data}
+load(file = paste0(R_Data, "Species_TimeSeries_Expression"))
+
+Celegans_TimeSeries_Expression <- Species_TimeSeries_Expression$Celegans
+
+Celegans_TimeSeries_Expression <- lapply(Celegans_TimeSeries_Expression, function(df) {
+
+  df <- as.data.frame(df)
+
+  timepoint <- unique(df$time_point)
+
+  df <- df[, c("gene_id", "log2_Expression_Plus_One")]
+
+  names(df)[2] <- paste0("Expression_", timepoint)
+
+  df
+})
+
+celegans_list <- Species_TimeSeries_Expression[["Celegans"]]
+
+Celegans_Embryogenesis_Expression <- data.frame(
+  gene_id = celegans_list[[1]]$gene_id,
+  check.names = FALSE
+)
+
+for (i in seq_along(celegans_list)) {
+  df <- celegans_list[[i]]
+  tp <- as.character(unique(df$time_point))
+
+  Celegans_Embryogenesis_Expression[[paste0("Embryo_", tp)]] <-
+    df$log2_Expression_Plus_One
+}
+
+Celegans_Embryogenesis_Expression <-
+  Celegans_Embryogenesis_Expression %>%
+  group_by(gene_id) %>%
+  summarise(across(everything(), mean, na.rm = TRUE))
+```
+
+```{r Download and Load Data}
+url <- "https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE57109&format=file"
 
 download.file(
   url,
-  destfile = file.path(R_Data, "12864_2018_5085_MOESM2_ESM.xlsx"),
+  destfile = file.path(R_Data, "GSE57109_RAW.tar"),
   mode = "wb",
   method = "libcurl"
 )
 
-Dmelanogaster_Germline_RNA <- read_excel(
-  paste0(R_Data, "/12864_2018_5085_MOESM2_ESM.xlsx"),
-  skip = 2
+library(data.table)
+library(DESeq2)
+
+# 1) Unpack the GEO tar if needed
+tar_path <- file.path(R_Data, "GSE57109_RAW.tar")
+out_dir  <- file.path(R_Data, "GSE57109_RAW")
+
+if (!dir.exists(out_dir)) {
+  untar(tar_path, exdir = out_dir)
+}
+
+# 2) List sample files
+files <- list.files(
+  out_dir,
+  pattern = "\\.txt\\.gz$",
+  full.names = TRUE
 )
 
-Dmelanogaster_Germline_RNA <- Dmelanogaster_Germline_RNA |>
-  janitor::clean_names()
+# 3) Read each sample file
+lst <- lapply(files, function(f) {
+  dt <- fread(cmd = paste("zcat", shQuote(f)), header = FALSE)
+  setnames(dt, c("gene_id", basename(f)))
+  dt
+})
 
-colnames(Dmelanogaster_Germline_RNA)[4] <- "testis_apical_region"
-colnames(Dmelanogaster_Germline_RNA)[5] <- "testis_middle_region"
-colnames(Dmelanogaster_Germline_RNA)[6] <- "testis_basal_region"
+# 4) Merge all samples by gene_id
+expr_mat <- Reduce(function(x, y) merge(x, y, by = "gene_id", all = TRUE), lst)
 
-```
+# 5) Identify q71 and q96 columns
+q71_cols <- grep("q71", names(expr_mat), value = TRUE)  # fog-2(q71) = oogenic
+q96_cols <- grep("q96", names(expr_mat), value = TRUE)  # fem-3(q96) = spermatogenic
 
-```{r Loading and Merging scRNASeq Spermatogenesis}
-load(file = paste0(R_Data, "Dmelanogaster_Germline_scRNA"))
+# 6) Build count matrix for DESeq2
+count_mat <- as.matrix(expr_mat[, c(q71_cols, q96_cols), with = FALSE])
+rownames(count_mat) <- expr_mat$gene_id
 
-Dmelanogaster_Germline_RNA <-
-  merge(Dmelanogaster_Germline_RNA,
-        Dmelanogaster_Germline_scRNA[, colnames(Dmelanogaster_Germline_scRNA) != "UniqueVariantsPlusOnePerBP"],
+# 7) Create DESeq2 object and estimate size factors
+dds <-DESeqDataSetFromMatrix(
+  countData = round(count_mat),
+  colData = data.frame(row.names = colnames(count_mat)),
+  design = ~ 1
+)
+
+dds <-estimateSizeFactors(dds)
+
+# 8) Get normalized counts
+norm_counts <- counts(dds, normalized = TRUE)
+
+# 9) Average normalized counts within each group
+expr_mat[, Oogenic_Expression :=
+           rowMeans(log2(norm_counts[, q71_cols] + 1), na.rm = TRUE)]
+
+expr_mat[, Spermatogenic_Expression :=
+           rowMeans(log2(norm_counts[, q96_cols] + 1), na.rm = TRUE)]
+
+# 10) Keep the final gene-level table
+Celegans_Germline_RNA <- expr_mat[, .(
+  gene_id,
+  Oogenic_Expression,
+  Spermatogenic_Expression
+)]
+
+# Merge in Spermatogenic Stages Columns
+Celegans_Germline_RNA <- 
+  merge(Celegans_Germline_RNA,
+        Celegans_Spermatogenic_Stages_scRNASeq_Expression[, c("GENE_ID","SP1","SP2","SP3","SP4","SP5")],
         by.x = "gene_id",
         by.y = "GENE_ID",
-        all = TRUE)
+        all.x = TRUE)
+
+# Merge in Ahringer_Tissue_Expression
+Celegans_Germline_RNA <- 
+  merge(Celegans_Germline_RNA,
+        Ahringer_Tissue_Expression,
+        by.x = "gene_id",
+        by.y = "GENE_ID",
+        all.x = TRUE)
+
+# Merge in Embryonic TimeSeries Expression
+Celegans_Germline_RNA <- 
+  merge(Celegans_Germline_RNA,
+        Celegans_Embryogenesis_Expression,
+        by = "gene_id",
+        all.x = TRUE)
+
+
 ```
 
 ```{r Associating Mutation Rate and Expression Across Tissues, fig.height=14, fig.width=9, dev = "png", dev.args=list(bg="transparent"), message=FALSE, warning=FALSE}
-lines <- readLines(gzfile(paste0(R_Data, "Drosophila_melanogaster_modENCODE_RPKM_REPORT.tsv")))
-lines[6] <- sub("^##", "", lines[6])
-modENCODErpkmExpression <- read.delim(
-  textConnection(lines[-(1:5)]),
-  header = TRUE
-)
 
-colnames(modENCODErpkmExpression)[2] <- "gene_id"
-
-modENCODErpkmExpression$log2_RPKM_plusOne <-
-  log2(modENCODErpkmExpression$RPKM_value+1)
-
-Tissues <- c(
-  unique(
-    subset(
-      modENCODErpkmExpression,
-      Parent_library_name == "modENCODE_mRNA-Seq_tissues" |
-        Parent_library_name == "modENCODE_mRNA-Seq_development"
-    )$RNASource_name
-  ),
-  colnames(Dmelanogaster_Germline_RNA)[
-    !grepl("locus|gene_id|gene_symbol|maximum|log2|p_value|_sig|index",
-           colnames(Dmelanogaster_Germline_RNA),
-           ignore.case = TRUE)
-  ])
+Tissues <- colnames(Celegans_Germline_RNA)[-1]
 
 # Create Empty Lists to fill with plots
 Tissue_Expression_MutationRate_Scatter_Plots <- list()
@@ -105,7 +217,7 @@ Tissue_Expression_MutationRate_Box_Plots <- list()
 
 # Create an Object with Genes and their Mutation Rates
 Tissue_Expression_Mutation_Rate_Data <-
-Annotated_VCFs_PC_Gene_Body_Variants$Assaf_2017_MA_Dmelanogaster_BDGP6[, c("GENE_ID","UniqueVariantsPlusOnePerBP")] %>% unique() %>%
+Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235[, c("GENE_ID","UniqueVariantsPlusOnePerBP")] %>% 
   as.data.frame()
 
 # Create Empty Objects to Populate with Correlation Results for Each Tissue
@@ -117,33 +229,20 @@ Tissue_Expression_MutationRate_Association_pVals <-
 for (Tissue in Tissues) {
 
   # Name the Type of Chromatin
-  Tissue_Label <- gsub("mE_mRNA_", "", Tissue)
+  Tissue_Label <- gsub("_Expression", "", Tissue)
 
-  # 1: Collect the Expression Data
-  if (Tissue %in% colnames(Dmelanogaster_Germline_RNA)) {
-
-    Tissue_modENCODErpkmExpression <-
-      Dmelanogaster_Germline_RNA[, c("gene_id", Tissue)]
-
-  } else {
-
-    Tissue_modENCODErpkmExpression <-
-      subset(
-        modENCODErpkmExpression,
-        RNASource_name == Tissue
-      )[, c("gene_id", "RPKM_value")]
-
-  }
+    Tissue_OrtizDESEQ2countsExpression <-
+      Celegans_Germline_RNA %>% select(c("gene_id", Tissue))
 
   # 2: Give it new column names
-  colnames(Tissue_modENCODErpkmExpression) <-
+  colnames(Tissue_OrtizDESEQ2countsExpression) <-
     c("gene_id", Tissue_Label)
 
   # 3: Merge with Gene IDs and their mutation rates
   Tissue_Expression_Mutation_Rate_Data <-
     merge(
       Tissue_Expression_Mutation_Rate_Data,
-      Tissue_modENCODErpkmExpression,
+      Tissue_OrtizDESEQ2countsExpression,
       by.y = c("gene_id"),
       by.x = c("GENE_ID"),
       all.x = TRUE,
@@ -183,17 +282,12 @@ TissueExpressionMutationRateBoxPlots <-
        aes(y = Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"UniqueVariantsPlusOnePerBP"],
            x = Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"],
            fill =Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins[,"Expression_Bins"] )) + 
-  geom_boxplot(
-    outliers = FALSE,
-    colour = "black",
-    whisker.linetype = "dashed",  # dashed whiskers only
-    staplewidth = 0.5              # ticks at whisker ends
-  ) +  # keep box borders solid black
+  geom_boxplot(outliers = FALSE, colour = "black") +  # keep box borders black
         labs(
           x = paste(Tissue_Label, "PC Expression [RPKM] Bins"),
           y = "Gene Body Mutation Rate",
           title = paste0("n=", 
-                      length(unique(Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins)$gene_id), 
+                      length(unique(Tissue_Expression_Mutation_Rate_Data_with_Expression_Bins)$GENE_ID), 
                      ' PC Genes with Expression',"\n"),
           subtitle = paste(
             "Cuzick test =",
@@ -226,9 +320,7 @@ TissueExpressionMutationRateBoxPlots <-
           plot.title = element_text(size = BASE_SIZE - 6),
           axis.title.x = element_text(size = BASE_SIZE - 4),
           plot.subtitle = element_text(size = BASE_SIZE - 6),
-          axis.text.x = element_text(angle = 0, size = BASE_SIZE - 3),
-          panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank()
+          axis.text.x = element_text(angle = 0, size = BASE_SIZE - 3)
         ) +
         scale_y_continuous(n.breaks = 10) +
         scale_x_discrete(drop = FALSE, na.translate = FALSE) +
@@ -242,7 +334,7 @@ TissueExpressionMutationRateBoxPlots
 
 ggsave(Tissue_Expression_MutationRate_Box_Plots[[Tissue_Label]], 
         filename = paste0(
-          R_Data, "Plots/10_Dmelanogaster_Mutation_and_Tissue_Expression_Association_Plots/",
+          R_Data, "Plots/11_Celegans_Mutation_and_Tissue_Expression_Association_Plots/",
           Tissue_Label, "_Binned_Expression_vs_Mutation_Rate_Plot.png"
         ),
        create.dir = TRUE,
@@ -272,12 +364,12 @@ cor.test(Tissue_Expression_Mutation_Rate_Data[, Tissue_Label],
 # Volcano Plot of Overall Correlation Results
 Tissue_Expression_MutationRate_Association_coefs_Long <-
   pivot_longer(Tissue_Expression_MutationRate_Association_coefs,
-                        `em0-2hr`:Spermatid,
+                        Oogenic:Embryo_830,
                         names_to = "Type", 
                         values_to = "Coef")
 Tissue_Expression_MutationRate_Association_pVals_Long <-
   pivot_longer(Tissue_Expression_MutationRate_Association_pVals,
-                        `em0-2hr`:Spermatid,
+                        Oogenic:Embryo_830,
                         names_to = "Type", 
                         values_to = "pVal")
 
@@ -291,39 +383,17 @@ Tissue_Expression_MutationRate_Association_Long$Rank <-
 # Add in some extra annotations 
 Tissue_Expression_MutationRate_Association_Long <- 
   Tissue_Expression_MutationRate_Association_Long %>%
-  mutate(Development = 
-           ifelse(Type %like% "^A_", "Adult",
-           ifelse(Type %like% "^em", "Embryo",
-           ifelse(Type %like% "^L1","L1",
-           ifelse(Type %like% "^L2","L2",
-           ifelse(Type %like% "^L3","L3",
-           ifelse(Type %like% "^WPP","WPP",
-           ifelse(Type %like% "^P","P",
-           ifelse(Type %like% "^Adm","Adm",
-           ifelse(Type %like% "^Adf","Adf",
-                  "Other"))))))))))
-
-# Add in some extra annotations 
-Tissue_Expression_MutationRate_Association_Long <- 
-  Tissue_Expression_MutationRate_Association_Long %>%
   mutate(Tissue_Type = 
-           ifelse(Type %like% "testis", "Testis",
-           ifelse(Type %like% "Sperm","Sperm",
-           ifelse(Type %like% "sperm","Sperm",
-           ifelse(Type %like% "Transition","Sperm",
-           ifelse(Type %like% "Ecl", "Ecl",
-           ifelse(Type %like% "acc_gland","Accessory Gland",
-           ifelse(Type %like% "PS","PS",
-           ifelse(Type %like% "saliv","Salivary Gland",
-           ifelse(Type %like% "imag_disc","Imaginal Discs",
-           ifelse(Type %like% "dig_sys","Digestive System",
-           ifelse(Type %like% "fat","Fat",
-           ifelse(Type %like% "em","Embryo",
-           ifelse(Type %like% "carcass","Carcass",
-           ifelse(Type %like% "ovary","Ovary",
-           ifelse(Type %like% "head","Head",
-           ifelse(Type %like% "CNS","CNS",
-                  "Whole Organism")))))))))))))))))
+           ifelse(Type %like% "Embryo", "Embryo",
+           ifelse(Type %like% "Muscle", "Muscle",
+           ifelse(Type %like% "Hypodermis","Hypodermis",
+           ifelse(Type %like% "Intestine","Intestine",
+           ifelse(Type %like% "Neurons","Neurons",
+           ifelse(Type %like% "Germline","Germline",
+           ifelse(Type %like% "Oogenic","Oogenic",
+           ifelse(Type %like% "SP","Spermatogenesis",
+           ifelse(Type %like% "Spermatogenic","Spermatogenic",
+                  "Whole Organism"))))))))))
 
 # Come up with some ordering by tissue_type and coef
 Tissue_Expression_MutationRate_Association_Long <-
@@ -332,17 +402,10 @@ Tissue_Expression_MutationRate_Association_Long %>%
   arrange(Type, desc(Coef)) %>% 
   mutate(rank2 = rank(Coef))
 
-# Now Setting levels of Tissue_Type for better presentaiton
-Tissue_Expression_MutationRate_Association_Long$Tissue_Type <-
-  factor(Tissue_Expression_MutationRate_Association_Long$Tissue_Type,
-         levels = rev(c("CNS","Head","Embryo","Carcass","Whole Organism","Ovary",
-                    "Ecl","Fat","Salivary Gland","Digestive System",
-                    "PS","Imaginal Discs","Accessory Gland","Testis","Sperm")))
-
 Tissue_Expression_MutationRate_Associations_Plot_Combined <-
-ggplot(data = subset(Tissue_Expression_MutationRate_Association_Long, Tissue_Type != "Sperm"),
+ggplot(data = Tissue_Expression_MutationRate_Association_Long,
        aes(x = Coef, 
-           y = reorder(Type, rank2),
+           y = reorder(Type, Coef),
            fill = Tissue_Type)) + 
   geom_bar(stat = "identity", colour = alpha("black", alpha = .7), 
            colour = "black", width = .8) +
@@ -360,29 +423,13 @@ ggplot(data = subset(Tissue_Expression_MutationRate_Association_Long, Tissue_Typ
   ) +
   scale_x_continuous(breaks = scales::breaks_extended(n = 8)) +
   labs(y = NULL, x = "Expression-Mutation Rate\nSpearman Correlation Coefficient") +
-  scale_fill_manual(values = 
-                      c("CNS"="#FF0000",
-                        "Head"="#FF1200",
-                        "Testis"="#FFE000",
-                        "Ovary"="#FF5A00",
-                        "Digestive System"="#FFA200",
-                        "Carcass"="#FF3600",
-                        "Accessory Gland"="#FFD800",
-                        "Ecl"="#FF6C00",
-                        "Embryo"="#FF2400",
-                        "Whole Organism"="#FF4800",
-                        "PS"="#FFB400",
-                        "Fat"="#FF7E00",
-                        "Imaginal Discs"="#FFC600",
-                        "Salivary Gland"="#ff9000",
-                        "Sperm"="lightgreen")) +
   facet_grid(Tissue_Type ~ ., scales = "free", space = "free")
 
 Tissue_Expression_MutationRate_Associations_Plot_Combined
 
 ggsave(Tissue_Expression_MutationRate_Associations_Plot_Combined, 
         filename = paste0(
-          R_Data, "Plots/10_Dmelanogaster_Mutation_and_Tissue_Expression_Association_Plots/",
+          R_Data, "Plots/11_Celegans_Mutation_and_Tissue_Expression_Association_Plots/",
           "CrossTissue_MutationRate_vs_Expression_Associations.png"
         ),
        create.dir = TRUE,
@@ -400,7 +447,8 @@ Tissue_Expression_MutationRate_Association_Long <-
   ungroup()
 
 Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed <-
-ggplot(data = subset(Tissue_Expression_MutationRate_Association_Long[, c("Tissue_Type","mean_Coef")], Tissue_Type != "Sperm") %>% unique(),
+ggplot(data = Tissue_Expression_MutationRate_Association_Long[, c("Tissue_Type","mean_Coef")] %>%
+              subset(., Tissue_Type != "Spermatogenesis") %>% unique(),
        aes(x = mean_Coef, 
            y = reorder(Tissue_Type, mean_Coef),
            fill = mean_Coef)) + 
@@ -410,9 +458,8 @@ ggplot(data = subset(Tissue_Expression_MutationRate_Association_Long[, c("Tissue
   legend.position = "none",
   #panel.grid = element_blank(), 
   plot.background = element_rect(fill='transparent', colour = "transparent"),
-  axis.text = element_text(size = 32),
-  axis.text.y = element_text(size = 26),
-  axis.title = element_text(size = 26),
+  axis.text = element_text(size = 16),
+  axis.title = element_text(size = 18),
   panel.spacing.y = unit(0,"line"),
   strip.background = element_blank(),
   strip.text.y.right = element_text(angle = 0, 
@@ -420,7 +467,7 @@ ggplot(data = subset(Tissue_Expression_MutationRate_Association_Long[, c("Tissue
   strip.text.x = element_blank()
   ) +
   scale_x_continuous(breaks = scales::breaks_extended(n = 8)) +
-  labs(y = NULL, x = expression(atop("Expression-Mutation Rate", "Spearman's " * rho))) +
+  labs(y = NULL, x = "Expression-Mutation Rate\nSpearman Correlation Coefficient") +
   scale_fill_gradient2(low = "#FF0000",
                        mid = "#FFE000",
                        high= "#006600") 
@@ -429,7 +476,7 @@ Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed
 
 ggsave(Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed, 
         filename = paste0(
-          R_Data, "Plots/10_Dmelanogaster_Mutation_and_Tissue_Expression_Association_Plots/",
+          R_Data, "Plots/11_Celegans_Mutation_and_Tissue_Expression_Association_Plots/",
           "Tissue_Expression_MutationRate_Associations_Plot_Combined_Collapsed.png"
         ),
        create.dir = TRUE,

@@ -1,0 +1,2159 @@
+---
+title: "Celegans_to_Ppacificus"
+output: html_document
+date: "2025-10-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Libraries}
+library(tidyverse)
+library(ggplot2)
+library(data.table)
+library(clinfun)
+library(forcats)
+library(glmnet)
+library(caret)
+library(ggnewscale)
+library(ComplexHeatmap)
+library(circlize)
+library(grid)
+library(stringr)
+library(dplyr)
+
+`%ni%` <- Negate(`%in%`)
+```
+
+```{r Setting Paths}
+R_Data <- "/home/ocdm0351/DPhil/R_Data/" # For HPC
+#R_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/" # For Laptop
+Species_Data <- "/home/ocdm0351/.conda/envs/snpEff/share/snpeff-5.2-2/data/" # For HPC
+#Species_Data <- "/home/dan/DPhil/MA_Project_1/R_Data/data/" # For Laptop
+
+results_dir <- file.path(R_Data, "Plots/7_From_Ppacificus_to_Celegans")
+dir.create(results_dir, recursive = TRUE, showWarnings = FALSE)
+
+delta_phrase <- "in Ppa relative to Cel"
+```
+
+```{r Loading Data}
+load(file = paste0(R_Data, "/Annotated_VCFs_PC_Gene_Body_Variants"))
+load(file = paste0(R_Data, "CelegansPpacificus_dNdS_Table"))
+source(paste0(R_Data, "plotting.themes.R"))
+# Choose theme once per session/script
+set_my_theme("light")   # or "dark"
+```
+
+```{r Wrangle Orthologs}
+# Extract P pacificus / C elegans 1-to-1 ortholog pairs
+Orthologs <- CelegansPpacificus_dNdS_Table[, c("query_id", "subject_id")]
+
+# Remove version numbers
+Orthologs$query_id   <- str_replace(Orthologs$query_id, "\\.[^.]+$", "")
+Orthologs$subject_id <- str_replace(Orthologs$subject_id, "\\.[^.]+$", "")
+
+# Rename ortholog columns for clarity
+colnames(Orthologs) <- c("Celegans_orthologR", "Ppacificus_orthologR")
+```
+
+```{r Setup Features to Test}
+# Convert to data.table so `with = FALSE` works
+ce_tbl <- Annotated_VCFs_PC_Gene_Body_Variants$SaxenaKonrad_2019_MA_Celegans_WS235
+pp_tbl <- Annotated_VCFs_PC_Gene_Body_Variants$WellerWang_20142026_MA_Ppacificus_Elpaco
+setDT(ce_tbl)
+setDT(pp_tbl)
+
+# Identify feature columns:
+#   - expression
+#   - dNdS
+#   - GC_Length
+#   - anything beginning with mean_
+ce_feature_cols <- unique(c(
+  "log2_Expression_Plus_One",
+  "GC_Length",
+  grep("^mean_", names(ce_tbl), value = TRUE)
+))
+
+pp_feature_cols <- unique(c(
+  "log2_Expression_Plus_One",
+  "GC_Length",
+  grep("^mean_", names(pp_tbl), value = TRUE)
+))
+
+# Only keep features shared between species
+shared_features <- intersect(ce_feature_cols, pp_feature_cols)
+
+# Put expression first, then the rest
+shared_features <- c(
+  if ("log2_Expression_Plus_One" %in% shared_features) "log2_Expression_Plus_One" else character(0),
+  setdiff(shared_features, "log2_Expression_Plus_One")
+)
+
+if (length(shared_features) == 0) {
+  stop("No shared features found between species.")
+}
+
+message("Shared features to analyze:")
+print(shared_features)
+```
+
+```{r Merge Features Together}
+# Merge C. elegans features
+ce_keep <- c(
+  "GENE_ID",
+  "transcript_id",
+  "Overall_Expression_Group",
+  "UniqueVariantsPlusOnePerBP",
+  shared_features[shared_features %in% names(ce_tbl)]
+)
+
+ce_join <- ce_tbl[, ce_keep, with = FALSE]
+
+setnames(
+  ce_join,
+  old = ce_keep,
+  new = c(
+    "Celegans_GENE_ID",
+    "Celegans_orthologR",
+    "Celegans_Overall_Expression_Group",
+    "Celegans_UniqueVariantsPlusOnePerBP",
+    paste0("Celegans_", shared_features[shared_features %in% names(ce_tbl)])
+  )
+)
+
+Orthologs <- merge(
+  Orthologs,
+  ce_join,
+  by = "Celegans_orthologR",
+  all = FALSE
+)
+
+# Merge P. pacificus features
+pp_keep <- c(
+  "GENE_ID",
+  "transcript_id",
+  "Overall_Expression_Group",
+  "UniqueVariantsPlusOnePerBP",
+  shared_features[shared_features %in% names(pp_tbl)]
+)
+
+pp_join <- pp_tbl[, pp_keep, with = FALSE]
+
+setnames(
+  pp_join,
+  old = pp_keep,
+  new = c(
+    "Ppacificus_GENE_ID",
+    "Ppacificus_orthologR",
+    "Ppacificus_Overall_Expression_Group",
+    "Ppacificus_UniqueVariantsPlusOnePerBP",
+    paste0("Ppacificus_", shared_features[shared_features %in% names(pp_tbl)])
+  )
+)
+
+Orthologs <- merge(
+  Orthologs,
+  pp_join,
+  by = "Ppacificus_orthologR",
+  all = FALSE
+)
+```
+
+```{r Codify Overall_Expression_Group into Ordered Numbers}
+Orthologs <- Orthologs %>%
+  mutate(
+    Celegans_Overall_Expression_Group_0to5 =
+      as.integer(Celegans_Overall_Expression_Group) - 1,
+
+    Ppacificus_Overall_Expression_Group_0to5 =
+      as.integer(Ppacificus_Overall_Expression_Group) - 1
+  )
+
+Orthologs <-
+  Orthologs %>%
+  mutate(
+    CrossSpecies_Overall_Expression_Group =
+      paste(Ppacificus_Overall_Expression_Group_0to5,
+            Celegans_Overall_Expression_Group_0to5,
+            sep = ">")
+  )
+
+Orthologs <-
+  Orthologs %>%
+  mutate(
+    CrossSpecies_Overall_Expression_Group_Change =
+      Ppacificus_Overall_Expression_Group_0to5 -
+      Celegans_Overall_Expression_Group_0to5
+  )
+```
+
+```{r Utility Functions}
+setDT(Orthologs)
+
+sample_n_safe <- function(DT, n_target, seed = 1L) {
+  if (nrow(DT) == 0 || n_target <= 0) {
+    return(DT[0])
+  }
+  set.seed(seed)
+  DT[sample(.N, size = min(.N, n_target))]
+}
+
+ordered_int_factor <- function(x) {
+  ux <- sort(unique(as.integer(x)))
+  factor(as.integer(x), levels = ux, ordered = TRUE)
+}
+
+make_count_labels <- function(DT, group_col) {
+  x <- DT[[group_col]]
+  if (is.null(x)) {
+    return(NULL)
+  }
+
+  if (is.factor(x)) {
+    lvls <- levels(x)
+    counts <- as.integer(table(factor(x, levels = lvls)))
+    names(counts) <- lvls
+  } else {
+    chars <- as.character(x)
+    lvls <- unique(chars)
+    counts <- as.integer(table(chars)[lvls])
+    names(counts) <- lvls
+  }
+
+  setNames(
+    paste0(names(counts), "\n(n=", counts, ")"),
+    names(counts)
+  )
+}
+```
+
+```{r Analysis Function}
+run_feature_analysis <- function(DT_in, feature_name, results_dir) {
+
+  ce_col <- paste0("Celegans_", feature_name)
+  pp_col <- paste0("Ppacificus_", feature_name)
+
+  req_cols <- c(
+    ce_col,
+    pp_col,
+    "Celegans_UniqueVariantsPlusOnePerBP",
+    "Ppacificus_UniqueVariantsPlusOnePerBP"
+  )
+
+  is_expression <- identical(feature_name, "log2_Expression_Plus_One")
+  if (is_expression) {
+    req_cols <- c(
+      req_cols,
+      "CrossSpecies_Overall_Expression_Group_Change",
+      "Celegans_Overall_Expression_Group_0to5",
+      "Ppacificus_Overall_Expression_Group_0to5"
+    )
+  }
+
+  if (!all(req_cols %in% names(DT_in))) {
+    message("Skipping ", feature_name, " because one or more columns are missing.")
+    return(NULL)
+  }
+
+  DT <- copy(DT_in)[complete.cases(DT_in[, ..req_cols])]
+
+  if (nrow(DT) < 10) {
+    message("Skipping ", feature_name, " because too few complete observations remain.")
+    return(NULL)
+  }
+
+  save_plot <- function(p, file, w, h) {
+    if (!is.null(p)) ggsave(file, plot = p, width = w, height = h, dpi = 300)
+  }
+
+  # ------------------------------------------------------------
+  # Percentiles
+  # ------------------------------------------------------------
+  DT[, `:=`(
+    feat_rank_ce = rank(get(ce_col), ties.method = "average"),
+    feat_rank_pp = rank(get(pp_col), ties.method = "average"),
+    mut_rank_ce  = rank(Celegans_UniqueVariantsPlusOnePerBP, ties.method = "average"),
+    mut_rank_pp  = rank(Ppacificus_UniqueVariantsPlusOnePerBP, ties.method = "average")
+  )]
+
+  DT[, `:=`(
+    feat_pct_ce = feat_rank_ce / .N,
+    feat_pct_pp = feat_rank_pp / .N,
+    mut_pct_ce  = mut_rank_ce / .N,
+    mut_pct_pp  = mut_rank_pp / .N
+  )]
+
+  # delta = Ppa relative to Cel
+  DT[, `:=`(
+    delta_feature = feat_pct_pp - feat_pct_ce,
+    delta_mut     = mut_pct_pp - mut_pct_ce
+  )]
+
+  # ------------------------------------------------------------
+  # Scatter plot + Spearman correlation
+  # ------------------------------------------------------------
+  cor_test <- suppressWarnings(
+    cor.test(DT$delta_feature, DT$delta_mut, method = "spearman", exact = FALSE)
+  )
+
+  p_scatter <-
+    ggplot(DT, aes(x = delta_feature, y = delta_mut)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_vline(xintercept = 0, linetype = "dashed") +
+    geom_point(
+      size = 2.5,
+      colour = "white",
+      fill = "black",
+      shape = 21,
+      stroke = 0.4,
+      alpha = 0.9
+    ) +
+    geom_smooth(method = "loess", color = "purple", fill = "orange") +
+    scale_x_continuous(n.breaks = 10) +
+    scale_y_continuous(n.breaks = 10) +
+    labs(
+      x = paste0("Delta ", feature_name, " percentile (", delta_phrase, ")"),
+      y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+      title = paste0(
+        "Spearman rho = ",
+        round(as.numeric(cor_test$estimate), 3),
+        ", p = ",
+        signif(cor_test$p.value, 3)
+      ),
+      subtitle = "Each point represents an ortholog with embryonic expression",
+      caption = "Dashed lines = zero; smooth = LOESS"
+    )
+
+  # ------------------------------------------------------------
+  # 5 equal-sized bins on delta_feature
+  # ------------------------------------------------------------
+  qs <- unique(as.numeric(quantile(DT$delta_feature, probs = seq(0, 1, 0.2), na.rm = TRUE)))
+
+  bin_summary <- NULL
+  p_bins <- NULL
+
+  if (length(qs) >= 2) {
+    DT[, feature_bin := cut(delta_feature, breaks = qs, include.lowest = TRUE)]
+
+    bin_summary <- DT[, .(
+      mean_delta_mut = mean(delta_mut, na.rm = TRUE),
+      n = .N
+    ), by = feature_bin]
+
+    bin_summary[, bin_mid := sapply(strsplit(as.character(feature_bin), ","), function(x) {
+      vals <- as.numeric(gsub("\\[|\\]|\\(|\\)", "", x))
+      mean(vals)
+    })]
+
+    bin_summary <- bin_summary[order(bin_mid)]
+
+    bin_labels <- make_count_labels(DT, "feature_bin")
+
+    p_bins <-
+      ggplot(bin_summary, aes(x = feature_bin, y = mean_delta_mut, group = 1)) +
+      geom_point(size = 3) +
+      geom_line() +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      theme_minimal() +
+      scale_x_discrete(labels = bin_labels) +
+      labs(
+        x = paste0("Binned delta ", feature_name, " percentile (", delta_phrase, ")"),
+        y = paste0("Mean delta mutation percentile (", delta_phrase, ")"),
+        title = paste0("Binned relationship: ", feature_name)
+      ) + 
+      theme(axis.text.x = element_text(size = BASE_SIZE - 3))
+  }
+
+  # ------------------------------------------------------------
+  # Comparing extremes
+  # ------------------------------------------------------------
+  low_group <- DT[delta_feature <= -0.6]
+  high_group <- DT[delta_feature >= 0.6]
+  middle_all <- DT[abs(delta_feature) < 0.2]
+
+  n_middle <- max(nrow(low_group), nrow(high_group))
+  middle_group <- sample_n_safe(middle_all, n_middle, seed = 99)
+
+  wilcox_low_vs_middle <- NULL
+  wilcox_high_vs_middle <- NULL
+  p_extreme <- NULL
+  wilcox_test <- NULL
+
+  if (nrow(low_group) > 0 && nrow(high_group) > 0 && nrow(middle_group) > 0) {
+    wilcox_low_vs_middle <- wilcox.test(low_group$delta_mut, middle_group$delta_mut)
+    wilcox_high_vs_middle <- wilcox.test(high_group$delta_mut, middle_group$delta_mut)
+
+    extreme_df <- rbindlist(list(
+      low_group[, .(group = "Most\nDown", delta_mut = delta_mut)],
+      middle_group[, .(group = "Stable\n[<20% Δfeature]", delta_mut = delta_mut)],
+      high_group[, .(group = "Most\nUp", delta_mut = delta_mut)]
+    ))
+
+    extreme_df[, group := factor(
+      group,
+      levels = c("Most\nDown", "Stable\n[<20% Δfeature]", "Most\nUp")
+    )]
+
+    extreme_labels <- make_count_labels(extreme_df, "group")
+
+    p_extreme <-
+      ggplot(extreme_df, aes(x = group, y = delta_mut, fill = group)) +
+      geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.75) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      scale_y_continuous(n.breaks = 10) +
+      scale_x_discrete(labels = extreme_labels) +
+      scale_fill_manual(values = c(
+        "Most\nDown" = alpha("orange", 0.4),
+        "Stable\n[<20% Δfeature]" = alpha("grey40", 0.4),
+        "Most\nUp" = alpha("purple", 0.4)
+      )) +
+      guides(fill = "none") +
+      labs(
+        x = "",
+        y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+        title = paste0(
+          "Down vs middle p = ", signif(wilcox_low_vs_middle$p.value, 3),
+          "\nUp vs middle p = ", signif(wilcox_high_vs_middle$p.value, 3)
+        )
+      ) +
+      theme(axis.text.x = element_text(size = BASE_SIZE - 3),
+            plot.title = element_text(size = BASE_SIZE - 2))
+  }
+
+  # ------------------------------------------------------------
+  # Ordered boxplot for delta-feature bins
+  # ------------------------------------------------------------
+  n_bins <- min(5, length(unique(DT$delta_feature)))
+
+  p_binned <- NULL
+  jt <- NULL
+
+  if (n_bins >= 2) {
+    DT <- DT %>%
+      mutate(
+        Feature_Change_Group = as.character(ggplot2::cut_number(delta_feature, n = n_bins))
+      ) %>%
+      mutate(
+        Feature_Change_Group = str_replace_all(
+          Feature_Change_Group,
+          "\\d+\\.?\\d*e[-+]?\\d+",
+          ~ format(as.numeric(.x), scientific = FALSE, digits = 6)
+        )
+      ) %>%
+      mutate(
+        Feature_Change_Group = forcats::fct_reorder(
+          factor(Feature_Change_Group, ordered = TRUE),
+          as.numeric(str_extract(Feature_Change_Group, "(?<=\\[|\\()[^,]+")),
+          .fun = min,
+          .desc = FALSE
+        )
+      )
+
+    jt <- clinfun::jonckheere.test(
+      DT$delta_mut,
+      DT$Feature_Change_Group,
+      alternative = "two.sided"
+    )
+
+    change_labels <- make_count_labels(DT, "Feature_Change_Group")
+
+    p_binned <-
+      ggplot(DT, aes(x = Feature_Change_Group, y = delta_mut, fill = Feature_Change_Group)) +
+      geom_boxplot(outlier.shape = NA) +
+      labs(
+        title = paste0(
+          "Jonckheere = ",
+          round(jt$statistic, 3),
+          ", p = ",
+          round(jt$p.value, 3)
+        )
+      ) +
+      scale_y_continuous(n.breaks = 10) +
+      scale_x_discrete(labels = change_labels) +
+      scale_fill_manual(values = colorRampPalette(
+        c("#3C096C", "#5A189A", "#9D4EDD", "#FFC880", "#FF9100")
+      )(length(unique(DT$Feature_Change_Group)))) +
+      guides(fill = "none") +
+      theme(axis.text.x = element_text(size = BASE_SIZE -3))
+  }
+
+    # ------------------------------------------------------------
+  # Expression-specific analysis
+  # ------------------------------------------------------------
+  cross_group_change_test <- NULL
+  lm_model <- NULL
+  spearman_change <- NULL
+  jt_change <- NULL
+
+  p_cross_group_change <- NULL
+  p_up_same_down <- NULL
+  p_terminal_5 <- NULL
+  p_terminal_0 <- NULL
+  p_expression_state_ppa <- NULL
+  p_expression_state_cel <- NULL
+  p_expression_state_sym <- NULL
+  p_continuous_interaction <- NULL
+  p_step_interaction <- NULL
+  p_validation_abs_delta_expression <- NULL
+  p_validation_q5_step_expression <- NULL
+  p_validation_step_expression_all_quantiles <- NULL
+  p_validation_q5_residuals <- NULL
+  p_validation_residuals_all_quantiles <- NULL
+
+  continuous_interaction_p <- NA_real_
+  step_interaction_p <- NA_real_
+  validation_abs_p <- NA_real_
+  validation_q5_step_p <- NA_real_
+  validation_step_all_p <- NA_real_
+  validation_q5_resid_p <- NA_real_
+
+  cont_summary_df <- NULL
+  step_summary_df <- NULL
+  step_all_summary_df <- NULL
+
+  wilcox_up_vs_same <- NULL
+  wilcox_down_vs_same <- NULL
+  wilcox_terminal_5_pp <- NULL
+  wilcox_terminal_5_ce <- NULL
+  wilcox_terminal_0_pp <- NULL
+  wilcox_terminal_0_ce <- NULL
+
+  build_state_plot <- function(DT, focal_col, other_col, plot_title, subtitle_text) {
+    state_long <- list()
+    state_tests <- list()
+
+    for (q in 0:5) {
+      changed <- DT[get(focal_col) == q & get(other_col) != q]
+      control <- DT[get(focal_col) == q & get(other_col) == q]
+
+      if (nrow(changed) == 0 || nrow(control) == 0) {
+        next
+      }
+
+      state_long[[length(state_long) + 1]] <- rbindlist(list(
+        changed[, .(
+          delta_mut,
+          expr_state_q = as.character(q),
+          expr_state_type = "Changed"
+        )],
+        control[, .(
+          delta_mut,
+          expr_state_q = as.character(q),
+          expr_state_type = "Matched control"
+        )]
+      ), fill = TRUE)
+
+      state_tests[[as.character(q)]] <- wilcox.test(
+        changed$delta_mut,
+        control$delta_mut
+      )
+    }
+
+    if (length(state_long) == 0) {
+      return(list(plot = NULL, tests = state_tests, data = NULL))
+    }
+
+    DT_state_plot <- rbindlist(state_long, fill = TRUE)
+
+    DT_state_plot[, expr_state_q := factor(
+      expr_state_q,
+      levels = as.character(0:5),
+      ordered = TRUE
+    )]
+
+    DT_state_plot[, expr_state_type := factor(
+      expr_state_type,
+      levels = c("Matched control", "Changed")
+    )]
+
+    state_counts <- DT_state_plot[, .(
+      n_changed = sum(expr_state_type == "Changed"),
+      n_control = sum(expr_state_type == "Matched control")
+    ), by = expr_state_q][order(expr_state_q)]
+
+    state_labels <- setNames(
+      paste0(
+        "q = ", state_counts$expr_state_q,
+        "\nChanged n = ", state_counts$n_changed,
+        " | Control n = ", state_counts$n_control
+      ),
+      as.character(state_counts$expr_state_q)
+    )
+
+    state_strip_labeller <- function(x) {
+      unname(state_labels[as.character(x)])
+    }
+
+    state_caption <- paste(
+      vapply(names(state_tests), function(q) {
+        paste0("q=", q, ": p=", signif(state_tests[[q]]$p.value, 3))
+      }, character(1)),
+      collapse = " | "
+    )
+
+    p <- ggplot(DT_state_plot, aes(
+      x = expr_state_type,
+      y = delta_mut,
+      fill = expr_state_type
+    )) +
+      geom_boxplot(
+        width = 0.55,
+        outlier.shape = NA,
+        alpha = 0.75
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      facet_wrap(
+        ~ expr_state_q,
+        nrow = 1,
+        labeller = labeller(expr_state_q = state_strip_labeller)
+      ) +
+      scale_y_continuous(n.breaks = 10) +
+      scale_x_discrete(labels = c(
+        "Matched control" = "Matched control",
+        "Changed" = "Changed"
+      )) +
+      scale_fill_manual(values = c(
+        "Matched control" = alpha("grey40", 0.4),
+        "Changed" = alpha("purple", 0.45)
+      )) +
+      guides(fill = "none") +
+      labs(
+        x = "",
+        y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+        title = plot_title,
+        subtitle = subtitle_text,
+        caption = state_caption
+      ) +
+      theme(
+        axis.text.x = element_text(size = BASE_SIZE - 3),
+        strip.text = element_text(size = BASE_SIZE - 6),
+        plot.caption = element_text(size = BASE_SIZE - 5)
+      )
+
+    list(plot = p, tests = state_tests, data = DT_state_plot)
+  }
+
+  build_symmetric_state_plot <- function(DT, plot_title, subtitle_text) {
+    state_long <- list()
+    state_tests <- list()
+
+    for (q in 0:5) {
+      cel_changed <- DT[
+        Celegans_Overall_Expression_Group_0to5 != q &
+          Ppacificus_Overall_Expression_Group_0to5 == q
+      ]
+      both <- DT[
+        Celegans_Overall_Expression_Group_0to5 == q &
+          Ppacificus_Overall_Expression_Group_0to5 == q
+      ]
+      ppa_changed <- DT[
+        Celegans_Overall_Expression_Group_0to5 == q &
+          Ppacificus_Overall_Expression_Group_0to5 != q
+      ]
+
+      if (nrow(cel_changed) == 0 && nrow(both) == 0 && nrow(ppa_changed) == 0) {
+        next
+      }
+
+      if (nrow(cel_changed) > 0) {
+        state_long[[length(state_long) + 1]] <- cel_changed[, .(
+          delta_mut,
+          expr_state_q = as.character(q),
+          expr_state_type = "Cel Changed"
+        )]
+      }
+
+      if (nrow(both) > 0) {
+        state_long[[length(state_long) + 1]] <- both[, .(
+          delta_mut,
+          expr_state_q = as.character(q),
+          expr_state_type = "Both"
+        )]
+      }
+
+      if (nrow(ppa_changed) > 0) {
+        state_long[[length(state_long) + 1]] <- ppa_changed[, .(
+          delta_mut,
+          expr_state_q = as.character(q),
+          expr_state_type = "Ppa Changed"
+        )]
+      }
+
+      if (nrow(cel_changed) > 0 && nrow(both) > 0) {
+        state_tests[[paste0("q=", q, "_cel")]] <- wilcox.test(
+          cel_changed$delta_mut,
+          both$delta_mut
+        )
+      }
+
+      if (nrow(ppa_changed) > 0 && nrow(both) > 0) {
+        state_tests[[paste0("q=", q, "_ppa")]] <- wilcox.test(
+          ppa_changed$delta_mut,
+          both$delta_mut
+        )
+      }
+    }
+
+    if (length(state_long) == 0) {
+      return(list(plot = NULL, tests = state_tests, data = NULL))
+    }
+
+    DT_state_plot <- rbindlist(state_long, fill = TRUE)
+
+    DT_state_plot[, expr_state_q := factor(
+      expr_state_q,
+      levels = as.character(0:5),
+      ordered = TRUE
+    )]
+
+    DT_state_plot[, expr_state_type := factor(
+      expr_state_type,
+      levels = c("Cel Changed", "Both", "Ppa Changed")
+    )]
+
+    state_counts <- DT_state_plot[, .(
+      n_cel_changed = sum(expr_state_type == "Cel Changed"),
+      n_both = sum(expr_state_type == "Both"),
+      n_ppa_changed = sum(expr_state_type == "Ppa Changed")
+    ), by = expr_state_q][order(expr_state_q)]
+
+    state_labels <- setNames(
+      paste0(
+        "q = ", state_counts$expr_state_q,
+        "\nCel Changed n = ", state_counts$n_cel_changed,
+        " | Both n = ", state_counts$n_both,
+        " | Ppa Changed n = ", state_counts$n_ppa_changed
+      ),
+      as.character(state_counts$expr_state_q)
+    )
+
+    state_strip_labeller <- function(x) {
+      unname(state_labels[as.character(x)])
+    }
+
+    state_caption <- paste(
+      vapply(names(state_tests), function(test_name) {
+        parts <- strsplit(test_name, "_", fixed = TRUE)[[1]]
+        q_part <- sub("^q=", "", parts[1])
+        which_part <- if (parts[2] == "cel") {
+          "Cel Changed vs Both"
+        } else {
+          "Ppa Changed vs Both"
+        }
+        paste0(
+          "q=", q_part, " ", which_part, ": p=",
+          signif(state_tests[[test_name]]$p.value, 3)
+        )
+      }, character(1)),
+      collapse = " | "
+    )
+
+    p <- ggplot(DT_state_plot, aes(
+      x = expr_state_type,
+      y = delta_mut,
+      fill = expr_state_type
+    )) +
+      geom_boxplot(
+        width = 0.55,
+        outlier.shape = NA,
+        alpha = 0.75
+      ) +
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      facet_wrap(
+        ~ expr_state_q,
+        nrow = 1,
+        labeller = labeller(expr_state_q = state_strip_labeller)
+      ) +
+      scale_y_continuous(n.breaks = 10) +
+      scale_x_discrete(labels = c(
+        "Cel Changed" = "Cel Changed",
+        "Both" = "Both",
+        "Ppa Changed" = "Ppa Changed"
+      )) +
+      scale_fill_manual(values = c(
+        "Cel Changed" = alpha("orange", 0.4),
+        "Both" = alpha("grey40", 0.4),
+        "Ppa Changed" = alpha("purple", 0.45)
+      )) +
+      guides(fill = "none") +
+      labs(
+        x = "",
+        y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+        title = plot_title,
+        subtitle = subtitle_text,
+        caption = state_caption
+      ) +
+      theme(
+        axis.text.x = element_text(size = BASE_SIZE - 3),
+        strip.text = element_text(size = BASE_SIZE - 6),
+        plot.caption = element_text(size = BASE_SIZE - 6.5)
+      )
+
+    list(plot = p, tests = state_tests, data = DT_state_plot)
+  }
+
+  if (is_expression) {
+
+    # (1) Up / Same / Down expression-group comparison
+    DT_updown <- DT[
+      Ppacificus_Overall_Expression_Group_0to5 != Celegans_Overall_Expression_Group_0to5
+    ]
+
+    DT_same_all <- DT[
+      Ppacificus_Overall_Expression_Group_0to5 == Celegans_Overall_Expression_Group_0to5
+    ]
+
+    n_up <- DT_updown[CrossSpecies_Overall_Expression_Group_Change > 0, .N]
+    n_down <- DT_updown[CrossSpecies_Overall_Expression_Group_Change < 0, .N]
+    n_control <- max(n_up, n_down)
+
+    DT_same <- sample_n_safe(DT_same_all, n_control, seed = 101)
+
+    if (nrow(DT_same) > 0 && (n_up > 0 || n_down > 0)) {
+      DT_plot1 <- rbindlist(list(
+        DT_updown[CrossSpecies_Overall_Expression_Group_Change > 0,
+                  .(delta_mut, expr_group = "+ Ppa < Cel")],
+        DT_same[, .(delta_mut, expr_group = "Stable")],
+        DT_updown[CrossSpecies_Overall_Expression_Group_Change < 0,
+                  .(delta_mut, expr_group = "- Ppa < Cel")]
+      ), fill = TRUE)
+
+      DT_plot1[, expr_group := factor(
+        expr_group,
+        levels = c("- Ppa < Cel", "Stable", "+ Ppa < Cel")
+      )]
+
+      if (DT_plot1[expr_group == "+ Ppa < Cel", .N] > 0 &&
+          DT_plot1[expr_group == "Stable", .N] > 0) {
+        wilcox_up_vs_same <- wilcox.test(
+          delta_mut ~ expr_group,
+          data = DT_plot1[expr_group %in% c("+ Ppa < Cel", "Stable")]
+        )
+      }
+
+      if (DT_plot1[expr_group == "- Ppa < Cel", .N] > 0 &&
+          DT_plot1[expr_group == "Stable", .N] > 0) {
+        wilcox_down_vs_same <- wilcox.test(
+          delta_mut ~ expr_group,
+          data = DT_plot1[expr_group %in% c("- Ppa < Cel", "Stable")]
+        )
+      }
+
+      updown_labels <- make_count_labels(DT_plot1, "expr_group")
+
+      p_up_same_down <-
+        ggplot(DT_plot1, aes(x = expr_group, y = delta_mut, fill = expr_group)) +
+        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(labels = updown_labels) +
+        scale_fill_manual(values = c(
+          "- Ppa < Cel" = alpha("orange", 0.4),
+          "Stable" = alpha("grey40", 0.4),
+          "+ Ppa < Cel" = alpha("purple", 0.4)
+        )) +
+        guides(fill = "none") +
+        labs(
+          x = "Expression quantile change",
+          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          title = paste0(
+            "Up vs Stable, p = ",
+            ifelse(is.null(wilcox_up_vs_same), NA, signif(wilcox_up_vs_same$p.value, 3)),
+            "\nDown vs Stable, p = ",
+            ifelse(is.null(wilcox_down_vs_same), NA, signif(wilcox_down_vs_same$p.value, 3))
+          )
+        ) +
+        theme(
+          axis.text.x = element_text(size = BASE_SIZE - 3),
+          plot.title = element_text(size = BASE_SIZE - 2)
+        )
+    }
+
+    # (2) Ordered boxplot for expression quantile change
+    DT_plot2 <- DT
+
+    if (nrow(DT_plot2) > 0 && uniqueN(DT_plot2$CrossSpecies_Overall_Expression_Group_Change) > 1) {
+      DT_plot2[, expr_change_grp := ordered_int_factor(CrossSpecies_Overall_Expression_Group_Change)]
+
+      jt_change <- clinfun::jonckheere.test(
+        DT_plot2$delta_mut,
+        DT_plot2$expr_change_grp,
+        alternative = "two.sided"
+      )
+
+      cross_group_change_test <- kruskal.test(
+        delta_mut ~ expr_change_grp,
+        data = DT_plot2
+      )
+
+      change_labels <- make_count_labels(DT_plot2, "expr_change_grp")
+
+      p_cross_group_change <-
+        ggplot(DT_plot2, aes(
+          x = expr_change_grp,
+          y = delta_mut,
+          fill = expr_change_grp
+        )) +
+        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(labels = change_labels) +
+        scale_fill_manual(values = colorRampPalette(
+          c("#006837", "orange", "purple")
+        )(nlevels(DT_plot2$expr_change_grp))) +
+        guides(fill = "none") +
+        labs(
+          x = "Expression group change (Ppa - Cel)",
+          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          title = paste0(
+            "Jonckheere p = ", signif(jt_change$p.value, 3),
+            "\nKruskal-Wallis p = ", signif(cross_group_change_test$p.value, 3)
+          )
+        )
+    }
+
+    # (3) Group 0 asymmetry vs same-in-both control
+    DT0_pp <- DT[
+      Ppacificus_Overall_Expression_Group_0to5 == 0 &
+        Celegans_Overall_Expression_Group_0to5 != 0
+    ]
+    DT0_ce <- DT[
+      Celegans_Overall_Expression_Group_0to5 == 0 &
+        Ppacificus_Overall_Expression_Group_0to5 != 0
+    ]
+    DT0_control_all <- DT[
+      Ppacificus_Overall_Expression_Group_0to5 == 0 &
+        Celegans_Overall_Expression_Group_0to5 == 0
+    ]
+
+    n0_control <- max(nrow(DT0_pp), nrow(DT0_ce))
+    DT0_control <- sample_n_safe(DT0_control_all, n0_control, seed = 202)
+
+    if (nrow(DT0_control) > 0 && (nrow(DT0_pp) > 0 || nrow(DT0_ce) > 0)) {
+      DT0_plot <- rbindlist(list(
+        DT0_pp[, .(delta_mut, expr_group = "Ppa = 0, Cel != 0")],
+        DT0_control[, .(delta_mut, expr_group = "Both 0")],
+        DT0_ce[, .(delta_mut, expr_group = "Cel = 0, Ppa != 0")]
+      ), fill = TRUE)
+
+      DT0_plot[, expr_group := factor(
+        expr_group,
+        levels = c("Ppa = 0, Cel != 0", "Both 0", "Cel = 0, Ppa != 0")
+      )]
+
+      if (nrow(DT0_pp) > 0 && nrow(DT0_control) > 0) {
+        wilcox_terminal_0_pp <- wilcox.test(
+          delta_mut ~ expr_group,
+          data = DT0_plot[expr_group %in% c("Ppa = 0, Cel != 0", "Both 0")]
+        )
+      }
+
+      if (nrow(DT0_ce) > 0 && nrow(DT0_control) > 0) {
+        wilcox_terminal_0_ce <- wilcox.test(
+          delta_mut ~ expr_group,
+          data = DT0_plot[expr_group %in% c("Cel = 0, Ppa != 0", "Both 0")]
+        )
+      }
+
+      zero_labels <- make_count_labels(DT0_plot, "expr_group")
+
+      p_terminal_0 <-
+        ggplot(DT0_plot, aes(x = expr_group, y = delta_mut, fill = expr_group)) +
+        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(labels = zero_labels) +
+        scale_fill_manual(values = c(
+          "Ppa = 0, Cel != 0" = alpha("purple", 0.4),
+          "Both 0" = alpha("grey40", 0.4),
+          "Cel = 0, Ppa != 0" = alpha("orange", 0.4)
+        )) +
+        guides(fill = "none") +
+        labs(
+          x = "",
+          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          title = paste0(
+            "Ppa=0 vs control p = ",
+            ifelse(is.null(wilcox_terminal_0_pp), NA, signif(wilcox_terminal_0_pp$p.value, 3)),
+            "\nCel=0 vs control p = ",
+            ifelse(is.null(wilcox_terminal_0_ce), NA, signif(wilcox_terminal_0_ce$p.value, 3))
+          )
+        ) +
+        theme(
+          axis.text.x = element_blank(),
+          plot.title = element_text(size = BASE_SIZE - 2)
+        )
+    }
+
+    # (4) Group 5 asymmetry vs same-in-both control
+    DT5_pp <- DT[
+      Ppacificus_Overall_Expression_Group_0to5 == 5 &
+        Celegans_Overall_Expression_Group_0to5 != 5
+    ]
+    DT5_ce <- DT[
+      Celegans_Overall_Expression_Group_0to5 == 5 &
+        Ppacificus_Overall_Expression_Group_0to5 != 5
+    ]
+    DT5_control_all <- DT[
+      Ppacificus_Overall_Expression_Group_0to5 == 5 &
+        Celegans_Overall_Expression_Group_0to5 == 5
+    ]
+
+    n5_control <- max(nrow(DT5_pp), nrow(DT5_ce))
+    DT5_control <- sample_n_safe(DT5_control_all, n5_control, seed = 203)
+
+    if (nrow(DT5_control) > 0 && (nrow(DT5_pp) > 0 || nrow(DT5_ce) > 0)) {
+      DT5_plot <- rbindlist(list(
+        DT5_pp[, .(delta_mut, expr_group = "Ppa = 5, Cel != 5")],
+        DT5_control[, .(delta_mut, expr_group = "Both 5")],
+        DT5_ce[, .(delta_mut, expr_group = "Cel = 5, Ppa != 5")]
+      ), fill = TRUE)
+
+      DT5_plot[, expr_group := factor(
+        expr_group,
+        levels = c("Ppa = 5, Cel != 5", "Both 5", "Cel = 5, Ppa != 5")
+      )]
+
+      if (nrow(DT5_pp) > 0 && nrow(DT5_control) > 0) {
+        wilcox_terminal_5_pp <- wilcox.test(
+          delta_mut ~ expr_group,
+          data = DT5_plot[expr_group %in% c("Ppa = 5, Cel != 5", "Both 5")]
+        )
+      }
+
+      if (nrow(DT5_ce) > 0 && nrow(DT5_control) > 0) {
+        wilcox_terminal_5_ce <- wilcox.test(
+          delta_mut ~ expr_group,
+          data = DT5_plot[expr_group %in% c("Cel = 5, Ppa != 5", "Both 5")]
+        )
+      }
+
+      five_labels <- make_count_labels(DT5_plot, "expr_group")
+
+      p_terminal_5 <-
+        ggplot(DT5_plot, aes(x = expr_group, y = delta_mut, fill = expr_group)) +
+        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        scale_y_continuous(n.breaks = 10) +
+        scale_x_discrete(labels = five_labels) +
+        scale_fill_manual(values = c(
+          "Ppa = 5, Cel != 5" = alpha("purple", 0.4),
+          "Both 5" = alpha("grey40", 0.4),
+          "Cel = 5, Ppa != 5" = alpha("orange", 0.4)
+        )) +
+        guides(fill = "none") +
+        labs(
+          x = "",
+          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          title = paste0(
+            "Ppa=5 vs control p = ",
+            ifelse(is.null(wilcox_terminal_5_pp), NA, signif(wilcox_terminal_5_pp$p.value, 3)),
+            "\nCel=5 vs control p = ",
+            ifelse(is.null(wilcox_terminal_5_ce), NA, signif(wilcox_terminal_5_ce$p.value, 3))
+          )
+        ) +
+        theme(
+          axis.text.x = element_blank(),
+          plot.title = element_text(size = BASE_SIZE - 2)
+        )
+    }
+
+    # (5) Matched-control expression-state plots in both directions
+    ppa_state <- build_state_plot(
+      DT = DT,
+      focal_col = "Ppacificus_Overall_Expression_Group_0to5",
+      other_col = "Celegans_Overall_Expression_Group_0to5",
+      plot_title = "Matched-control expression-state plot (Ppa-directed)",
+      subtitle_text = "Changed = Ppa = q, Cel != q; control = Ppa = q, Cel = q"
+    )
+
+    cel_state <- build_state_plot(
+      DT = DT,
+      focal_col = "Celegans_Overall_Expression_Group_0to5",
+      other_col = "Ppacificus_Overall_Expression_Group_0to5",
+      plot_title = "Matched-control expression-state plot (Cel-directed)",
+      subtitle_text = "Changed = Cel = q, Ppa != q; control = Cel = q, Ppa = q"
+    )
+
+    p_expression_state_ppa <- ppa_state$plot
+    p_expression_state_cel <- cel_state$plot
+    sym_state <- build_symmetric_state_plot(
+      DT = DT,
+      plot_title = "Symmetric expression-state plot",
+      subtitle_text = "Cel Changed = Cel != q & Ppa = q; Both = Cel = q & Ppa = q; Ppa Changed = Cel = q & Ppa != q"
+    )
+    p_expression_state_sym <- sym_state$plot
+
+    # (6) Continuous interaction model by starting Cel quantile
+    safe_spearman <- function(x, y) {
+      if (length(x) < 3 || length(unique(x)) < 2 || length(unique(y)) < 2) {
+        return(list(rho = NA_real_, p = NA_real_))
+      }
+      ct <- suppressWarnings(
+        cor.test(x, y, method = "spearman", exact = FALSE)
+      )
+      list(
+        rho = as.numeric(ct$estimate),
+        p = ct$p.value
+      )
+    }
+
+    cont_palette <- setNames(
+      colorRampPalette(c("#006837", "orange", "purple"))(6),
+      as.character(0:5)
+    )
+
+    DT_cont <- DT[, .(
+      delta_feature,
+      delta_mut,
+      Cel_start_q = Celegans_Overall_Expression_Group_0to5
+    )]
+    DT_cont <- DT_cont[complete.cases(DT_cont)]
+    DT_cont[, Cel_start_q := factor(
+      Cel_start_q,
+      levels = 0:5,
+      ordered = TRUE
+    )]
+
+    if (nrow(DT_cont) > 0 && uniqueN(DT_cont$Cel_start_q) > 1) {
+      cont_summary_df <- DT_cont[, {
+        ss <- safe_spearman(delta_feature, delta_mut)
+        .(
+          n = .N,
+          spearman_rho = ss$rho,
+          spearman_p = ss$p
+        )
+      }, by = Cel_start_q][order(Cel_start_q)]
+
+      cont_labels <- setNames(
+        paste0(
+          "q = ", cont_summary_df$Cel_start_q,
+          "
+ρ = ", ifelse(is.na(cont_summary_df$spearman_rho), "NA", signif(cont_summary_df$spearman_rho, 3)),
+          "
+p = ", ifelse(is.na(cont_summary_df$spearman_p), "NA", signif(cont_summary_df$spearman_p, 3)),
+          "
+n = ", cont_summary_df$n
+        ),
+        as.character(cont_summary_df$Cel_start_q)
+      )
+
+      cont_labeller <- function(x) {
+        unname(cont_labels[as.character(x)])
+      }
+
+      lm_cont_base <- lm(
+        delta_mut ~ delta_feature + Cel_start_q,
+        data = DT_cont
+      )
+      lm_cont_interaction <- lm(
+        delta_mut ~ delta_feature * Cel_start_q,
+        data = DT_cont
+      )
+
+      continuous_interaction_p <- anova(lm_cont_base, lm_cont_interaction)$`Pr(>F)`[2]
+
+      p_continuous_interaction <-
+        ggplot(DT_cont, aes(
+          x = delta_feature,
+          y = delta_mut,
+          colour = Cel_start_q,
+          fill = Cel_start_q
+        )) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_vline(xintercept = 0, linetype = "dashed") +
+        geom_point(
+          size = 1.4,
+          alpha = 0.25
+        ) +
+        geom_smooth(
+          method = "lm",
+          formula = y ~ x,
+          se = TRUE
+        ) +
+        facet_wrap(
+          ~ Cel_start_q,
+          nrow = 2,
+          labeller = labeller(Cel_start_q = cont_labeller),
+          scales = "free_x"
+        ) +
+        scale_colour_manual(values = cont_palette) +
+        scale_fill_manual(values = cont_palette) +
+        scale_x_continuous(n.breaks = 8) +
+        scale_y_continuous(n.breaks = 10) +
+        guides(colour = "none", fill = "none") +
+        labs(
+          title = "Interaction model: delta mutation vs delta expression by starting Cel quantile",
+          subtitle = paste0(
+            "lm(delta_mut ~ delta_feature * Cel_start_q); interaction p = ",
+            signif(continuous_interaction_p, 3)
+          ),
+          x = paste0("Delta expression percentile (", delta_phrase, ")"),
+          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          caption = "Facet labels show Spearman rho, p, and n within each starting quantile."
+        ) +
+        theme(
+          axis.text.x = element_text(size = BASE_SIZE - 3),
+          strip.text = element_text(size = BASE_SIZE - 5)
+        )
+    }
+
+
+
+    # (7) Faceted interaction model using quantile-change steps
+    DT_step <- DT[, .(
+      delta_mut,
+      Step_change = CrossSpecies_Overall_Expression_Group_Change,
+      Cel_start_q = Celegans_Overall_Expression_Group_0to5
+    )]
+    DT_step <- DT_step[complete.cases(DT_step)]
+    DT_step[, Cel_start_q := factor(
+      Cel_start_q,
+      levels = 0:5,
+      ordered = TRUE
+    )]
+
+    if (nrow(DT_step) > 0 && uniqueN(DT_step$Cel_start_q) > 1) {
+      step_summary_df <- DT_step[, {
+        ss <- safe_spearman(Step_change, delta_mut)
+        .(
+          n = .N,
+          spearman_rho = ss$rho,
+          spearman_p = ss$p
+        )
+      }, by = Cel_start_q][order(Cel_start_q)]
+
+      step_labels <- setNames(
+        paste0(
+          "q = ", step_summary_df$Cel_start_q,
+          "
+ρ = ", ifelse(is.na(step_summary_df$spearman_rho), "NA", signif(step_summary_df$spearman_rho, 3)),
+          "
+p = ", ifelse(is.na(step_summary_df$spearman_p), "NA", signif(step_summary_df$spearman_p, 3)),
+          "
+n = ", step_summary_df$n
+        ),
+        as.character(step_summary_df$Cel_start_q)
+      )
+
+      step_labeller <- function(x) {
+        unname(step_labels[as.character(x)])
+      }
+
+      lm_step_base <- lm(
+        delta_mut ~ Step_change + Cel_start_q,
+        data = DT_step
+      )
+      lm_step_interaction <- lm(
+        delta_mut ~ Step_change * Cel_start_q,
+        data = DT_step
+      )
+
+      step_interaction_p <- anova(lm_step_base, lm_step_interaction)$`Pr(>F)`[2]
+
+      p_step_interaction <-
+        ggplot(DT_step, aes(
+          x = Step_change,
+          y = delta_mut,
+          colour = Cel_start_q,
+          fill = Cel_start_q
+        )) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        geom_vline(xintercept = 0, linetype = "dashed") +
+        geom_point(
+          size = 1.4,
+          alpha = 0.25
+        ) +
+        geom_smooth(
+          method = "lm",
+          formula = y ~ x,
+          se = TRUE
+        ) +
+        facet_wrap(
+          ~ Cel_start_q,
+          nrow = 2,
+          labeller = labeller(Cel_start_q = step_labeller),
+          scales = "free_x"
+        ) +
+        scale_colour_manual(values = cont_palette) +
+        scale_fill_manual(values = cont_palette) +
+        scale_x_continuous(n.breaks = 8) +
+        scale_y_continuous(n.breaks = 10) +
+        guides(colour = "none", fill = "none") +
+        labs(
+          title = "Interaction model: delta mutation vs quantile-change steps by starting Cel quantile",
+          subtitle = paste0(
+            "lm(delta_mut ~ Step_change * Cel_start_q); interaction p = ",
+            signif(step_interaction_p, 3)
+          ),
+          x = paste0("Expression group change (Ppa - Cel; steps; ", delta_phrase, ")"),
+          y = paste0("Delta mutation percentile (", delta_phrase, ")"),
+          caption = "Facet labels show Spearman rho, p, and n within each starting quantile."
+        ) +
+        theme(
+          axis.text.x = element_text(size = BASE_SIZE - 3),
+          strip.text = element_text(size = BASE_SIZE - 5)
+        )
+    }
+
+    # (8) Validation plots for q5 step interpretation and continuous change
+    DT_validation_abs <- DT[, .(
+      abs_delta_feature = abs(delta_feature),
+      start_q = factor(
+        Celegans_Overall_Expression_Group_0to5,
+        levels = 0:5,
+        ordered = TRUE
+      )
+    )]
+    DT_validation_abs <- DT_validation_abs[complete.cases(DT_validation_abs)]
+
+    if (nrow(DT_validation_abs) > 0 && uniqueN(DT_validation_abs$start_q) > 1) {
+      validation_abs_p <- kruskal.test(
+        abs_delta_feature ~ start_q,
+        data = DT_validation_abs
+      )$p.value
+
+      abs_labels <- make_count_labels(DT_validation_abs, "start_q")
+
+      p_validation_abs_delta_expression <-
+        ggplot(DT_validation_abs, aes(x = start_q, y = abs_delta_feature, fill = start_q)) +
+        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        scale_x_discrete(labels = abs_labels) +
+        scale_fill_manual(values = cont_palette) +
+        guides(fill = "none") +
+        labs(
+          title = "Validation: absolute delta expression by starting Cel quantile",
+          subtitle = paste0(
+            "Kruskal-Wallis p = ", signif(validation_abs_p, 3),
+            "; q5-to-q? transitions may simply reflect larger expression shifts"
+          ),
+          x = "Starting Cel quantile",
+          y = paste0("Absolute delta expression percentile (", delta_phrase, ")")
+        ) +
+        theme(
+          axis.text.x = element_text(size = BASE_SIZE - 3)
+        )
+    }
+
+    DT_q5_step <- DT[
+      Celegans_Overall_Expression_Group_0to5 == 5,
+      .(
+        delta_feature,
+        delta_mut,
+        Step_change = CrossSpecies_Overall_Expression_Group_Change
+      )
+    ]
+    DT_q5_step <- DT_q5_step[complete.cases(DT_q5_step)]
+
+    if (nrow(DT_q5_step) > 0 && uniqueN(DT_q5_step$Step_change) > 1) {
+      q5_step_levels <- paste0("5→", 5:0)
+      DT_q5_step[, step_label := factor(
+        paste0("5→", 5 + Step_change),
+        levels = q5_step_levels
+      )]
+
+      q5_step_palette <- setNames(
+        colorRampPalette(c("#006837", "orange", "purple"))(length(q5_step_levels)),
+        q5_step_levels
+      )
+
+      validation_q5_step_p <- kruskal.test(
+        delta_feature ~ step_label,
+        data = DT_q5_step
+      )$p.value
+
+      q5_step_labels <- make_count_labels(DT_q5_step, "step_label")
+
+      p_validation_q5_step_expression <-
+        ggplot(DT_q5_step, aes(x = step_label, y = delta_feature, fill = step_label)) +
+        geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+        geom_hline(yintercept = 0, linetype = "dashed") +
+        scale_x_discrete(labels = q5_step_labels) +
+        scale_fill_manual(values = q5_step_palette) +
+        guides(fill = "none") +
+        labs(
+          title = "Validation: continuous delta expression within q5 step classes",
+          subtitle = paste0(
+            "Kruskal-Wallis p = ", signif(validation_q5_step_p, 3),
+            "; 5→4 etc. should correspond to distinct continuous shifts if steps are meaningful"
+          ),
+          x = "q5 transition class",
+          y = paste0("Delta expression percentile (", delta_phrase, ")")
+        ) +
+        theme(
+          axis.text.x = element_text(size = BASE_SIZE - 3)
+        )
+    }
+
+    DT_validation_step_all <- DT[, .(
+      delta_feature,
+      delta_mut,
+      start_q = factor(
+        Celegans_Overall_Expression_Group_0to5,
+        levels = 0:5,
+        ordered = TRUE
+      ),
+      Step_change = CrossSpecies_Overall_Expression_Group_Change
+    )]
+    DT_validation_step_all <- DT_validation_step_all[complete.cases(DT_validation_step_all)]
+
+    if (nrow(DT_validation_step_all) > 0) {
+      DT_validation_step_all[, end_q := as.integer(as.character(start_q)) + Step_change]
+      DT_validation_step_all[, transition_label := factor(
+        paste0(as.integer(as.character(start_q)), "→", end_q),
+        levels = unlist(lapply(0:5, function(q) paste0(q, "→", 0:5)))
+      )]
+      DT_validation_step_all[, step_factor := factor(
+        Step_change,
+        levels = sort(unique(DT_validation_step_all$Step_change))
+      )]
+
+      if (uniqueN(DT_validation_step_all$start_q) > 1) {
+        step_all_summary_df <- DT_validation_step_all[, .(
+          n = .N,
+          kw_p = if (uniqueN(transition_label) > 1) {
+            kruskal.test(delta_feature ~ transition_label)$p.value
+          } else {
+            NA_real_
+          }
+        ), by = start_q][order(start_q)]
+
+        step_all_labels <- setNames(
+          paste0(
+            "q = ", step_all_summary_df$start_q,
+            "\nKruskal-Wallis p = ", ifelse(is.na(step_all_summary_df$kw_p), "NA", signif(step_all_summary_df$kw_p, 3)),
+            "\nn = ", step_all_summary_df$n
+          ),
+          as.character(step_all_summary_df$start_q)
+        )
+
+        step_all_labeller <- function(x) {
+          unname(step_all_labels[as.character(x)])
+        }
+
+        step_all_palette <- setNames(
+          colorRampPalette(c("#006837", "orange", "purple"))(nlevels(DT_validation_step_all$step_factor)),
+          levels(DT_validation_step_all$step_factor)
+        )
+
+        transition_labels_all <- make_count_labels(DT_validation_step_all, "transition_label")
+
+        p_validation_step_expression_all_quantiles <-
+          ggplot(
+            DT_validation_step_all,
+            aes(
+              x = transition_label,
+              y = delta_feature,
+              fill = step_factor
+            )
+          ) +
+          geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+          geom_hline(yintercept = 0, linetype = "dashed") +
+          scale_x_discrete(labels = transition_labels_all) +
+          scale_fill_manual(values = step_all_palette) +
+          guides(fill = "none") +
+          facet_wrap(
+            ~ start_q,
+            ncol = 3,
+            labeller = labeller(start_q = step_all_labeller),
+            scales = "free_x"
+          ) +
+          labs(
+            title = "Validation: continuous delta expression within step classes across all starting quantiles",
+            subtitle = "Faceted across starting quantiles; step classes should correspond to distinct continuous shifts if step labels are meaningful",
+            x = "Transition class",
+            y = paste0("Delta expression percentile (", delta_phrase, ")")
+          ) +
+          theme(
+            axis.text.x = element_text(size = BASE_SIZE - 3),
+            strip.text = element_text(size = BASE_SIZE - 5)
+          )
+      }
+    }
+
+    DT_validation_resid <- DT[, .(
+      delta_feature,
+      delta_mut,
+      Cel_start_q = factor(
+        Celegans_Overall_Expression_Group_0to5,
+        levels = 0:5,
+        ordered = TRUE
+      ),
+      Step_change = CrossSpecies_Overall_Expression_Group_Change
+    )]
+    DT_validation_resid <- DT_validation_resid[complete.cases(DT_validation_resid)]
+
+    if (nrow(DT_validation_resid) > 0) {
+      lm_validation_global <- lm(
+        delta_mut ~ delta_feature,
+        data = DT_validation_resid
+      )
+      DT_validation_resid[, resid_mut := resid(lm_validation_global)]
+
+      DT_q5_resid <- DT_validation_resid[Cel_start_q == 5]
+
+      if (nrow(DT_q5_resid) > 0 && uniqueN(DT_q5_resid$Step_change) > 1) {
+        q5_step_levels <- paste0("5→", 5:0)
+        DT_q5_resid[, step_label := factor(
+          paste0("5→", 5 + Step_change),
+          levels = q5_step_levels
+        )]
+
+        validation_q5_resid_p <- kruskal.test(
+          resid_mut ~ step_label,
+          data = DT_q5_resid
+        )$p.value
+
+        q5_resid_labels <- make_count_labels(DT_q5_resid, "step_label")
+        q5_resid_palette <- setNames(
+          colorRampPalette(c("#006837", "orange", "purple"))(length(q5_step_levels)),
+          q5_step_levels
+        )
+
+        p_validation_q5_residuals <-
+          ggplot(DT_q5_resid, aes(x = step_label, y = resid_mut, fill = step_label)) +
+          geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+          geom_hline(yintercept = 0, linetype = "dashed") +
+          scale_x_discrete(labels = q5_resid_labels) +
+          scale_fill_manual(values = q5_resid_palette) +
+          guides(fill = "none") +
+          labs(
+            title = "Validation: q5 residual mutation change after controlling for delta expression",
+            subtitle = paste0(
+              "Kruskal-Wallis p = ", signif(validation_q5_resid_p, 3),
+              "; if q5 remains special, residuals should differ by q5 step class"
+            ),
+            x = "q5 transition class",
+            y = paste0("Residual delta mutation percentile (", delta_phrase, ")")
+          ) +
+          theme(
+            axis.text.x = element_text(size = BASE_SIZE - 3)
+          )
+      }
+    }
+    DT_validation_resid_all <- DT[, .(
+      delta_feature,
+      delta_mut,
+      start_q = factor(
+        Celegans_Overall_Expression_Group_0to5,
+        levels = 0:5,
+        ordered = TRUE
+      ),
+      Step_change = CrossSpecies_Overall_Expression_Group_Change
+    )]
+    DT_validation_resid_all <- DT_validation_resid_all[complete.cases(DT_validation_resid_all)]
+
+    if (nrow(DT_validation_resid_all) > 0) {
+      lm_validation_global_all <- lm(
+        delta_mut ~ delta_feature,
+        data = DT_validation_resid_all
+      )
+      DT_validation_resid_all[, resid_mut := resid(lm_validation_global_all)]
+
+      DT_validation_resid_all[, end_q := as.integer(as.character(start_q)) + Step_change]
+      DT_validation_resid_all[, transition_label := factor(
+        paste0(as.integer(as.character(start_q)), "→", end_q),
+        levels = unlist(lapply(0:5, function(q) paste0(q, "→", 0:5)))
+      )]
+      DT_validation_resid_all[, step_factor := factor(
+        Step_change,
+        levels = sort(unique(DT_validation_resid_all$Step_change))
+      )]
+
+      if (uniqueN(DT_validation_resid_all$start_q) > 1) {
+        resid_all_summary_df <- DT_validation_resid_all[, .(
+          n = .N,
+          kw_p = if (uniqueN(transition_label) > 1) {
+            kruskal.test(resid_mut ~ transition_label)$p.value
+          } else {
+            NA_real_
+          }
+        ), by = start_q][order(start_q)]
+
+        resid_all_labels <- setNames(
+          paste0(
+            "q = ", resid_all_summary_df$start_q,
+            "\nKruskal-Wallis p = ", ifelse(is.na(resid_all_summary_df$kw_p), "NA", signif(resid_all_summary_df$kw_p, 3)),
+            "\nn = ", resid_all_summary_df$n
+          ),
+          as.character(resid_all_summary_df$start_q)
+        )
+
+        resid_all_labeller <- function(x) {
+          unname(resid_all_labels[as.character(x)])
+        }
+
+        resid_all_palette <- setNames(
+          colorRampPalette(c("#006837", "orange", "purple"))(nlevels(DT_validation_resid_all$step_factor)),
+          levels(DT_validation_resid_all$step_factor)
+        )
+
+        transition_labels <- make_count_labels(DT_validation_resid_all, "transition_label")
+
+        p_validation_residuals_all_quantiles <-
+          ggplot(
+            DT_validation_resid_all,
+            aes(
+              x = transition_label,
+              y = resid_mut,
+              fill = step_factor
+            )
+          ) +
+          geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75) +
+          geom_hline(yintercept = 0, linetype = "dashed") +
+          scale_x_discrete(labels = transition_labels) +
+          scale_fill_manual(values = resid_all_palette) +
+          guides(fill = "none") +
+          facet_wrap(
+            ~ start_q,
+            ncol = 3,
+            labeller = labeller(start_q = resid_all_labeller),
+            scales = "free_x"
+          ) +
+          labs(
+            title = "Validation: residual mutation change after controlling for delta expression",
+            subtitle = "Faceted across starting quantiles; residuals should differ if a starting quantile has effects beyond delta expression",
+            x = "Transition class",
+            y = paste0("Residual delta mutation percentile (", delta_phrase, ")")
+          ) +
+          theme(
+            axis.text.x = element_text(size = BASE_SIZE - 3),
+            strip.text = element_text(size = BASE_SIZE - 5),
+            plot.caption = element_text(size = BASE_SIZE - 5)
+          )
+      }
+    }
+
+
+
+    # Trend / regression plot for numeric expression-group change
+    DT_trend <- DT[CrossSpecies_Overall_Expression_Group_Change != 0]
+
+    if (nrow(DT_trend) > 0 &&
+        uniqueN(DT_trend$CrossSpecies_Overall_Expression_Group_Change) > 1) {
+
+      lm_model <- lm(
+        delta_mut ~ CrossSpecies_Overall_Expression_Group_Change,
+        data = DT_trend
+      )
+
+      spearman_change <- suppressWarnings(
+        cor.test(
+          DT_trend$CrossSpecies_Overall_Expression_Group_Change,
+          DT_trend$delta_mut,
+          method = "spearman",
+          exact = FALSE
+        )
+      )
+
+      jt_change <- clinfun::jonckheere.test(
+        DT_trend$delta_mut,
+        ordered_int_factor(DT_trend$CrossSpecies_Overall_Expression_Group_Change),
+        alternative = "two.sided"
+      )
+    }
+  }
+
+  # ------------------------------------------------------------
+  # Save outputs
+  # ------------------------------------------------------------
+  safe_name <- str_replace_all(feature_name, "[^A-Za-z0-9_]+", "_")
+  feature_dir <- file.path(results_dir, safe_name)
+  dir.create(feature_dir, recursive = TRUE, showWarnings = FALSE)
+  prefix <- file.path(feature_dir, safe_name)
+
+  save_plot(p_scatter, paste0(prefix, "_scatter.png"), 5, 4.5)
+
+  if (!is.null(p_bins)) {
+    save_plot(p_bins, paste0(prefix, "_binned_mean.png"), 5, 5.0)
+  }
+
+  if (!is.null(p_extreme)) {
+    save_plot(p_extreme, paste0(prefix, "_extremes.png"), 2, 5.0)
+  }
+
+  if (!is.null(p_binned)) {
+    save_plot(p_binned, paste0(prefix, "_ordered_bins.png"), 4.0, 5.5)
+  }
+
+  if (!is.null(p_up_same_down)) {
+    save_plot(p_up_same_down, paste0(prefix, "_expression_up_same_down_boxplot.png"), 2, 5.0)
+  }
+
+  if (!is.null(p_cross_group_change)) {
+    save_plot(p_cross_group_change, paste0(prefix, "_expression_group_change_jonckheere_boxplot.png"), 5.0, 5.0)
+  }
+
+  if (!is.null(p_terminal_0)) {
+    save_plot(p_terminal_0, paste0(prefix, "_expression_group_0_boxplot.png"), 2.0, 5.0)
+  }
+
+  if (!is.null(p_terminal_5)) {
+    save_plot(p_terminal_5, paste0(prefix, "_expression_group_5_boxplot.png"), 2.0, 5.0)
+  }
+
+  if (!is.null(p_expression_state_ppa)) {
+    save_plot(
+      p_expression_state_ppa,
+      paste0(prefix, "_expression_state_faceted_boxplot_PpaDirected.png"),
+      8.5,
+      5.0
+    )
+  }
+
+  if (!is.null(p_expression_state_cel)) {
+    save_plot(
+      p_expression_state_cel,
+      paste0(prefix, "_expression_state_faceted_boxplot_CelDirected.png"),
+      8.5,
+      5.0
+    )
+  }
+
+  if (!is.null(p_expression_state_sym)) {
+    save_plot(
+      p_expression_state_sym,
+      paste0(prefix, "_expression_state_faceted_boxplot_symmetric.png"),
+      8.5,
+      5.0
+    )
+  }
+
+  if (!is.null(p_validation_abs_delta_expression)) {
+    save_plot(
+      p_validation_abs_delta_expression,
+      paste0(prefix, "_validation_abs_delta_expression.png"),
+      5,
+      4.5
+    )
+  }
+
+  if (!is.null(p_validation_q5_step_expression)) {
+    save_plot(
+      p_validation_q5_step_expression,
+      paste0(prefix, "_validation_q5_step_expression.png"),
+      5,
+      4.5
+    )
+  }
+
+  if (!is.null(p_validation_step_expression_all_quantiles)) {
+    save_plot(
+      p_validation_step_expression_all_quantiles,
+      paste0(prefix, "_validation_step_expression_all_quantiles.png"),
+      11,
+      8
+    )
+  }
+
+  if (!is.null(p_validation_q5_residuals)) {
+    save_plot(
+      p_validation_q5_residuals,
+      paste0(prefix, "_validation_q5_residuals.png"),
+      5,
+      4.5
+    )
+  }
+
+  if (!is.null(p_validation_residuals_all_quantiles)) {
+    save_plot(
+      p_validation_residuals_all_quantiles,
+      paste0(prefix, "_validation_residuals_all_quantiles.png"),
+      11,
+      8
+    )
+  }
+
+  if (!is.null(p_continuous_interaction)) {
+    save_plot(
+      p_continuous_interaction,
+      paste0(prefix, "_continuous_interaction_faceted_plot.png"),
+      8.5,
+      6.5
+    )
+  }
+
+  if (!is.null(p_step_interaction)) {
+    save_plot(
+      p_step_interaction,
+      paste0(prefix, "_step_interaction_faceted_plot.png"),
+      8.5,
+      6.5
+    )
+  }
+
+  fwrite(
+    as.data.table(DT),
+    file.path(feature_dir, paste0(safe_name, "_full_data.csv"))
+  )
+
+  # ------------------------------------------------------------
+  # Return
+  # ------------------------------------------------------------
+  list(
+    feature = feature_name,
+    n = nrow(DT),
+    spearman_rho = as.numeric(cor_test$estimate),
+    spearman_p = cor_test$p.value,
+    wilcox_p = if (!is.null(wilcox_test)) wilcox_test$p.value else NA_real_,
+    jonckheere_statistic = if (!is.null(jt)) as.numeric(jt$statistic) else NA_real_,
+    jonckheere_p = if (!is.null(jt)) jt$p.value else NA_real_,
+
+    extreme_down_vs_middle_p = if (!is.null(wilcox_low_vs_middle)) wilcox_low_vs_middle$p.value else NA_real_,
+    extreme_up_vs_middle_p = if (!is.null(wilcox_high_vs_middle)) wilcox_high_vs_middle$p.value else NA_real_,
+
+    up_vs_same_p = if (!is.null(wilcox_up_vs_same)) wilcox_up_vs_same$p.value else NA_real_,
+    down_vs_same_p = if (!is.null(wilcox_down_vs_same)) wilcox_down_vs_same$p.value else NA_real_,
+    cross_group_change_p = if (!is.null(cross_group_change_test)) cross_group_change_test$p.value else NA_real_,
+    lm_slope = if (!is.null(lm_model)) coef(lm_model)[2] else NA_real_,
+    lm_p = if (!is.null(lm_model)) summary(lm_model)$coefficients[2, 4] else NA_real_,
+    spearman_change_p = if (!is.null(spearman_change)) spearman_change$p.value else NA_real_,
+    jt_change_p = if (!is.null(jt_change)) jt_change$p.value else NA_real_,
+    continuous_interaction_p = continuous_interaction_p,
+    step_interaction_p = step_interaction_p,
+    validation_abs_p = validation_abs_p,
+    validation_q5_step_p = validation_q5_step_p,
+    validation_step_all_p = validation_step_all_p,
+    validation_q5_resid_p = validation_q5_resid_p,
+
+    wilcox_terminal_5_pp_p = if (!is.null(wilcox_terminal_5_pp)) wilcox_terminal_5_pp$p.value else NA_real_,
+    wilcox_terminal_5_ce_p = if (!is.null(wilcox_terminal_5_ce)) wilcox_terminal_5_ce$p.value else NA_real_,
+    wilcox_terminal_0_pp_p = if (!is.null(wilcox_terminal_0_pp)) wilcox_terminal_0_pp$p.value else NA_real_,
+    wilcox_terminal_0_ce_p = if (!is.null(wilcox_terminal_0_ce)) wilcox_terminal_0_ce$p.value else NA_real_,
+
+    data = DT,
+    cor_test = cor_test,
+    p_scatter = p_scatter,
+    bin_summary = bin_summary,
+    p_bins = p_bins,
+    wilcox_test = wilcox_test,
+    p_extreme = p_extreme,
+    p_binned = p_binned,
+    p_up_same_down = p_up_same_down,
+    p_cross_group_change = p_cross_group_change,
+    p_expression_state_ppa = p_expression_state_ppa,
+    p_expression_state_cel = p_expression_state_cel,
+    p_expression_state_sym = p_expression_state_sym,
+    p_validation_abs_delta_expression = p_validation_abs_delta_expression,
+    p_validation_q5_step_expression = p_validation_q5_step_expression,
+    p_validation_step_expression_all_quantiles = p_validation_step_expression_all_quantiles,
+    p_validation_q5_residuals = p_validation_q5_residuals,
+    p_validation_residuals_all_quantiles = p_validation_residuals_all_quantiles,
+    p_continuous_interaction = p_continuous_interaction,
+    p_step_interaction = p_step_interaction,
+    p_terminal_5 = p_terminal_5,
+    p_terminal_0 = p_terminal_0
+  )
+}
+```
+
+```{r Running the Function}
+feature_results <- list()
+summary_table <- list()
+
+for (feat in shared_features) {
+  message("Processing: ", feat)
+  res <- run_feature_analysis(Orthologs, feat, results_dir)
+  feature_results[[feat]] <- res
+
+  if (!is.null(res)) {
+    summary_table[[feat]] <- data.table(
+      feature = res$feature,
+      n = res$n,
+      spearman_rho = res$spearman_rho,
+      spearman_p = res$spearman_p,
+      wilcox_p = res$wilcox_p,
+      jonckheere_statistic = res$jonckheere_statistic,
+      jonckheere_p = res$jonckheere_p,
+      extreme_down_vs_middle_p = res$extreme_down_vs_middle_p,
+      extreme_up_vs_middle_p = res$extreme_up_vs_middle_p,
+      up_vs_same_p = res$up_vs_same_p,
+      down_vs_same_p = res$down_vs_same_p,
+      cross_group_change_p = res$cross_group_change_p,
+      lm_slope = res$lm_slope,
+      lm_p = res$lm_p,
+      spearman_change_p = res$spearman_change_p,
+      jt_change_p = res$jt_change_p,
+      wilcox_terminal_5_pp_p = res$wilcox_terminal_5_pp_p,
+      wilcox_terminal_5_ce_p = res$wilcox_terminal_5_ce_p,
+      wilcox_terminal_0_pp_p = res$wilcox_terminal_0_pp_p,
+      wilcox_terminal_0_ce_p = res$wilcox_terminal_0_ce_p,
+      continuous_interaction_p = res$continuous_interaction_p,
+      step_interaction_p = res$step_interaction_p,
+      validation_abs_p = res$validation_abs_p,
+      validation_q5_step_p = res$validation_q5_step_p,
+      validation_step_all_p = res$validation_step_all_p,
+      validation_q5_resid_p = res$validation_q5_resid_p
+    )
+
+    print(res$cor_test)
+    print(res$p_scatter)
+    if (!is.null(res$p_bins)) print(res$p_bins)
+    if (!is.null(res$p_extreme)) print(res$p_extreme)
+    if (!is.null(res$p_binned)) print(res$p_binned)
+    if (!is.null(res$p_up_same_down)) print(res$p_up_same_down)
+    if (!is.null(res$p_cross_group_change)) print(res$p_cross_group_change)
+    if (!is.null(res$p_expression_state_ppa)) print(res$p_expression_state_ppa)
+    if (!is.null(res$p_expression_state_cel)) print(res$p_expression_state_cel)
+    if (!is.null(res$p_expression_state_sym)) print(res$p_expression_state_sym)
+    if (!is.null(res$p_validation_abs_delta_expression)) print(res$p_validation_abs_delta_expression)
+    if (!is.null(res$p_validation_q5_step_expression)) print(res$p_validation_q5_step_expression)
+    if (!is.null(res$p_validation_step_expression_all_quantiles)) print(res$p_validation_step_expression_all_quantiles)
+    if (!is.null(res$p_validation_q5_residuals)) print(res$p_validation_q5_residuals)
+    if (!is.null(res$p_validation_residuals_all_quantiles)) print(res$p_validation_residuals_all_quantiles)
+    if (!is.null(res$p_continuous_interaction)) print(res$p_continuous_interaction)
+    if (!is.null(res$p_step_interaction)) print(res$p_step_interaction)
+    if (!is.null(res$p_terminal_0)) print(res$p_terminal_0)
+    if (!is.null(res$p_terminal_5)) print(res$p_terminal_5)
+  }
+}
+
+if (length(summary_table) > 0) {
+  summary_dt <- rbindlist(summary_table, fill = TRUE)
+  fwrite(summary_dt, file.path(results_dir, "feature_association_summary.csv"))
+  saveRDS(feature_results, file.path(results_dir, "feature_association_results.rds"))
+  summary_dt
+} else {
+  summary_dt <- data.table()
+  summary_dt
+}
+```
+
+```{r LASSO}
+# Build a single delta dataset from the merged ortholog table
+DT_lasso <- copy(Orthologs)
+
+# Remove dNdS from the LASSO predictors
+lasso_features <- shared_features
+
+# Keep only columns needed to compute all deltas plus mutation rate
+lasso_keep_cols <- c(
+  "Celegans_UniqueVariantsPlusOnePerBP",
+  "Ppacificus_UniqueVariantsPlusOnePerBP",
+  paste0("Celegans_", lasso_features),
+  paste0("Ppacificus_", lasso_features)
+)
+
+DT_lasso <- DT_lasso[complete.cases(DT_lasso[, ..lasso_keep_cols])]
+
+# Compute percentile-based deltas for every LASSO feature
+for (feat in lasso_features) {
+  ce_col <- paste0("Celegans_", feat)
+  pp_col <- paste0("Ppacificus_", feat)
+
+  DT_lasso[, paste0("rank_ce_", feat) := rank(get(ce_col), ties.method = "average")]
+  DT_lasso[, paste0("rank_pp_", feat) := rank(get(pp_col), ties.method = "average")]
+
+  DT_lasso[, paste0("pct_ce_", feat) := get(paste0("rank_ce_", feat)) / .N]
+  DT_lasso[, paste0("pct_pp_", feat) := get(paste0("rank_pp_", feat)) / .N]
+
+  # delta = Ppa relative to Cel
+  DT_lasso[, paste0("delta_", feat) := get(paste0("pct_pp_", feat)) - get(paste0("pct_ce_", feat))]
+}
+
+DT_lasso[, delta_mut :=
+  rank(Ppacificus_UniqueVariantsPlusOnePerBP, ties.method = "average") / .N -
+  rank(Celegans_UniqueVariantsPlusOnePerBP, ties.method = "average") / .N
+]
+
+# Predictors for LASSO
+delta_cols <- grep("^delta_", names(DT_lasso), value = TRUE)
+predictors <- setdiff(delta_cols, "delta_mut")
+
+# Drop zero-variance predictors
+pred_sds <- sapply(DT_lasso[, ..predictors], sd, na.rm = TRUE)
+predictors <- names(pred_sds)[is.finite(pred_sds) & pred_sds > 0]
+
+if (length(predictors) < 2) {
+  stop("Too few usable delta predictors remain for LASSO.")
+}
+
+# Train/test split
+set.seed(69)
+index <- createDataPartition(DT_lasso$delta_mut, p = 0.8, list = FALSE)
+train_df <- DT_lasso[index]
+test_df  <- DT_lasso[-index]
+
+# Prepare matrices
+x_train_raw <- as.data.frame(train_df[, ..predictors])
+x_test_raw  <- as.data.frame(test_df[, ..predictors])
+
+X_train <- scale(x_train_raw)
+X_test <- scale(
+  x_test_raw,
+  center = attr(X_train, "scaled:center"),
+  scale  = attr(X_train, "scaled:scale")
+)
+
+y_train <- train_df$delta_mut
+y_test  <- test_df$delta_mut
+
+# Cross-validated LASSO
+cv_fit <- cv.glmnet(
+  x = as.matrix(X_train),
+  y = y_train,
+  alpha = 1,
+  nfolds = 10
+)
+
+# Evaluate
+pred_test <- as.numeric(predict(cv_fit, s = "lambda.min", newx = as.matrix(X_test)))
+test_R2 <- cor(pred_test, y_test)^2
+test_RMSE <- sqrt(mean((y_test - pred_test)^2))
+
+# LASSO coefficients
+coef_mat <- as.matrix(coef(cv_fit, s = "lambda.min"))
+coef_df <- data.frame(
+  variable = rownames(coef_mat),
+  coefficient = as.numeric(coef_mat[, 1]),
+  stringsAsFactors = FALSE
+) %>%
+  filter(variable != "(Intercept)")
+
+# ----------------------------
+# Compute Spearman coefficients and p-values on deltas
+# ----------------------------
+spearman_plot_df <- lapply(predictors, function(v) {
+  ct <- suppressWarnings(
+    cor.test(
+      DT_lasso[[v]],
+      DT_lasso$delta_mut,
+      method = "spearman",
+      exact = FALSE
+    )
+  )
+
+  data.frame(
+    variable = gsub("^delta_", "", v),
+    coefficient = as.numeric(ct$estimate),
+    p_value = pmax(ct$p.value, 1e-300),
+    stringsAsFactors = FALSE
+  )
+}) %>%
+  bind_rows() %>%
+  mutate(
+    logp = pmin(-log10(p_value), 20),
+    test = "Spearman",
+    sign = ifelse(coefficient >= 0, "pos", "neg")
+  )
+
+# ----------------------------
+# Clean LASSO coefficients
+# ----------------------------
+lasso_plot_df <- coef_df %>%
+  mutate(
+    variable = gsub("^delta_", "", variable),
+    test = "LASSO"
+  ) %>%
+  left_join(
+    spearman_plot_df %>% select(variable, spearman_coef = coefficient, p_value, logp),
+    by = "variable"
+  ) %>%
+  filter(!is.na(logp)) %>%
+  mutate(
+    logp = pmin(logp, 20),
+    sign = ifelse(spearman_coef >= 0, "pos", "neg")
+  )
+
+# Keep only shared variables
+common_vars <- intersect(lasso_plot_df$variable, spearman_plot_df$variable)
+lasso_plot_df <- lasso_plot_df %>% filter(variable %in% common_vars)
+spearman_plot_df <- spearman_plot_df %>% filter(variable %in% common_vars)
+
+# ----------------------------
+# Normalise coefficients (within each test)
+# ----------------------------
+lasso_plot_df <- lasso_plot_df %>%
+  group_by(test) %>%
+  mutate(coef_norm = coefficient / max(abs(coefficient), na.rm = TRUE)) %>%
+  ungroup()
+
+spearman_plot_df <- spearman_plot_df %>%
+  group_by(test) %>%
+  mutate(coef_norm = coefficient / max(abs(coefficient), na.rm = TRUE)) %>%
+  ungroup()
+
+# ----------------------------
+# Order EVERYTHING by Spearman coefficient
+# ----------------------------
+var_levels <- spearman_plot_df %>%
+  arrange(coefficient) %>%
+  pull(variable)
+
+lasso_plot_df$variable <- factor(lasso_plot_df$variable, levels = var_levels)
+spearman_plot_df$variable <- factor(spearman_plot_df$variable, levels = var_levels)
+
+# ----------------------------
+# Combine
+# ----------------------------
+combined_df <- bind_rows(
+  lasso_plot_df %>% select(variable, coefficient, coef_norm, p_value, logp, sign, test),
+  spearman_plot_df %>% select(variable, coefficient, coef_norm, p_value, logp, sign, test)
+)
+
+# Ensure facet order: Spearman on the left, LASSO on the right
+combined_df$test <- factor(combined_df$test, levels = c("Spearman", "LASSO"))
+
+# ----------------------------
+# Plot
+# ----------------------------
+lasso_plot <-
+  ggplot(combined_df, aes(x = variable, y = coef_norm)) +
+
+  geom_col(
+    data = subset(combined_df, sign == "neg"),
+    aes(fill = logp),
+    colour = "black"
+  ) +
+  scale_fill_gradient(
+    low = "orange",
+    high = "#ff1f00",
+    name = expression(-log[10](p)),
+    guide = guide_colourbar(
+    barheight = unit(2, "cm"),
+    barwidth = unit(0.3, "cm")
+  )) +
+
+  ggnewscale::new_scale_fill() +
+
+  geom_col(
+    data = subset(combined_df, sign == "pos"),
+    aes(fill = logp),
+    colour = "black"
+  ) +
+  scale_fill_gradient(
+    low = "#a6d96a",
+    high = "#006837",
+    name = expression(-log[10](p)),
+    guide = guide_colourbar(
+    barheight = unit(2, "cm"),
+    barwidth = unit(0.3, "cm"))) +
+
+  coord_flip() +
+  facet_grid(~test, scales = "free_y") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Drivers of Delta Mutation Percentile",
+    subtitle = paste0("Test R² = ", round(test_R2, 4), " | RMSE = ", round(test_RMSE, 4), " | Delta features are oriented ", delta_phrase),
+    x = "Feature (ordered by Spearman)",
+    y = "Normalised coefficient (within test)"
+  ) +
+  scale_y_continuous(n.breaks = 10)
+
+lasso_plot
+
+# ----------------------------
+# Save
+# ----------------------------
+ggsave(
+  filename = file.path(results_dir, "delta_LASSO_Spearman_ordered_by_spearman.png"),
+  plot = lasso_plot,
+  width = 7,
+  height = 3,
+  dpi = 2000,
+  bg = "transparent"
+)
+```
